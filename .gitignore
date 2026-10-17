@@ -1,0 +1,6 @@
+lib/
+node_modules/
+*.zip
+# local test copies, not published
+songs/landslide.gp
+songs/smooth-operator.gp

@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Setcards</title>
+  <meta name="description" content="Guitar Pro songs as short section cards for every player in the band.">
+  <meta name="theme-color" content="#14161c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <button id="libraryBtn" class="icon-btn" aria-label="Songs" title="Songs">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+      </button>
+      <div class="song-id">
+        <div id="songTitle" class="song-title">Setcards</div>
+        <div id="songMeta" class="song-meta"></div>
+      </div>
+      <button id="roleBtn" class="role-btn" title="What you play">Bass</button>
+      <button id="editBtn" class="text-btn" aria-pressed="false">Edit</button>
+      <button id="settingsBtn" class="icon-btn" aria-label="Song settings" title="Song settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+      </button>
+    </header>
+
+    <nav class="map" aria-label="Song structure">
+      <div class="map-top">
+        <div class="map-label">Song order</div>
+        <div class="seg-toggle" role="group" aria-label="View">
+          <button id="viewCards" aria-pressed="true">Cards</button>
+          <button id="viewTab" aria-pressed="false">Full tab</button>
+        </div>
+      </div>
+      <div id="structure" class="structure"></div>
+      <div class="map-label">Parts</div>
+      <div id="chips" class="chips"></div>
+    </nav>
+
+    <div id="banner" class="banner" hidden></div>
+
+    <div id="sectionHead" class="section-head" hidden>
+      <button id="prevBtn" class="step-btn" aria-label="Previous section">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <div class="section-label">
+        <span id="sectionName" class="section-name">Whole song</span>
+        <span id="sectionBars" class="section-bars"></span>
+      </div>
+      <button id="nextBtn" class="step-btn" aria-label="Next section">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+      </button>
+    </div>
+
+    <section id="editPanel" class="edit-panel" hidden aria-label="Edit sections">
+      <p class="edit-hint">Tap any bar in the tab to start a section there or set its chords. Sections run until the next one starts, and sections with the same name count as one part.</p>
+      <ol id="sectionList" class="section-list"></ol>
+      <div class="edit-actions">
+        <button id="suggestBtn" class="text-btn">Suggest sections</button>
+        <button id="findRepeatsBtn" class="text-btn">Find repeats</button>
+        <button id="useMarkersBtn" class="text-btn">Use markers from file</button>
+        <button id="doneEditBtn" class="text-btn primary">Done</button>
+      </div>
+    </section>
+
+    <section id="videoPanel" class="video-panel" hidden aria-label="YouTube video">
+      <div class="video-frame"><div id="ytPlayer"></div></div>
+    </section>
+
+    <main id="scroller" class="scroller">
+      <div id="drop" class="drop-hint" hidden>Drop a Guitar Pro file to open it</div>
+      <div id="loading" class="loading">Loading…</div>
+      <div id="cards" class="cards"></div>
+      <div id="tab" hidden></div>
+    </main>
+
+    <footer class="playerbar">
+      <button id="playBtn" class="play-btn" aria-label="Play" disabled>
+        <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5l12 7-12 7z"/></svg>
+        <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3v14H7zM14 5h3v14h-3z"/></svg>
+      </button>
+      <button id="loopBtn" class="toggle" aria-pressed="true" title="Loop the selected section or riff">Loop</button>
+      <label class="speed">
+        <span>Speed</span>
+        <select id="speedSel">
+          <option value="0.5">50%</option>
+          <option value="0.6">60%</option>
+          <option value="0.75">75%</option>
+          <option value="0.9">90%</option>
+          <option value="1" selected>100%</option>
+        </select>
+      </label>
+      <button id="videoBtn" class="toggle" aria-pressed="false" hidden>Video</button>
+      <div class="zoom-btns" role="group" aria-label="Tab size">
+        <button id="zoomOutBtn" class="zoom-btn" aria-label="Smaller tab">A<sup>−</sup></button>
+        <button id="zoomInBtn" class="zoom-btn big" aria-label="Bigger tab">A<sup>+</sup></button>
+      </div>
+      <span id="playerStatus" class="player-status"></span>
+    </footer>
+  </div>
+
+  <dialog id="libraryDlg" class="sheet">
+    <div class="sheet-head">
+      <h2>Songs</h2>
+      <button class="icon-btn" data-close aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <label class="file-btn">
+      <input id="fileInput" type="file">
+      Add a Guitar Pro file
+    </label>
+    <label id="shareUploadWrap" class="check" hidden><input id="shareUpload" type="checkbox" checked> Add it to the band folder</label>
+    <p class="fine">Reads .gp, .gpx, .gp5, .gp4, .gp3 and MusicXML.</p>
+    <div id="driveBox" class="drive-box"></div>
+    <div id="songLists"></div>
+    <button id="demoBtn" class="text-btn">Add the demo song</button>
+  </dialog>
+
+  <dialog id="settingsDlg" class="sheet">
+    <div class="sheet-head">
+      <h2>Settings</h2>
+      <button class="icon-btn" data-close aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <label class="field">
+      <span>Track you follow in this song</span>
+      <select id="trackSel"></select>
+    </label>
+    <label class="check"><input id="showTabCards" type="checkbox"> Show tab on the cards</label>
+    <fieldset class="field">
+      <legend>Notation</legend>
+      <div class="seg">
+        <label><input type="radio" name="stave" value="tab" id="staveTab" checked> Tab</label>
+        <label><input type="radio" name="stave" value="scoretab" id="staveScoreTab"> Tab + notes</label>
+        <label><input type="radio" name="stave" value="score" id="staveScore"> Notes</label>
+      </div>
+    </fieldset>
+    <label class="field">
+      <span>Tab size <output id="zoomOut">100%</output></span>
+      <input id="zoomRange" type="range" min="0.6" max="1.8" step="0.1" value="1">
+    </label>
+    <label class="field">
+      <span>YouTube link for this song</span>
+      <input id="ytInput" type="url" inputmode="url" placeholder="https://www.youtube.com/watch?v=…">
+    </label>
+    <p class="fine">With a video linked, give each section a start time in Edit. Picking a section then jumps the video there.</p>
+    <button id="exportBtn" class="text-btn">Download annotated .gp file</button>
+    <p class="fine">A copy of the Guitar Pro file with the sections, riff letters and chord names written in, so they also show in Guitar Pro.</p>
+  </dialog>
+
+  <dialog id="roleDlg" class="sheet small">
+    <div class="sheet-head">
+      <h2>What do you play?</h2>
+      <button class="icon-btn" data-close aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <p class="fine">Setcards shows your part of each song: tab for bass, chord shapes for guitar, cues for vocals. Saved on this device.</p>
+    <div id="roleList" class="role-list"></div>
+  </dialog>
+
+  <dialog id="barDlg" class="sheet small">
+    <div class="sheet-head">
+      <h2 id="barDlgTitle">Bar 1</h2>
+      <button class="icon-btn" data-close aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <p id="barDlgText" class="fine"></p>
+    <div id="presetRow" class="presets"></div>
+    <form id="barForm" class="bar-form">
+      <input id="barName" list="nameList" placeholder="Section name" autocomplete="off" aria-label="Section name">
+      <label class="field">
+        <span>Chords in this bar</span>
+        <input id="barChords" placeholder="e.g. Dm Am7" autocomplete="off">
+      </label>
+      <label id="barChordsAllLabel" class="check"><input id="barChordsAll" type="checkbox" checked> <span>Every time this riff plays</span></label>
+      <button class="text-btn primary" type="submit" id="barSubmit">Start section</button>
+    </form>
+    <button id="barRemove" class="text-btn danger" hidden>Remove this section break</button>
+  </dialog>
+
+  <dialog id="chordDlg" class="sheet small">
+    <div class="sheet-head">
+      <h2 id="chordDlgTitle">Chords</h2>
+      <button class="icon-btn" data-close aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <form id="chordForm" class="bar-form">
+      <label class="field">
+        <span>Chord names, in order, separated by spaces</span>
+        <input id="chordInput" placeholder="e.g. Dm Am7 Gm7" autocomplete="off" autocapitalize="off">
+      </label>
+      <div id="chordPreview" class="chord-preview"></div>
+      <label id="chordAllLabel" class="check"><input id="chordAll" type="checkbox" checked> <span>Every time this riff plays</span></label>
+      <div class="row-btns">
+        <button class="text-btn" type="button" id="chordClear">Clear</button>
+        <button class="text-btn primary" type="submit">Save chords</button>
+      </div>
+    </form>
+  </dialog>
+
+  <datalist id="nameList">
+    <option value="Intro"></option><option value="Verse"></option><option value="Pre-chorus"></option>
+    <option value="Chorus"></option><option value="Bridge"></option><option value="Solo"></option>
+    <option value="Breakdown"></option><option value="Interlude"></option><option value="Outro"></option>
+  </datalist>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="lib/alphaTab.min.js"></script>
+  <script src="config.js"></script>
+  <script src="js/analysis.js"></script>
+  <script src="js/chords.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="demo.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

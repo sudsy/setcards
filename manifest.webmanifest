@@ -1,0 +1,10 @@
+{
+  "name": "Setcards",
+  "short_name": "Setcards",
+  "description": "Guitar Pro songs as short section cards for every player in the band.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#111319",
+  "theme_color": "#14161c",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

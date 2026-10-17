@@ -1,0 +1,1540 @@
+/* Setcards: Guitar Pro songs as short section cards for every player in the band. */
+(function () {
+  'use strict';
+  const AT = window.alphaTab;
+  const SM = window.SM;
+  const $ = (id) => document.getElementById(id);
+
+  const els = {
+    songTitle: $('songTitle'), songMeta: $('songMeta'),
+    structure: $('structure'), chips: $('chips'),
+    viewCards: $('viewCards'), viewTab: $('viewTab'), roleBtn: $('roleBtn'),
+    sectionHead: $('sectionHead'), sectionName: $('sectionName'), sectionBars: $('sectionBars'),
+    prevBtn: $('prevBtn'), nextBtn: $('nextBtn'),
+    editBtn: $('editBtn'), editPanel: $('editPanel'), sectionList: $('sectionList'),
+    findRepeatsBtn: $('findRepeatsBtn'), suggestBtn: $('suggestBtn'), useMarkersBtn: $('useMarkersBtn'), doneEditBtn: $('doneEditBtn'),
+    scroller: $('scroller'), tab: $('tab'), cards: $('cards'), loading: $('loading'), drop: $('drop'), banner: $('banner'),
+    playBtn: $('playBtn'), loopBtn: $('loopBtn'), speedSel: $('speedSel'),
+    videoBtn: $('videoBtn'), videoPanel: $('videoPanel'), playerStatus: $('playerStatus'),
+    libraryBtn: $('libraryBtn'), libraryDlg: $('libraryDlg'), fileInput: $('fileInput'), shareUpload: $('shareUpload'), shareUploadWrap: $('shareUploadWrap'),
+    songLists: $('songLists'), demoBtn: $('demoBtn'), driveBox: $('driveBox'),
+    settingsBtn: $('settingsBtn'), settingsDlg: $('settingsDlg'), trackSel: $('trackSel'),
+    zoomRange: $('zoomRange'), zoomOut: $('zoomOut'), ytInput: $('ytInput'), exportBtn: $('exportBtn'), showTabCards: $('showTabCards'),
+    barDlg: $('barDlg'), barDlgTitle: $('barDlgTitle'), barDlgText: $('barDlgText'),
+    presetRow: $('presetRow'), barForm: $('barForm'), barName: $('barName'), barSubmit: $('barSubmit'), barRemove: $('barRemove'),
+    barChords: $('barChords'), barChordsAll: $('barChordsAll'), barChordsAllLabel: $('barChordsAllLabel'),
+    chordDlg: $('chordDlg'), chordDlgTitle: $('chordDlgTitle'), chordForm: $('chordForm'), chordInput: $('chordInput'),
+    chordAll: $('chordAll'), chordAllLabel: $('chordAllLabel'), chordClear: $('chordClear'), chordPreview: $('chordPreview'),
+    roleDlg: $('roleDlg'), roleList: $('roleList'),
+    toast: $('toast')
+  };
+
+  const PRESETS = ['Intro', 'Verse', 'Pre-chorus', 'Chorus', 'Bridge', 'Solo', 'Outro'];
+  const STAVES = { tab: AT.StaveProfile.Tab, scoretab: AT.StaveProfile.ScoreTab, score: AT.StaveProfile.Score };
+  const ROLES = [
+    { id: 'bass', label: 'Bass', cardsTab: true },
+    { id: 'guitar', label: 'Guitar', cardsTab: false, diagrams: true },
+    { id: 'keys', label: 'Keys', cardsTab: false },
+    { id: 'vocals', label: 'Vocals', cardsTab: false, cues: true },
+    { id: 'drums', label: 'Drums', cardsTab: false }
+  ];
+
+  /* ---------------- per-device preferences ---------------- */
+  const prefs = Object.assign({ role: 'bass', view: 'cards', zoom: 1, stave: 'tab', last: null, tracks: {}, cardsTab: {} }, readJson('setcards:prefs'));
+  function readJson(k) { try { return JSON.parse(localStorage.getItem(k)) || {}; } catch (e) { return {}; } }
+  function savePrefs() { try { localStorage.setItem('setcards:prefs', JSON.stringify(prefs)); } catch (e) { /* storage unavailable */ } }
+  const role = () => ROLES.find((r) => r.id === prefs.role) || ROLES[0];
+  const showTabInCards = () => (prefs.cardsTab[prefs.role] ?? role().cardsTab);
+
+  const state = {
+    song: null,         // { key, title, artist, fileName, canShare, localOnly }
+    notes: null,        // shared notes: sections, chords, youtubeUrl
+    score: null,
+    trackIndex: 0,
+    fileMarkers: [],
+    fileChords: {},
+    parts: [],          // every section occurrence in song order
+    groups: [],         // distinct parts (Verse, Chorus…)
+    riffs: {},          // riff id -> { id, start, len, uses }
+    view: -1,           // selected occurrence in the tab view, -1 = whole song
+    editing: false,
+    loop: true,
+    playing: false,
+    playingPart: -1,
+    videoOn: true,
+    barDlgIndex: 0,
+    chordEdit: null
+  };
+
+  let ytPlayer = null;
+  let ytReady = false;
+  let ytApi = null;
+  let minis = [];       // small alphaTab renderers inside the cards
+  let miniObserver = null;
+
+  /* ---------------- helpers ---------------- */
+  let toastTimer = 0;
+  function toast(msg) {
+    els.toast.textContent = msg;
+    els.toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => els.toast.classList.remove('show'), 2800);
+  }
+  const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+  function kindOf(name) {
+    const n = (name || '').toLowerCase().replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (/pre ?chorus|build|lift|channel/.test(n)) return 'pre';
+    if (/chorus|refrain|hook/.test(n)) return 'chorus';
+    if (/verse/.test(n)) return 'verse';
+    if (/intro|count in|pickup|start/.test(n)) return 'intro';
+    if (/outro|ending|coda|\bend\b|fade|tag/.test(n)) return 'outro';
+    if (/bridge|middle/.test(n)) return 'bridge';
+    if (/solo|instrumental|interlude|break|riff|jam|fill/.test(n)) return 'solo';
+    let h = 0;
+    for (const c of n) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+    return 'other' + (1 + (h % 3));
+  }
+  const segColor = (kind) => `var(--c-${kind})`;
+
+  function fmtTime(sec) {
+    if (sec == null || isNaN(sec)) return '';
+    return `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+  }
+  function parseTime(str) {
+    const t = (str || '').trim();
+    if (!t) return null;
+    const parts = t.split(':').map(Number);
+    if (parts.some(isNaN)) return undefined;
+    return parts.reduce((acc, v) => acc * 60 + v, 0);
+  }
+  function youtubeId(url) {
+    const u = (url || '').trim();
+    if (!u) return null;
+    const m = u.match(/(?:youtu\.be\/|v=|\/embed\/|\/shorts\/|\/live\/)([A-Za-z0-9_-]{11})/);
+    if (m) return m[1];
+    return /^[A-Za-z0-9_-]{11}$/.test(u) ? u : null;
+  }
+  function hexToColor(hex) {
+    const h = hex.trim().replace('#', '');
+    const n = parseInt(h.length === 3 ? h.split('').map((c) => c + c).join('') : h, 16);
+    return new AT.model.Color((n >> 16) & 255, (n >> 8) & 255, n & 255, 255);
+  }
+  // "Verse 2", "Chorus (x2)" and "Chorus" all belong to the same part of the song.
+  function baseName(name) {
+    const n = (name || '').trim()
+      .replace(/\s*[(\[]?\s*x\s*\d+\s*[)\]]?$/i, '')
+      .replace(/\s*[(\[]?\s*(\d+|[ivx]+)\s*[)\]]?$/i, '')
+      .trim();
+    return n || (name || '').trim() || 'Section';
+  }
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+  /* ---------------- saving notes ---------------- */
+  let saveTimer = 0;
+  function saveNotes() {
+    if (!state.song) return;
+    clearTimeout(saveTimer);
+    const key = state.song.key;
+    const notes = state.notes;
+    notes.title = state.song.title;
+    notes.artist = state.song.artist;
+    saveTimer = setTimeout(async () => {
+      const r = await SM.library.saveNotes(key, notes);
+      if (r.error) toast('Saved on this device only. The band folder could not be reached.');
+      if (state.song && state.song.key === key) {
+        state.song.localOnly = r.local && !state.song.canShare;
+        updateBanner();
+      }
+    }, 700);
+  }
+
+  function updateBanner() {
+    const s = state.song;
+    if (s && s.localOnly) {
+      els.banner.hidden = false;
+      els.banner.textContent = 'Your changes to this song are saved in this browser only. Add the song to a band folder to share them.';
+    } else {
+      els.banner.hidden = true;
+    }
+  }
+
+  /* ---------------- chords ---------------- */
+  // User chords override what the file says, bar by bar. "-" means no chord in that bar.
+  function chordsAt(bar) {
+    const own = state.notes && state.notes.chords && state.notes.chords[bar];
+    if (own != null) return own === '-' ? [] : SM.chords.split(own);
+    return (state.fileChords[bar] || []).map((c) => c.name);
+  }
+  function songChordNames() {
+    const seen = [];
+    if (!state.score) return seen;
+    for (let i = 0; i < state.score.masterBars.length; i++) {
+      chordsAt(i).forEach((c) => { if (!seen.includes(c)) seen.push(c); });
+    }
+    return seen;
+  }
+
+  /* ---------------- sections and riffs ---------------- */
+  function markersFromScore(score) {
+    const out = [];
+    score.masterBars.forEach((mb, i) => {
+      if (mb.section) out.push({ id: uid(), start: i, name: (mb.section.text || mb.section.marker || '').trim() || 'Section' });
+    });
+    return out;
+  }
+
+  function sortedSections() {
+    const n = state.score ? state.score.masterBars.length : 0;
+    return (state.notes.sections || []).filter((s) => s.start >= 0 && s.start < n).sort((a, b) => a.start - b.start);
+  }
+
+  function deriveParts() {
+    const n = state.score.masterBars.length;
+    const list = sortedSections();
+    const parts = [];
+    if (!list.length || list[0].start > 0) parts.push({ name: list.length ? 'Pickup' : 'Whole song', start: 0, synthetic: true });
+    list.forEach((s) => parts.push({ name: s.name, start: s.start, ref: s }));
+
+    const groups = [];
+    const byKey = {};
+    parts.forEach((p, i) => {
+      p.end = i + 1 < parts.length ? parts[i + 1].start - 1 : n - 1;
+      p.bars = p.end - p.start + 1;
+      const name = baseName(p.name);
+      const key = name.toLowerCase();
+      let g = byKey[key];
+      if (!g) {
+        g = byKey[key] = { key, name, kind: p.synthetic ? 'intro' : kindOf(name), occ: [] };
+        groups.push(g);
+      }
+      p.group = g;
+      p.kind = g.kind;
+      p.label = g.name;
+      g.occ.push(i);
+      p.occNo = g.occ.length;
+    });
+
+    // Repeating riffs inside each section, from the track this person plays.
+    const res = SM.analysis.analyse(state.score, state.trackIndex, parts, chordsAt, parts.map((p) => p.ref && p.ref.unit));
+    state.riffs = {};
+    res.riffs.forEach((r) => { state.riffs[r.id] = r; });
+    parts.forEach((p, i) => {
+      p.units = res.parts[i].units;
+      p.unit = res.parts[i].unit;
+      p.summary = res.parts[i].summary;
+    });
+    state.parts = parts;
+    state.groups = groups;
+  }
+
+  function partIndexForBar(bar) {
+    for (let i = state.parts.length - 1; i >= 0; i--) if (state.parts[i].start <= bar) return i;
+    return -1;
+  }
+
+  // Every bar where a given bar of a riff is played (used to copy chords to each repeat).
+  function riffBars(riffId, offset) {
+    const out = [];
+    state.parts.forEach((p) => p.units.forEach((u) => { if (u.riff === riffId && offset < u.len) out.push(u.start + offset); }));
+    return out;
+  }
+  function riffForBar(bar) {
+    const p = state.parts[partIndexForBar(bar)];
+    if (!p) return null;
+    const u = p.units.find((x) => bar >= x.start && bar < x.start + x.len);
+    return u ? { riff: u.riff, offset: bar - u.start, unit: u } : null;
+  }
+
+  /* ---------------- writing annotations into the score ---------------- */
+  // Section names, riff letters and chord names are put into the alphaTab model so they show in the tab
+  // and are included when the annotated file is downloaded. Original values are kept to restore later.
+  const original = { text: new Map(), chord: new Map() };
+  const addedChordIds = new Set();
+
+  function applyAnnotations() {
+    const score = state.score;
+    score.masterBars.forEach((mb) => { mb.section = null; });
+    sortedSections().forEach((s) => {
+      const sec = new AT.model.Section();
+      sec.text = s.name;
+      sec.marker = '';
+      score.masterBars[s.start].section = sec;
+    });
+
+    original.text.forEach((v, beat) => { beat.text = v; });
+    original.chord.forEach((v, beat) => { beat.chordId = v; });
+    original.text.clear();
+    original.chord.clear();
+
+    const staff = score.tracks[state.trackIndex].staves[0];
+    const barTotal = (i) => score.masterBars[i].calculateDuration() || 1;
+    const beatsOf = (i) => (staff.bars[i] ? staff.bars[i].voices[0].beats : []);
+    const setText = (beat, text) => { if (!original.text.has(beat)) original.text.set(beat, beat.text); beat.text = text; };
+    const setChord = (beat, id) => { if (!original.chord.has(beat)) original.chord.set(beat, beat.chordId); beat.chordId = id; };
+
+    // riff letters on the first beat of every repeat
+    state.parts.forEach((p) => {
+      const first = p.units[0] && state.riffs[p.units[0].riff];
+      if (p.units.length < 2 && !(first && first.uses > 1)) return;
+      p.units.forEach((u) => {
+        const b = beatsOf(u.start)[0];
+        if (b) setText(b, u.variant ? `${u.riff}′` : u.riff);
+      });
+    });
+
+    // chord names, placed on the beat nearest each chord's position in the bar
+    for (let i = 0; i < score.masterBars.length; i++) {
+      const own = state.notes.chords[i];
+      const fromFile = state.fileChords[i] || [];
+      const names = chordsAt(i);
+      if (!names.length) continue;
+      const positions = own != null ? names.map((_, k) => k / names.length) : fromFile.map((c) => c.pos);
+      const beats = beatsOf(i);
+      names.forEach((name, k) => {
+        const id = 'sc:' + name;
+        if (!staff.chords || !staff.chords.has(id)) {
+          const ch = new AT.model.Chord();
+          ch.name = name;
+          ch.showDiagram = false;
+          ch.showName = true;
+          staff.addChord(id, ch);
+          addedChordIds.add(id);
+        }
+        const target = positions[k] * barTotal(i);
+        let best = beats[0];
+        beats.forEach((b) => { if (b.playbackStart <= target + 1) best = b; });
+        if (best) setChord(best, id);
+      });
+    }
+  }
+
+  /* ---------------- song map ---------------- */
+  function renderMap() {
+    const parts = state.parts;
+    els.structure.innerHTML = '';
+    els.chips.innerHTML = '';
+    parts.forEach((p, i) => {
+      const t = document.createElement('button');
+      t.className = 'step';
+      t.style.setProperty('--seg', segColor(p.kind));
+      t.dataset.index = i;
+      t.textContent = p.label;
+      t.title = `${p.label} · bars ${p.start + 1}–${p.end + 1} · ${p.summary}`;
+      t.addEventListener('click', () => { setView('tab'); selectView(i); });
+      els.structure.appendChild(t);
+    });
+
+    const whole = chip('Whole song', `${state.score.masterBars.length} bars`);
+    whole.classList.add('whole');
+    whole.dataset.group = '';
+    whole.addEventListener('click', () => { if (prefs.view === 'cards') els.scroller.scrollTo({ top: 0, behavior: 'smooth' }); else selectView(-1); });
+    els.chips.appendChild(whole);
+    state.groups.forEach((g) => {
+      const first = state.parts[g.occ[0]];
+      const c = chip(g.name, g.occ.length > 1 ? `×${g.occ.length}` : `${first.bars} bars`);
+      c.style.setProperty('--seg', segColor(g.kind));
+      c.dataset.group = g.key;
+      c.addEventListener('click', () => {
+        if (prefs.view === 'cards') {
+          const card = els.cards.querySelector(`[data-group="${CSS.escape(g.key)}"]`);
+          if (card) els.scroller.scrollTo({ top: card.offsetTop - 8, behavior: 'smooth' });
+          return;
+        }
+        const cur = state.parts[state.view];
+        if (cur && cur.group === g) return;
+        selectView(g.occ[0]);
+      });
+      els.chips.appendChild(c);
+    });
+    if (!sortedSections().length) {
+      const hint = document.createElement('span');
+      hint.className = 'fine';
+      hint.style.margin = '4px 0';
+      hint.textContent = 'No sections yet. Tap Edit to mark the verse, chorus and so on, or let Setcards suggest them.';
+      els.chips.appendChild(hint);
+    }
+    refreshChipStates();
+    updateHeader();
+  }
+
+  function chip(label, small) {
+    const b = document.createElement('button');
+    b.className = 'chip';
+    b.append(label);
+    const s = document.createElement('small');
+    s.textContent = small;
+    b.appendChild(s);
+    return b;
+  }
+
+  function updateHeader() {
+    const n = state.score.masterBars.length;
+    if (state.view === -1) {
+      els.sectionName.textContent = 'Whole song';
+      els.sectionBars.textContent = `${n} bars · ${plural(state.parts.length, 'section')}`;
+    } else {
+      const p = state.parts[state.view];
+      const bits = [];
+      if (p.group.occ.length > 1) bits.push(`${p.occNo} of ${p.group.occ.length}`);
+      bits.push(`bars ${p.start + 1}–${p.end + 1}`);
+      bits.push(p.summary);
+      els.sectionName.textContent = p.label;
+      els.sectionBars.textContent = bits.join(' · ');
+    }
+    els.prevBtn.disabled = state.view <= -1;
+    els.nextBtn.disabled = state.view >= state.parts.length - 1;
+  }
+
+  function refreshChipStates() {
+    const cur = prefs.view === 'tab' ? state.parts[state.view] : null;
+    const playing = state.parts[state.playingPart];
+    els.chips.querySelectorAll('.chip').forEach((c) => {
+      const key = c.dataset.group;
+      const on = prefs.view === 'tab' && (key === '' ? state.view === -1 : !!(cur && cur.group.key === key));
+      c.setAttribute('aria-pressed', String(on));
+      c.classList.toggle('playing', !!(playing && key && playing.group.key === key && !on));
+    });
+    els.structure.querySelectorAll('.step').forEach((t) => {
+      const i = Number(t.dataset.index);
+      t.setAttribute('aria-current', prefs.view === 'tab' && i === state.view ? 'true' : 'false');
+      t.classList.toggle('same', !!(cur && i !== state.view && state.parts[i].group === cur.group));
+      t.classList.toggle('playing', i === state.playingPart);
+    });
+  }
+
+  /* ---------------- cards (the quick reference) ---------------- */
+  function destroyMinis() {
+    if (miniObserver) miniObserver.disconnect();
+    minis.forEach((m) => { try { m.destroy(); } catch (e) { /* already gone */ } });
+    minis = [];
+  }
+
+  function renderCards() {
+    destroyMinis();
+    els.cards.innerHTML = '';
+    if (!state.score) return;
+    const r = role();
+    const frag = document.createDocumentFragment();
+
+    if (r.cues) {
+      frag.appendChild(cueSheet());
+      els.cards.appendChild(frag);
+      els.loading.hidden = true;
+      return;
+    }
+
+    if (r.diagrams) {
+      const names = songChordNames();
+      if (names.length) {
+        const strip = document.createElement('section');
+        strip.className = 'diagram-strip';
+        strip.innerHTML = `<h3 class="card-label">Chords in this song</h3><div class="diagrams">${names.map((n) => SM.chords.diagram(n)).join('')}</div>`;
+        frag.appendChild(strip);
+      }
+    }
+
+    const shown = new Set();   // riffs already drawn on an earlier card
+    state.groups.forEach((g) => {
+      const occ = g.occ.map((i) => state.parts[i]);
+      const card = document.createElement('section');
+      card.className = 'card';
+      card.dataset.group = g.key;
+      card.style.setProperty('--seg', segColor(g.kind));
+
+      // How each time this part is played breaks down into riffs; identical layouts are listed once.
+      const layouts = [];
+      occ.forEach((p) => {
+        const l = layouts.find((x) => x.summary === p.summary);
+        if (l) l.occ.push(p); else layouts.push({ summary: p.summary, occ: [p] });
+      });
+      const ordinal = (n) => ['1st', '2nd', '3rd'][n - 1] || `${n}th`;
+      const layoutHtml = layouts.map((l) => {
+        const when = layouts.length > 1 ? `<span class="when">${l.occ.map((p) => ordinal(p.occNo)).join(', ')}</span>` : '';
+        return `<div class="layout">${when}<span class="riff-seq">${esc(l.summary)}</span><span class="bars-note">${plural(l.occ[0].bars, 'bar')}</span></div>`;
+      }).join('');
+
+      const fills = [];
+      occ.forEach((p) => p.units.forEach((u) => { if (u.variant) fills.push(...u.changed.map((b) => b + 1)); }));
+
+      card.innerHTML = `
+        <header class="card-head">
+          <h2>${esc(g.name)}</h2>
+          <span class="times">${g.occ.length > 1 ? `played ${g.occ.length} times` : 'played once'}</span>
+        </header>
+        ${layoutHtml}
+        ${fills.length ? `<p class="fills">Small changes at bar${fills.length > 1 ? 's' : ''} ${fills.slice(0, 8).join(', ')}${fills.length > 8 ? '…' : ''}. Tap a section in the song order to see them.</p>` : ''}`;
+
+      // riffs this part uses, in order of first use
+      const riffIds = [];
+      occ.forEach((p) => p.units.forEach((u) => { if (!riffIds.includes(u.riff)) riffIds.push(u.riff); }));
+      riffIds.forEach((id) => {
+        const riff = state.riffs[id];
+        if (!riff) return;
+        card.appendChild(riffBlock(riff, shown.has(id)));
+        shown.add(id);
+      });
+      frag.appendChild(card);
+    });
+
+    els.cards.appendChild(frag);
+    els.loading.hidden = true;
+    startMinis();
+  }
+
+  function riffBlock(riff, seenBefore) {
+    const div = document.createElement('div');
+    div.className = 'riff' + (seenBefore ? ' seen' : '');
+    const firstPart = state.parts[partIndexForBar(riff.start)];
+    const chordCells = [];
+    for (let k = 0; k < riff.len; k++) {
+      const names = chordsAt(riff.start + k);
+      chordCells.push(`<button class="chord-cell" data-bar="${riff.start + k}" data-riff="${riff.id}" data-offset="${k}" title="Change the chords for bar ${k + 1} of riff ${riff.id}">${names.length ? names.map(esc).join(' ') : '<span class="no-chord">+ chord</span>'}</button>`);
+    }
+    div.innerHTML = `
+      <div class="riff-head">
+        <span class="riff-id">${esc(riff.id)}</span>
+        <span class="riff-len">${plural(riff.len, 'bar')}${riff.uses > 1 ? ` · played ${riff.uses} times in the song` : ''}</span>
+        <button class="riff-play" type="button" aria-label="Play riff ${esc(riff.id)}" title="Loop this riff">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5l12 7-12 7z"/></svg>
+        </button>
+      </div>
+      <div class="chord-row">${chordCells.join('<span class="bar-sep">|</span>')}</div>
+      ${seenBefore ? `<p class="seen-note">Same riff as in ${esc(firstPart ? firstPart.label : 'an earlier section')}.</p>` : ''}`;
+    div.querySelectorAll('.chord-cell').forEach((b) => b.addEventListener('click', () => openChordDialog(Number(b.dataset.bar), b.dataset.riff, Number(b.dataset.offset))));
+    div.querySelector('.riff-play').addEventListener('click', () => playRange(riff.start, riff.start + riff.len - 1));
+    if (!seenBefore && showTabInCards() && !riff.empty) {
+      const holder = document.createElement('div');
+      holder.className = 'mini-tab';
+      holder.dataset.start = riff.start;
+      holder.dataset.len = riff.len;
+      div.appendChild(holder);
+    }
+    return div;
+  }
+
+  // The singer's view: the song in order, with how long each section is and its first words.
+  function cueSheet() {
+    const list = document.createElement('ol');
+    list.className = 'cue-list';
+    state.parts.forEach((p, i) => {
+      const cue = SM.analysis.lyricCue(state.score, p.start, p.end, 8);
+      const li = document.createElement('li');
+      li.className = 'cue';
+      li.style.setProperty('--seg', segColor(p.kind));
+      li.innerHTML = `
+        <div class="cue-head"><span class="cue-name">${esc(p.label)}</span><span class="cue-bars">${plural(p.bars, 'bar')}</span></div>
+        ${cue ? `<p class="cue-words">“${esc(cue)}…”</p>` : '<p class="cue-words none">No singing</p>'}
+        ${chordsAt(p.start).length ? `<p class="cue-chords">${esc(chordsAt(p.start).join(' '))}</p>` : ''}`;
+      li.addEventListener('click', () => { setView('tab'); selectView(i); });
+      list.appendChild(li);
+    });
+    const wrap = document.createElement('section');
+    wrap.className = 'cue-sheet';
+    wrap.innerHTML = '<h3 class="card-label">Song order</h3>';
+    wrap.appendChild(list);
+    return wrap;
+  }
+
+  // Small tab snippets are drawn only when they scroll into view.
+  function startMinis() {
+    const holders = [...els.cards.querySelectorAll('.mini-tab')];
+    if (!holders.length) return;
+    const draw = (el) => {
+      if (el.dataset.drawn) return;
+      el.dataset.drawn = '1';
+      const mini = new AT.AlphaTabApi(el, {
+        core: { fontDirectory: 'lib/font/', engine: 'svg', logLevel: 'error', useWorkers: false, enableLazyLoading: false },
+        display: {
+          scale: prefs.zoom * 0.85, layoutMode: AT.LayoutMode.Page, staveProfile: STAVES[prefs.stave] ?? AT.StaveProfile.Tab,
+          startBar: Number(el.dataset.start) + 1, barCount: Number(el.dataset.len),
+          barsPerRow: Math.min(Number(el.dataset.len), els.cards.clientWidth < 520 ? 2 : 4)
+        },
+        notation: { rhythmMode: AT.TabRhythmMode.ShowWithBars },
+        player: { playerMode: AT.PlayerMode.Disabled }
+      });
+      [AT.NotationElement.ScoreTitle, AT.NotationElement.ScoreSubTitle, AT.NotationElement.ScoreArtist, AT.NotationElement.ScoreAlbum,
+        AT.NotationElement.ScoreWords, AT.NotationElement.ScoreMusic, AT.NotationElement.ScoreWordsAndMusic, AT.NotationElement.ScoreCopyright,
+        AT.NotationElement.TrackNames, AT.NotationElement.GuitarTuning, AT.NotationElement.EffectMarker, AT.NotationElement.EffectText,
+        AT.NotationElement.EffectChordNames, AT.NotationElement.EffectTempo].forEach((e) => mini.settings.notation.elements.set(e, false));
+      styleTab(mini);
+      mini.updateSettings();
+      // alphaTab adds a "rendered by alphaTab" line to every render; the full tab keeps it, snippets drop it.
+      mini.renderFinished.on(() => {
+        el.querySelectorAll('svg').forEach((svg) => { if (svg.querySelectorAll('text').length === 1 && /alphaTab/.test(svg.textContent)) svg.parentElement.style.display = 'none'; });
+      });
+      mini.renderScore(state.score, [state.trackIndex]);
+      minis.push(mini);
+    };
+    if ('IntersectionObserver' in window) {
+      miniObserver = new IntersectionObserver((entries) => entries.forEach((en) => { if (en.isIntersecting) draw(en.target); }), { root: els.scroller, rootMargin: '300px' });
+      holders.forEach((h) => miniObserver.observe(h));
+    } else {
+      holders.forEach(draw);
+    }
+  }
+
+  /* ---------------- views ---------------- */
+  function setView(v) {
+    if (v === prefs.view) return;
+    prefs.view = v;
+    savePrefs();
+    applyViewChrome();
+    if (v === 'tab') {
+      destroyMinis();
+      els.cards.innerHTML = '';
+      api.render();
+    } else {
+      renderCards();
+      els.scroller.scrollTop = 0;
+    }
+    refreshChipStates();
+  }
+
+  function applyViewChrome() {
+    const cards = prefs.view === 'cards';
+    els.viewCards.setAttribute('aria-pressed', String(cards));
+    els.viewTab.setAttribute('aria-pressed', String(!cards));
+    els.cards.hidden = !cards;
+    els.tab.hidden = cards;
+    els.sectionHead.hidden = cards;
+    if (cards && state.editing) setEditing(false);
+  }
+
+  function selectView(index, opts = {}) {
+    if (!state.score) return;
+    index = Math.max(-1, Math.min(state.parts.length - 1, index));
+    state.view = index;
+    refreshChipStates();
+    updateHeader();
+    const d = api.settings.display;
+    if (index === -1) { d.startBar = 1; d.barCount = -1; } else { d.startBar = state.parts[index].start + 1; d.barCount = state.parts[index].bars; }
+    api.updateSettings();
+    api.render();
+    els.scroller.scrollTop = 0;
+    applyPlaybackRange();
+    if (!opts.keepVideo) seekVideoToView();
+    const active = els.structure.querySelector('[aria-current="true"]');
+    if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+
+  function rangeFor(start, end) {
+    const mbs = state.score.masterBars;
+    const range = new AT.synth.PlaybackRange();
+    range.startTick = mbs[start].start;
+    range.endTick = mbs[end].start + mbs[end].calculateDuration();
+    return range;
+  }
+
+  function applyPlaybackRange() {
+    if (!state.score) return;
+    if (state.view === -1) { api.playbackRange = null; api.isLooping = false; return; }
+    const p = state.parts[state.view];
+    const range = rangeFor(p.start, p.end);
+    api.playbackRange = range;
+    api.isLooping = state.loop;
+    api.tickPosition = range.startTick;
+  }
+
+  function playRange(start, end) {
+    if (els.playBtn.disabled) { toast('Sounds are still loading'); return; }
+    const range = rangeFor(start, end);
+    api.stop();
+    api.playbackRange = range;
+    api.isLooping = state.loop;
+    api.tickPosition = range.startTick;
+    api.play();
+  }
+
+  /* ---------------- alphaTab ---------------- */
+  const api = new AT.AlphaTabApi(els.tab, {
+    core: { fontDirectory: 'lib/font/', engine: 'svg', logLevel: 'warning' },
+    display: { scale: prefs.zoom, layoutMode: AT.LayoutMode.Page, staveProfile: STAVES[prefs.stave] ?? AT.StaveProfile.Tab },
+    notation: { rhythmMode: AT.TabRhythmMode.ShowWithBars },
+    player: {
+      playerMode: AT.PlayerMode.EnabledSynthesizer,
+      soundFont: 'lib/soundfont/sonivox.sf2',
+      scrollElement: els.scroller,
+      enableCursor: true,
+      enableUserInteraction: true,
+      scrollOffsetY: -30
+    }
+  });
+  [AT.NotationElement.ScoreTitle, AT.NotationElement.ScoreSubTitle, AT.NotationElement.ScoreArtist,
+    AT.NotationElement.ScoreAlbum, AT.NotationElement.ScoreWords, AT.NotationElement.ScoreMusic,
+    AT.NotationElement.ScoreWordsAndMusic, AT.NotationElement.ScoreCopyright, AT.NotationElement.TrackNames].forEach((e) => {
+    api.settings.notation.elements.set(e, false);
+  });
+
+  // Theme colours, bigger bold fret numbers and wider string spacing than alphaTab's defaults (14px on 13px).
+  function styleTab(target) {
+    const cs = getComputedStyle(document.documentElement);
+    const v = (name) => cs.getPropertyValue(name).trim();
+    const r = target.settings.display.resources;
+    r.mainGlyphColor = hexToColor(v('--ink'));
+    r.secondaryGlyphColor = hexToColor(v('--muted'));
+    r.scoreInfoColor = hexToColor(v('--ink'));
+    r.barNumberColor = hexToColor(v('--muted'));
+    r.barSeparatorColor = hexToColor(v('--muted'));
+    const line = hexToColor(v('--muted'));
+    r.staffLineColor = new AT.model.Color(line.r, line.g, line.b, 150);
+    r.tablatureFont = new AT.model.Font('Arial, Helvetica, sans-serif', 17, AT.model.FontStyle.Plain, AT.model.FontWeight.Bold);
+    r.engravingSettings.tabLineSpacing = 18;
+  }
+  styleTab(api);
+  api.updateSettings();
+
+  const themeQuery = window.matchMedia('(prefers-color-scheme: dark)');
+  const onTheme = () => {
+    styleTab(api);
+    api.updateSettings();
+    if (state.score) { if (prefs.view === 'tab') api.render(); else renderCards(); }
+  };
+  if (themeQuery.addEventListener) themeQuery.addEventListener('change', onTheme);
+  new MutationObserver(onTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+  api.scoreLoaded.on((score) => {
+    state.score = score;
+    original.text.clear();
+    original.chord.clear();
+    state.fileMarkers = markersFromScore(score);
+    state.fileChords = SM.analysis.fileChords(score);
+    state.trackIndex = pickTrack(score);
+    let suggested = false;
+    if (!Array.isArray(state.notes.sections)) {
+      // Worked out fresh each time until someone edits them, so nothing is saved yet.
+      if (state.fileMarkers.length) {
+        state.notes.sections = state.fileMarkers.map((m) => ({ ...m }));
+      } else {
+        state.notes.sections = SM.analysis.suggestSections(score, state.trackIndex, (i) => (state.fileChords[i] || []).map((c) => c.name)).map((s) => ({ id: uid(), ...s }));
+        suggested = state.notes.sections.length > 1;
+      }
+    }
+    deriveParts();
+    applyAnnotations();
+    state.view = -1;
+    renderMap();
+    fillTrackSelect();
+    applyPlaybackRange();
+    if (prefs.view === 'cards') renderCards();
+    if (suggested) toast(`This file had no sections, so Setcards suggested ${state.notes.sections.length}. Rename them in Edit.`);
+  });
+
+  api.renderStarted.on(() => { els.loading.hidden = false; });
+  api.renderFinished.on(() => { els.loading.hidden = true; });
+  api.error.on((e) => {
+    els.loading.hidden = true;
+    console.error(e);
+    toast('That file could not be read. Try exporting it again from Guitar Pro.');
+  });
+  api.soundFontLoad.on((e) => {
+    if (e.total) els.playerStatus.textContent = `Loading sounds ${Math.round((e.loaded / e.total) * 100)}%`;
+  });
+  api.playerReady.on(() => {
+    els.playBtn.disabled = false;
+    els.playerStatus.textContent = '';
+  });
+  api.playerStateChanged.on((e) => {
+    state.playing = e.state === 1;
+    els.playBtn.classList.toggle('is-playing', state.playing);
+    els.playBtn.setAttribute('aria-label', state.playing ? 'Pause' : 'Play');
+    if (!state.playing && !(ytPlayer && ytReady)) setPlayingPart(-1);
+  });
+  api.playerPositionChanged.on((e) => {
+    if (!state.score || !state.playing) return;
+    const bars = state.score.masterBars;
+    let bar = 0;
+    for (let i = bars.length - 1; i >= 0; i--) if (bars[i].start <= e.currentTick) { bar = i; break; }
+    setPlayingPart(partIndexForBar(bar));
+  });
+  function setPlayingPart(i) {
+    if (i === state.playingPart) return;
+    state.playingPart = i;
+    refreshChipStates();
+  }
+
+  // In edit mode a tap on a bar opens the section and chord dialog for that bar.
+  els.tab.addEventListener('click', (e) => {
+    if (!state.editing || !api.boundsLookup) return;
+    const surface = els.tab.querySelector('.at-surface');
+    if (!surface) return;
+    const r = surface.getBoundingClientRect();
+    const beat = api.boundsLookup.getBeatAtPos(e.clientX - r.left, e.clientY - r.top);
+    if (beat) openBarDialog(beat.voice.bar.index);
+  });
+
+  /* ---------------- tracks and roles ---------------- */
+  function trackMatches(t, roleId) {
+    const st = t.staves[0];
+    const name = (t.name || '').toLowerCase();
+    const prog = t.playbackInfo.program;
+    if (roleId === 'drums') return !!(st && st.isPercussion) || /drum|perc/.test(name);
+    if (st && st.isPercussion) return false;
+    if (roleId === 'bass') return /bass/.test(name) || (prog >= 32 && prog <= 39);
+    if (roleId === 'guitar') return (/guit|gtr/.test(name) && !/bass/.test(name)) || (prog >= 24 && prog <= 31);
+    if (roleId === 'keys') return /key|piano|organ|synth|rhodes|wurli/.test(name) || prog <= 23;
+    if (roleId === 'vocals') return /voc|vox|voice|sing|lead/.test(name) || (prog >= 52 && prog <= 54);
+    return false;
+  }
+  function pickTrack(score) {
+    const chosen = prefs.tracks[state.song.key] && prefs.tracks[state.song.key][prefs.role];
+    if (chosen != null && score.tracks[chosen]) return chosen;
+    const i = score.tracks.findIndex((t) => trackMatches(t, prefs.role));
+    if (i >= 0) return i;
+    const bass = score.tracks.findIndex((t) => trackMatches(t, 'bass'));
+    return bass >= 0 ? bass : 0;
+  }
+  function useTrack(i) {
+    state.trackIndex = i;
+    deriveParts();
+    applyAnnotations();
+    renderMap();
+    api.renderTracks([state.score.tracks[i]]);
+    if (prefs.view === 'cards') renderCards();
+    els.trackSel.value = i;
+  }
+
+  function setRole(id) {
+    prefs.role = id;
+    savePrefs();
+    els.roleBtn.textContent = role().label;
+    if (!state.score) return;
+    const i = pickTrack(state.score);
+    if (i !== state.trackIndex) useTrack(i);
+    else if (prefs.view === 'cards') renderCards();
+    els.showTabCards.checked = showTabInCards();
+  }
+
+  els.roleBtn.addEventListener('click', () => {
+    els.roleList.innerHTML = '';
+    ROLES.forEach((r) => {
+      const b = document.createElement('button');
+      b.className = 'role-opt';
+      b.setAttribute('aria-pressed', String(r.id === prefs.role));
+      b.textContent = r.label;
+      b.addEventListener('click', () => { closeDialog(els.roleDlg); setRole(r.id); });
+      els.roleList.appendChild(b);
+    });
+    els.roleDlg.showModal();
+  });
+
+  /* ---------------- loading songs ---------------- */
+  function resetDisplay() {
+    const d = api.settings.display;
+    d.startBar = 1;
+    d.barCount = -1;
+    d.scale = prefs.zoom;
+    d.staveProfile = STAVES[prefs.stave] ?? AT.StaveProfile.Tab;
+    api.updateSettings();
+  }
+
+  async function openSong(key) {
+    els.loading.hidden = false;
+    let song;
+    try {
+      song = await SM.library.open(key);
+    } catch (e) {
+      console.error(e);
+      els.loading.hidden = true;
+      toast(e.message || 'That song could not be opened');
+      return false;
+    }
+    if (state.playing) api.stop();
+    destroyMinis();
+    state.song = { key, title: song.notes.title || song.title || (song.fileName || 'Untitled').replace(SM.SONG_EXT, ''), artist: song.notes.artist || song.artist || '', fileName: song.fileName, canShare: song.canShare, localOnly: song.localOnly };
+    state.notes = song.notes;
+    state.notes.chords = state.notes.chords || {};
+    state.score = null;
+    state.playingPart = -1;
+    prefs.last = key;
+    savePrefs();
+    els.songTitle.textContent = state.song.title;
+    els.songMeta.textContent = state.song.artist || state.song.fileName || '';
+    document.title = `${state.song.title} · Setcards`;
+    updateBanner();
+    resetDisplay();
+    if (state.editing) setEditing(false);
+    // All tracks are loaded; the one for this person's role is chosen once the file is read.
+    const settingsTrack = prefs.tracks[key] && prefs.tracks[key][prefs.role];
+    if (song.tex) api.tex(song.tex, [settingsTrack || 0]);
+    else api.load(song.bytes, [settingsTrack || 0]);
+    setupVideo();
+    return true;
+  }
+
+  // alphaTab renders the track passed to load(); switch to the role's track once the score is known.
+  api.scoreLoaded.on((score) => {
+    if (api.tracks && api.tracks.length && api.tracks[0] !== score.tracks[state.trackIndex]) {
+      setTimeout(() => api.renderTracks([score.tracks[state.trackIndex]]), 0);
+    }
+  });
+
+  async function importFile(file) {
+    if (!file) return;
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const score = AT.importer.ScoreLoader.loadScoreFromBytes(bytes, api.settings);
+      const meta = { title: score.title || file.name.replace(/\.[^.]+$/, ''), artist: score.artist || '' };
+      const notes = SM.library.emptyNotes(meta);
+      const drive = SM.library.sources.drive;
+      const toBand = drive.available() && els.shareUpload.checked;
+      const source = toBand ? drive : SM.library.sources.local;
+      toast(toBand ? 'Adding to the band folder…' : 'Adding to this device…');
+      const id = await source.add(file.name, bytes, notes, meta);
+      closeDialog(els.libraryDlg);
+      await openSong(SM.library.key(source.id, id));
+      toast(toBand ? 'Added to the band folder' : 'Added to this device');
+    } catch (e) {
+      console.error(e);
+      toast(e.message && /Google|Drive/.test(e.message) ? e.message : 'That file could not be read. Setcards opens Guitar Pro 3 to 8 files and MusicXML.');
+    }
+  }
+
+  async function addDemo() {
+    const local = SM.library.sources.local;
+    const songs = await local.list();
+    const demo = songs.find((s) => s.isDemo);
+    if (demo) return SM.library.key('local', demo.id);
+    const meta = { title: window.DEMO_SONG.title, artist: window.DEMO_SONG.artist, tex: window.DEMO_SONG.tex, isDemo: true };
+    const id = await local.add('demo.tex', null, SM.library.emptyNotes(meta), meta);
+    return SM.library.key('local', id);
+  }
+
+  /* ---------------- edit mode ---------------- */
+  function setEditing(on) {
+    state.editing = on;
+    document.body.classList.toggle('editing', on);
+    els.editBtn.setAttribute('aria-pressed', String(on));
+    els.editBtn.textContent = on ? 'Done' : 'Edit';
+    els.editPanel.hidden = !on;
+    if (on) {
+      if (prefs.view !== 'tab') setView('tab');
+      renderEditList();
+      if (state.view !== -1) selectView(-1);
+    }
+  }
+
+  function sectionsChanged() {
+    const prevView = state.view;
+    deriveParts();
+    applyAnnotations();
+    state.view = Math.min(prevView, state.parts.length - 1);
+    renderMap();
+    renderEditList();
+    saveNotes();
+    if (prefs.view === 'tab') selectView(state.view, { keepVideo: true }); else renderCards();
+  }
+
+  function chordsChanged() {
+    applyAnnotations();
+    saveNotes();
+    if (prefs.view === 'tab') api.render(); else renderCards();
+  }
+
+  const trashIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 11v6M14 11v6M7 7l1 12h8l1-12M9 7V4h6v3"/></svg>';
+
+  function renderEditList() {
+    if (!state.editing || !state.score) return;
+    const list = sortedSections();
+    const n = state.score.masterBars.length;
+    els.sectionList.innerHTML = '';
+    if (!list.length) {
+      const li = document.createElement('li');
+      li.className = 'fine';
+      li.textContent = 'No sections yet.';
+      els.sectionList.appendChild(li);
+    }
+    const videoReady = !!(ytPlayer && ytReady);
+    list.forEach((s) => {
+      const p = state.parts.find((x) => x.ref === s);
+      const li = document.createElement('li');
+      li.className = 'section-row';
+      li.style.setProperty('--seg', segColor(kindOf(s.name)));
+      li.innerHTML = `
+        <span class="swatch"></span>
+        <input class="name-in" list="nameList" aria-label="Section name">
+        <label class="bar-label">Bar <input class="bar-in" type="number" min="1" max="${n}" inputmode="numeric" aria-label="Start bar"></label>
+        <label class="unit-label">Repeats every
+          <select class="unit-in" aria-label="Bars per repeat">
+            <option value="">auto (${p ? p.unit : '?'})</option><option value="1">1 bar</option><option value="2">2 bars</option><option value="4">4 bars</option><option value="8">8 bars</option><option value="999">no repeat</option>
+          </select>
+        </label>
+        <div class="time-wrap">
+          <label>Video <input class="time-in" placeholder="m:ss" inputmode="numeric" aria-label="Video start time"></label>
+          ${videoReady ? '<button class="mini now-btn" type="button">Now</button>' : ''}
+        </div>
+        <button class="del" type="button" aria-label="Remove section">${trashIcon}</button>`;
+      const nameIn = li.querySelector('.name-in');
+      const barIn = li.querySelector('.bar-in');
+      const unitIn = li.querySelector('.unit-in');
+      const timeIn = li.querySelector('.time-in');
+      nameIn.value = s.name;
+      barIn.value = s.start + 1;
+      unitIn.value = s.unit ? String(s.unit) : '';
+      timeIn.value = fmtTime(s.videoTime);
+      nameIn.addEventListener('change', () => {
+        const next = nameIn.value.trim() || 'Section';
+        const oldBase = baseName(s.name).toLowerCase();
+        // Renaming "Part A" renames every section with that name, since they are the same part.
+        const same = state.notes.sections.filter((o) => baseName(o.name).toLowerCase() === oldBase);
+        same.forEach((o) => { o.name = next; });
+        if (same.length > 1) toast(`Renamed all ${same.length} “${baseName(next)}” sections`);
+        sectionsChanged();
+      });
+      barIn.addEventListener('change', () => {
+        const v = Math.round(Number(barIn.value)) - 1;
+        if (isNaN(v) || v < 0 || v >= n) { toast(`Pick a bar between 1 and ${n}`); barIn.value = s.start + 1; return; }
+        if (state.notes.sections.some((o) => o !== s && o.start === v)) { toast(`Another section already starts at bar ${v + 1}`); barIn.value = s.start + 1; return; }
+        s.start = v;
+        sectionsChanged();
+      });
+      unitIn.addEventListener('change', () => {
+        s.unit = unitIn.value ? Number(unitIn.value) : undefined;
+        sectionsChanged();
+      });
+      timeIn.addEventListener('change', () => {
+        const t = parseTime(timeIn.value);
+        if (t === undefined) { toast('Use minutes:seconds, for example 1:05'); timeIn.value = fmtTime(s.videoTime); return; }
+        s.videoTime = t;
+        saveNotes();
+      });
+      const nowBtn = li.querySelector('.now-btn');
+      if (nowBtn) {
+        nowBtn.addEventListener('click', () => {
+          s.videoTime = Math.round(ytPlayer.getCurrentTime() * 10) / 10;
+          timeIn.value = fmtTime(s.videoTime);
+          saveNotes();
+        });
+      }
+      li.querySelector('.del').addEventListener('click', () => {
+        state.notes.sections = state.notes.sections.filter((o) => o !== s);
+        sectionsChanged();
+      });
+      els.sectionList.appendChild(li);
+    });
+  }
+
+  function openBarDialog(bar) {
+    state.barDlgIndex = bar;
+    const existing = state.notes.sections.find((s) => s.start === bar);
+    els.barDlgTitle.textContent = `Bar ${bar + 1}`;
+    if (existing) {
+      els.barDlgText.textContent = `“${existing.name}” starts here. Rename it or remove the break.`;
+      els.barName.value = existing.name;
+      els.barSubmit.textContent = 'Rename';
+      els.barRemove.hidden = false;
+    } else {
+      const pi = partIndexForBar(bar);
+      const within = pi >= 0 ? state.parts[pi].label : 'the song';
+      els.barDlgText.textContent = `This bar is inside “${within}”. Pick a name to start a new section here.`;
+      els.barName.value = '';
+      els.barSubmit.textContent = 'Start section';
+      els.barRemove.hidden = true;
+    }
+    els.presetRow.innerHTML = '';
+    const names = state.groups.filter((g) => !state.parts[g.occ[0]].synthetic).map((g) => g.name);
+    PRESETS.forEach((n) => { if (!names.some((x) => x.toLowerCase() === n.toLowerCase())) names.push(n); });
+    names.forEach((name) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip';
+      b.style.setProperty('--seg', segColor(kindOf(name)));
+      b.textContent = name;
+      b.addEventListener('click', () => { els.barName.value = name; commitBarDialog(); });
+      els.presetRow.appendChild(b);
+    });
+    // chords for this bar
+    const rf = riffForBar(bar);
+    els.barChords.value = (state.notes.chords[bar] != null ? state.notes.chords[bar] : chordsAt(bar).join(' '));
+    els.barChords.dataset.initial = els.barChords.value;
+    const times = rf ? riffBars(rf.riff, rf.offset).length : 1;
+    els.barChordsAllLabel.hidden = !(rf && times > 1);
+    els.barChordsAll.checked = true;
+    if (rf) els.barChordsAllLabel.querySelector('span').textContent = `Every time riff ${rf.riff} plays (${times} times)`;
+    els.barDlg.showModal();
+  }
+
+  function setChords(bar, text, everywhere) {
+    const rf = riffForBar(bar);
+    const bars = everywhere && rf ? riffBars(rf.riff, rf.offset) : [bar];
+    const value = text.trim();
+    bars.forEach((b) => {
+      if (value) state.notes.chords[b] = value;
+      else if (state.fileChords[b]) state.notes.chords[b] = '-';
+      else delete state.notes.chords[b];
+    });
+    return bars.length;
+  }
+
+  function commitBarDialog() {
+    const bar = state.barDlgIndex;
+    const chordText = els.barChords.value;
+    const chordsEdited = chordText !== els.barChords.dataset.initial;
+    const name = els.barName.value.trim();
+    if (chordsEdited) setChords(bar, chordText, els.barChordsAll.checked);
+    if (name) {
+      const existing = state.notes.sections.find((s) => s.start === bar);
+      if (existing) {
+        // the same part elsewhere in the song gets the new name too
+        const oldBase = baseName(existing.name).toLowerCase();
+        const same = state.notes.sections.filter((o) => baseName(o.name).toLowerCase() === oldBase);
+        same.forEach((o) => { o.name = name; });
+        if (same.length > 1) toast(`Renamed all ${same.length} “${baseName(name)}” sections`);
+      } else {
+        state.notes.sections.push({ id: uid(), start: bar, name });
+      }
+    } else if (!chordsEdited) {
+      els.barName.focus();
+      return;
+    }
+    closeDialog(els.barDlg);
+    if (name) sectionsChanged(); else chordsChanged();
+  }
+
+  els.barForm.addEventListener('submit', (e) => { e.preventDefault(); commitBarDialog(); });
+  els.barRemove.addEventListener('click', () => {
+    state.notes.sections = state.notes.sections.filter((s) => s.start !== state.barDlgIndex);
+    closeDialog(els.barDlg);
+    sectionsChanged();
+  });
+  els.editBtn.addEventListener('click', () => setEditing(!state.editing));
+  els.doneEditBtn.addEventListener('click', () => setEditing(false));
+
+  // Looks for each part's notes elsewhere in the tab and marks those bars as the same part.
+  function findRepeats() {
+    const n = state.score.masterBars.length;
+    const tokens = (i) => SM.analysis.barTokens(state.score, state.trackIndex, i).join(' ');
+    const same = (a, b, len) => { for (let k = 0; k < len; k++) if (tokens(a + k) !== tokens(b + k)) return false; return true; };
+    let added = 0;
+    const named = state.groups.filter((g) => !state.parts[g.occ[0]].synthetic);
+    named.sort((a, b) => state.parts[b.occ[0]].bars - state.parts[a.occ[0]].bars);
+    named.forEach((g) => {
+      const first = state.parts[g.occ[0]];
+      const len = first.bars;
+      let empty = true;
+      for (let k = 0; k < len; k++) if (tokens(first.start + k)) empty = false;
+      if (len < 2 || empty) return;
+      for (let i = 0; i + len <= n; i++) {
+        const covering = state.parts[partIndexForBar(i)];
+        if (covering && covering.group.key === g.key) { i = covering.end; continue; }
+        if (state.notes.sections.some((s) => s.start === i)) continue;
+        if (state.notes.sections.some((s) => s.start > i && s.start < i + len)) continue;
+        if (!same(first.start, i, len)) continue;
+        const after = i + len;
+        if (after < n && !state.notes.sections.some((s) => s.start === after)) {
+          const was = state.parts[partIndexForBar(after)];
+          state.notes.sections.push({ id: uid(), start: after, name: was && !was.synthetic ? was.name : 'Section' });
+        }
+        state.notes.sections.push({ id: uid(), start: i, name: first.name });
+        added++;
+        deriveParts();
+        i += len - 1;
+      }
+    });
+    return added;
+  }
+
+  els.findRepeatsBtn.addEventListener('click', () => {
+    if (!sortedSections().length) { toast('Mark one verse or chorus first, then search for its repeats'); return; }
+    let added = 0;
+    for (let pass = 0; pass < 6; pass++) {
+      const found = findRepeats();
+      if (!found) break;
+      added += found;
+    }
+    if (!added) { toast('No other matching passages found'); return; }
+    sectionsChanged();
+    toast(`Marked ${added} more ${added === 1 ? 'passage' : 'passages'} that match a part`);
+  });
+  els.suggestBtn.addEventListener('click', () => {
+    if (sortedSections().length && !els.suggestBtn.classList.contains('confirm')) {
+      els.suggestBtn.classList.add('confirm');
+      els.suggestBtn.textContent = 'Replace all sections?';
+      setTimeout(() => { els.suggestBtn.classList.remove('confirm'); els.suggestBtn.textContent = 'Suggest sections'; }, 3000);
+      return;
+    }
+    els.suggestBtn.classList.remove('confirm');
+    els.suggestBtn.textContent = 'Suggest sections';
+    state.notes.sections = SM.analysis.suggestSections(state.score, state.trackIndex, chordsAt).map((s) => ({ id: uid(), ...s }));
+    sectionsChanged();
+    toast(`Suggested ${state.notes.sections.length} sections from the repeating patterns. Rename them to Verse, Chorus and so on.`);
+  });
+  els.useMarkersBtn.addEventListener('click', () => {
+    if (!state.fileMarkers.length) { toast('This file has no section markers. Tap bars to add your own.'); return; }
+    const times = {};
+    (state.notes.sections || []).forEach((s) => { if (s.videoTime != null) times[s.start] = s.videoTime; });
+    state.notes.sections = state.fileMarkers.map((m) => ({ ...m, id: uid(), videoTime: times[m.start] }));
+    sectionsChanged();
+    toast(`Loaded ${state.fileMarkers.length} markers from the file`);
+  });
+
+  /* ---------------- chord dialog (from the cards) ---------------- */
+  function openChordDialog(bar, riffId, offset) {
+    state.chordEdit = { bar, riffId, offset };
+    const times = riffBars(riffId, offset).length;
+    els.chordDlgTitle.textContent = `Riff ${riffId}, bar ${offset + 1}`;
+    els.chordInput.value = chordsAt(bar).join(' ');
+    els.chordAllLabel.hidden = times <= 1;
+    els.chordAll.checked = true;
+    els.chordAllLabel.querySelector('span').textContent = `Every time riff ${riffId} plays (${times} times)`;
+    previewChords();
+    els.chordDlg.showModal();
+    setTimeout(() => els.chordInput.focus(), 50);
+  }
+  function previewChords() {
+    const names = SM.chords.split(els.chordInput.value);
+    els.chordPreview.innerHTML = names.map((n) => SM.chords.diagram(n, { width: 58 })).join('');
+  }
+  els.chordInput.addEventListener('input', previewChords);
+  els.chordForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const n = setChords(state.chordEdit.bar, els.chordInput.value, els.chordAll.checked);
+    closeDialog(els.chordDlg);
+    chordsChanged();
+    toast(n > 1 ? `Chords set in ${n} bars` : 'Chords saved');
+  });
+  els.chordClear.addEventListener('click', () => {
+    els.chordInput.value = '';
+    previewChords();
+  });
+
+  /* ---------------- player controls ---------------- */
+  els.playBtn.addEventListener('click', () => {
+    if (prefs.view === 'tab' || state.playing) { api.playPause(); return; }
+    applyPlaybackRange();
+    api.playPause();
+  });
+  els.loopBtn.addEventListener('click', () => {
+    state.loop = !state.loop;
+    els.loopBtn.setAttribute('aria-pressed', String(state.loop));
+    api.isLooping = state.loop && !!api.playbackRange;
+  });
+  els.speedSel.addEventListener('change', () => {
+    const v = Number(els.speedSel.value);
+    api.playbackSpeed = v;
+    if (ytPlayer && ytReady) ytPlayer.setPlaybackRate(v);
+  });
+  els.prevBtn.addEventListener('click', () => selectView(state.view - 1));
+  els.nextBtn.addEventListener('click', () => selectView(state.view + 1));
+  els.viewCards.addEventListener('click', () => setView('cards'));
+  els.viewTab.addEventListener('click', () => setView('tab'));
+
+  document.addEventListener('keydown', (e) => {
+    if (e.target.closest('input, select, textarea, dialog')) return;
+    if (e.key === 'ArrowRight' && prefs.view === 'tab') selectView(state.view + 1);
+    else if (e.key === 'ArrowLeft' && prefs.view === 'tab') selectView(state.view - 1);
+    else if (e.key === ' ' && !els.playBtn.disabled) { e.preventDefault(); api.playPause(); }
+  });
+
+  /* ---------------- YouTube ---------------- */
+  function loadYouTubeApi() {
+    if (ytApi) return ytApi;
+    ytApi = new Promise((resolve, reject) => {
+      if (window.YT && window.YT.Player) return resolve();
+      window.onYouTubeIframeAPIReady = () => resolve();
+      const s = document.createElement('script');
+      s.src = 'https://www.youtube.com/iframe_api';
+      s.onerror = () => { ytApi = null; reject(new Error('YouTube unavailable')); };
+      document.head.appendChild(s);
+    });
+    return ytApi;
+  }
+
+  function setupVideo() {
+    const id = youtubeId(state.notes && state.notes.youtubeUrl);
+    els.videoBtn.hidden = !id;
+    if (!id) {
+      els.videoPanel.hidden = true;
+      if (ytPlayer) { ytPlayer.destroy(); ytPlayer = null; ytReady = false; }
+      const holder = document.createElement('div');
+      holder.id = 'ytPlayer';
+      els.videoPanel.querySelector('.video-frame').replaceChildren(holder);
+      return;
+    }
+    els.videoPanel.hidden = !state.videoOn;
+    els.videoBtn.setAttribute('aria-pressed', String(state.videoOn));
+    loadYouTubeApi().then(() => {
+      if (ytPlayer) { ytPlayer.cueVideoById(id); return; }
+      ytPlayer = new window.YT.Player('ytPlayer', {
+        videoId: id,
+        playerVars: { playsinline: 1, rel: 0 },
+        events: { onReady: () => { ytReady = true; renderEditList(); } }
+      });
+    }).catch(() => toast('YouTube could not be reached'));
+  }
+
+  function seekVideoToView() {
+    if (!ytPlayer || !ytReady || state.view === -1) return;
+    const t = state.parts[state.view].ref && state.parts[state.view].ref.videoTime;
+    if (t != null) ytPlayer.seekTo(t, true);
+  }
+
+  // Loops the video inside the selected section and lights up the section the video is in.
+  setInterval(() => {
+    if (!ytPlayer || !ytReady || !state.parts.length || typeof ytPlayer.getPlayerState !== 'function') return;
+    if (ytPlayer.getPlayerState() !== 1) return;
+    const t = ytPlayer.getCurrentTime();
+    const timed = state.parts.map((p, i) => ({ i, t: p.ref && p.ref.videoTime })).filter((x) => x.t != null);
+    if (!timed.length) return;
+    if (state.view !== -1 && state.loop) {
+      const start = state.parts[state.view].ref && state.parts[state.view].ref.videoTime;
+      const next = timed.find((x) => x.t > (start ?? Infinity));
+      if (start != null && next && t >= next.t) { ytPlayer.seekTo(start, true); return; }
+    }
+    let cur = -1;
+    timed.forEach((x) => { if (x.t <= t) cur = x.i; });
+    setPlayingPart(cur);
+  }, 250);
+
+  els.videoBtn.addEventListener('click', () => {
+    state.videoOn = !state.videoOn;
+    els.videoBtn.setAttribute('aria-pressed', String(state.videoOn));
+    els.videoPanel.hidden = !state.videoOn;
+  });
+
+  /* ---------------- dialogs ---------------- */
+  function closeDialog(d) { if (d.open) d.close(); }
+  document.querySelectorAll('dialog').forEach((d) => {
+    d.addEventListener('click', (e) => {
+      if (e.target === d || e.target.closest('[data-close]')) closeDialog(d);
+    });
+  });
+
+  /* ---------------- library ---------------- */
+  async function renderLibrary() {
+    els.songLists.innerHTML = '<p class="fine">Loading songs…</p>';
+    renderDriveBox();
+    const drive = SM.library.sources.drive;
+    els.shareUploadWrap.hidden = !drive.available();
+    const groups = [];
+    for (const src of [drive, SM.library.sources.site, SM.library.sources.local]) {
+      if (!src.available()) continue;
+      try {
+        const songs = await src.list();
+        if (songs.length || src.id === 'local') groups.push({ src, songs });
+      } catch (e) {
+        groups.push({ src, songs: [], error: e.message });
+      }
+    }
+    els.songLists.innerHTML = '';
+    let hasDemo = false;
+    groups.forEach(({ src, songs, error }) => {
+      const h = document.createElement('h3');
+      h.className = 'card-label';
+      h.textContent = src.label;
+      els.songLists.appendChild(h);
+      if (error) {
+        const p = document.createElement('p');
+        p.className = 'fine';
+        p.textContent = error;
+        els.songLists.appendChild(p);
+      }
+      const ul = document.createElement('ul');
+      ul.className = 'song-list';
+      songs.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0) || String(a.title).localeCompare(b.title)).forEach((s) => {
+        if (s.isDemo) hasDemo = true;
+        const key = SM.library.key(src.id, s.id);
+        const li = document.createElement('li');
+        li.className = 'song-item' + (state.song && key === state.song.key ? ' current' : '');
+        const open = document.createElement('button');
+        open.className = 'song-open';
+        open.innerHTML = '<strong></strong><span></span>';
+        open.querySelector('strong').textContent = s.title || 'Untitled';
+        open.querySelector('span').textContent = [s.artist, s.fileName].filter(Boolean).join(' · ');
+        open.addEventListener('click', () => { closeDialog(els.libraryDlg); openSong(key); });
+        li.appendChild(open);
+        if (src.canWrite) {
+          const del = document.createElement('button');
+          del.className = 'song-del';
+          del.textContent = 'Delete';
+          del.addEventListener('click', async () => {
+            if (!del.classList.contains('confirm')) {
+              del.classList.add('confirm');
+              del.textContent = src.id === 'drive' ? 'Delete for the band?' : 'Tap to confirm';
+              setTimeout(() => { del.classList.remove('confirm'); del.textContent = 'Delete'; }, 3000);
+              return;
+            }
+            await src.remove(s.id);
+            if (state.song && state.song.key === key) openSong(await addDemo());
+            renderLibrary();
+          });
+          li.appendChild(del);
+        }
+        ul.appendChild(li);
+      });
+      if (!songs.length) {
+        const li = document.createElement('li');
+        li.className = 'fine';
+        li.textContent = src.id === 'drive' ? 'No songs in the band folder yet.' : 'No songs here yet.';
+        ul.appendChild(li);
+      }
+      els.songLists.appendChild(ul);
+      if (src.id === 'drive') {
+        const more = document.createElement('button');
+        more.className = 'text-btn';
+        more.textContent = 'Missing a song someone added? Give Setcards access';
+        more.addEventListener('click', async () => {
+          try { const n = await src.grantAccess(); if (n) toast(`Setcards can now open ${plural(n, 'more song')}`); renderLibrary(); } catch (e) { toast(e.message); }
+        });
+        els.songLists.appendChild(more);
+      }
+    });
+    els.demoBtn.hidden = hasDemo;
+  }
+
+  function renderDriveBox() {
+    const drive = SM.library.sources.drive;
+    const box = els.driveBox;
+    if (!drive.configured()) {
+      box.innerHTML = `<p class="fine">Share songs with your band through a Google Drive folder. This copy of Setcards needs a Google sign-in ID first: see SETUP-GOOGLE.md.</p>
+        <details class="advanced"><summary>I have a Google client ID</summary>
+          <label class="field"><span>Client ID</span><input id="gClientId" placeholder="….apps.googleusercontent.com"></label>
+          <label class="field"><span>API key (for the file picker)</span><input id="gApiKey"></label>
+          <label class="field"><span>Project number</span><input id="gAppId" inputmode="numeric"></label>
+          <button class="text-btn primary" id="gSave" type="button">Save</button>
+        </details>`;
+      box.querySelector('#gSave').addEventListener('click', () => {
+        drive.setClient({ clientId: box.querySelector('#gClientId').value.trim(), apiKey: box.querySelector('#gApiKey').value.trim(), appId: box.querySelector('#gAppId').value.trim() });
+        renderDriveBox();
+      });
+      return;
+    }
+    if (!drive.connected()) {
+      box.innerHTML = `<p class="fine">Keep your band's songs in a shared Google Drive folder. Each person signs in with their own Google account.</p>
+        <div class="row-btns"><button class="text-btn primary" id="gPick" type="button">Connect band folder</button><button class="text-btn" id="gCreate" type="button">Create a new one</button></div>`;
+      box.querySelector('#gPick').addEventListener('click', async () => {
+        try { const f = await drive.connect(); if (f) { toast(`Connected to “${f.name}”`); renderLibrary(); } } catch (e) { toast(e.message); }
+      });
+      box.querySelector('#gCreate').addEventListener('click', async () => {
+        try { const f = await drive.createFolder('Setcards band songs'); toast(`Created “${f.name}”. Share it with your band in Google Drive.`); renderLibrary(); } catch (e) { toast(e.message); }
+      });
+      return;
+    }
+    const f = drive.folder();
+    box.innerHTML = `<p class="fine">Band folder: <a href="${esc(drive.folderUrl())}" target="_blank" rel="noopener">${esc(f.name)}</a>. Share that folder in Google Drive to add bandmates.</p>
+      <button class="text-btn" id="gDisconnect" type="button">Disconnect</button>`;
+    box.querySelector('#gDisconnect').addEventListener('click', () => { drive.disconnect(); renderLibrary(); });
+  }
+
+  els.libraryBtn.addEventListener('click', () => { renderLibrary(); els.libraryDlg.showModal(); });
+  els.fileInput.addEventListener('change', () => {
+    importFile(els.fileInput.files[0]);
+    els.fileInput.value = '';
+  });
+  els.demoBtn.addEventListener('click', async () => {
+    const key = await addDemo();
+    closeDialog(els.libraryDlg);
+    openSong(key);
+  });
+
+  /* ---------------- settings ---------------- */
+  function fillTrackSelect() {
+    els.trackSel.innerHTML = '';
+    state.score.tracks.forEach((t, i) => {
+      const o = document.createElement('option');
+      o.value = i;
+      o.textContent = t.name || `Track ${i + 1}`;
+      els.trackSel.appendChild(o);
+    });
+    els.trackSel.value = state.trackIndex;
+  }
+
+  els.settingsBtn.addEventListener('click', () => {
+    if (!state.song) return;
+    els.zoomRange.value = prefs.zoom;
+    els.zoomOut.textContent = `${Math.round(prefs.zoom * 100)}%`;
+    els.ytInput.value = state.notes.youtubeUrl || '';
+    els.showTabCards.checked = showTabInCards();
+    document.querySelectorAll('input[name="stave"]').forEach((r) => { r.checked = r.value === prefs.stave; });
+    els.settingsDlg.showModal();
+  });
+  els.trackSel.addEventListener('change', () => {
+    const i = Number(els.trackSel.value);
+    prefs.tracks[state.song.key] = Object.assign({}, prefs.tracks[state.song.key], { [prefs.role]: i });
+    savePrefs();
+    useTrack(i);
+  });
+  els.showTabCards.addEventListener('change', () => {
+    prefs.cardsTab[prefs.role] = els.showTabCards.checked;
+    savePrefs();
+    if (prefs.view === 'cards') renderCards();
+  });
+  document.querySelectorAll('input[name="stave"]').forEach((r) => r.addEventListener('change', () => {
+    prefs.stave = r.value;
+    savePrefs();
+    api.settings.display.staveProfile = STAVES[r.value];
+    api.updateSettings();
+    if (prefs.view === 'tab') api.render(); else renderCards();
+  }));
+  els.zoomRange.addEventListener('input', () => { els.zoomOut.textContent = `${Math.round(els.zoomRange.value * 100)}%`; });
+  function setZoom(z) {
+    z = Math.round(Math.min(1.8, Math.max(0.6, z)) * 10) / 10;
+    prefs.zoom = z;
+    savePrefs();
+    api.settings.display.scale = z;
+    api.updateSettings();
+    if (prefs.view === 'tab') api.render(); else renderCards();
+    toast(`Tab size ${Math.round(z * 100)}%`);
+  }
+  els.zoomRange.addEventListener('change', () => setZoom(Number(els.zoomRange.value)));
+  $('zoomOutBtn').addEventListener('click', () => setZoom(prefs.zoom - 0.1));
+  $('zoomInBtn').addEventListener('click', () => setZoom(prefs.zoom + 0.1));
+  els.ytInput.addEventListener('change', () => {
+    const v = els.ytInput.value.trim();
+    if (v && !youtubeId(v)) { toast('That does not look like a YouTube link'); return; }
+    state.notes.youtubeUrl = v;
+    state.videoOn = true;
+    saveNotes();
+    setupVideo();
+  });
+
+  // A copy of the Guitar Pro file with the sections, riff letters and chord names written in.
+  els.exportBtn.addEventListener('click', () => {
+    try {
+      const data = new AT.exporter.Gp7Exporter().export(state.score, api.settings);
+      const blob = new Blob([data], { type: 'application/octet-stream' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${(state.song.title || 'song').replace(/[\\/:*?"<>|]+/g, '')} (Setcards).gp`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    } catch (e) {
+      console.error(e);
+      toast('The annotated file could not be created');
+    }
+  });
+
+  /* ---------------- drag and drop ---------------- */
+  let dragDepth = 0;
+  window.addEventListener('dragenter', (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { dragDepth++; els.drop.hidden = false; } });
+  window.addEventListener('dragleave', () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) els.drop.hidden = true; });
+  window.addEventListener('dragover', (e) => e.preventDefault());
+  window.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dragDepth = 0;
+    els.drop.hidden = true;
+    const f = e.dataTransfer && e.dataTransfer.files[0];
+    if (f) importFile(f);
+  });
+
+  /* ---------------- start ---------------- */
+  els.roleBtn.textContent = role().label;
+  applyViewChrome();
+  (async function start() {
+    if (prefs.last && await openSong(prefs.last)) return;
+    try {
+      const site = await SM.library.sources.site.list();
+      if (site.length) { await openSong(SM.library.key('site', site[0].id)); return; }
+      await openSong(await addDemo());
+    } catch (e) {
+      console.error(e);
+      toast('Saving is unavailable in this browser window');
+    }
+  })();
+
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  }
+})();
