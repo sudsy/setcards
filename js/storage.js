@@ -173,8 +173,13 @@
     }
 
     // Asks Google for an access token. Must start from a tap the first time (Google shows a pop-up).
+    // The access token lasts an hour; it is kept for this browser tab so a reload doesn't ask again.
+    const saved = (() => { try { return JSON.parse(sessionStorage.getItem('setcards:gtoken')); } catch (e) { return null; } })();
+    if (saved && saved.exp > Date.now() + 60000) { token = saved.token; tokenExpiry = saved.exp; }
+    const hasToken = () => !!token && Date.now() < tokenExpiry - 60000;
+
     async function signIn(interactive) {
-      if (token && Date.now() < tokenExpiry - 60000) return token;
+      if (hasToken()) return token;
       const c = cfg();
       if (!c.clientId) throw new Error('Google Drive is not set up for this copy of Setcards yet');
       await ready();
@@ -183,10 +188,15 @@
           client_id: c.clientId,
           scope: 'https://www.googleapis.com/auth/drive.file',
           prompt: interactive ? '' : 'none',
+          hint: ls.get('setcards:googleHint') || undefined,
           callback: (resp) => {
             if (resp.error) return reject(new Error(resp.error_description || resp.error));
             token = resp.access_token;
             tokenExpiry = Date.now() + (resp.expires_in || 3600) * 1000;
+            try { sessionStorage.setItem('setcards:gtoken', JSON.stringify({ token, exp: tokenExpiry })); } catch (e) { /* storage unavailable */ }
+            // remember which account was used, so the next sign-in can skip Google's account chooser
+            fetch(`${API}/about?fields=user(emailAddress)`, { headers: { Authorization: 'Bearer ' + token } })
+              .then((r) => (r.ok ? r.json() : null)).then((j) => { if (j && j.user) ls.set('setcards:googleHint', j.user.emailAddress); }).catch(() => {});
             ls.set('setcards:driveSignedIn', true);
             resolve(token);
           },
@@ -197,9 +207,13 @@
     }
 
     async function call(url, opts = {}) {
-      const t = await signIn(false).catch(() => signIn(true));
+      const t = await signIn(true);
       const r = await fetch(url, Object.assign({}, opts, { headers: Object.assign({ Authorization: 'Bearer ' + t }, opts.headers || {}) }));
-      if (r.status === 401) { token = null; throw new Error('Your Google sign-in expired. Connect again.'); }
+      if (r.status === 401) {
+        token = null;
+        try { sessionStorage.removeItem('setcards:gtoken'); } catch (e) { /* storage unavailable */ }
+        throw new Error('Your Google sign-in expired. Open Songs and tap Show band songs to sign in again.');
+      }
       if (!r.ok) throw new Error(`Google Drive said ${r.status}: ${(await r.text()).slice(0, 160)}`);
       return r;
     }
@@ -276,6 +290,8 @@
       canWrite: true,
       configured: () => !!cfg().clientId,
       connected: () => !!folder(),
+      signedIn: hasToken,
+      signIn: () => signIn(true),
       folder,
       available: () => !!cfg().clientId && !!folder(),
       setClient(c) { ls.set('setcards:google', c); },
@@ -296,7 +312,12 @@
         filesCache = [];
         return f;
       },
-      disconnect() { ls.del('setcards:driveFolder'); filesCache = null; token = null; },
+      disconnect() {
+        ls.del('setcards:driveFolder');
+        filesCache = null;
+        token = null;
+        try { sessionStorage.removeItem('setcards:gtoken'); } catch (e) { /* storage unavailable */ }
+      },
       folderUrl: () => (folder() ? `https://drive.google.com/drive/folders/${folder().id}` : null),
       // Lets the person grant access to songs other bandmates dropped into the folder.
       async grantAccess() { const picked = await pick('files'); filesCache = null; return picked.length; },

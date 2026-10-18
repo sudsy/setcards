@@ -1295,6 +1295,8 @@
     const groups = [];
     for (const src of [drive, SM.library.sources.site, SM.library.sources.local]) {
       if (!src.available()) continue;
+      // Listing the band folder needs a Google sign-in, which should only happen when someone taps for it.
+      if (src.id === 'drive' && !drive.signedIn()) { groups.push({ src, songs: [], needsSignIn: true }); continue; }
       try {
         const songs = await src.list();
         if (songs.length || src.id === 'local') groups.push({ src, songs });
@@ -1304,11 +1306,21 @@
     }
     els.songLists.innerHTML = '';
     let hasDemo = false;
-    groups.forEach(({ src, songs, error }) => {
+    groups.forEach(({ src, songs, error, needsSignIn }) => {
       const h = document.createElement('h3');
       h.className = 'card-label';
       h.textContent = src.label;
       els.songLists.appendChild(h);
+      if (needsSignIn) {
+        const show = document.createElement('button');
+        show.className = 'text-btn primary';
+        show.textContent = 'Show band songs';
+        show.addEventListener('click', async () => {
+          try { await src.signIn(); renderLibrary(); } catch (e) { toast(e.message); }
+        });
+        els.songLists.appendChild(show);
+        return;
+      }
       if (error) {
         const p = document.createElement('p');
         p.className = 'fine';
@@ -1360,12 +1372,23 @@
         more.className = 'text-btn';
         more.textContent = 'Missing a song someone added? Give Setcards access';
         more.addEventListener('click', async () => {
-          try { const n = await src.grantAccess(); if (n) toast(`Setcards can now open ${plural(n, 'more song')}`); renderLibrary(); } catch (e) { toast(e.message); }
+          await withLibraryHidden(async () => {
+            const n = await src.grantAccess();
+            if (n) toast(`Setcards can now open ${plural(n, 'more song')}`);
+          });
         });
         els.songLists.appendChild(more);
       }
     });
     els.demoBtn.hidden = hasDemo;
+  }
+
+  // Google's picker sits in the page, so the Songs window steps aside while it is open, then comes back.
+  async function withLibraryHidden(fn) {
+    closeDialog(els.libraryDlg);
+    try { await fn(); } catch (e) { toast(e.message); }
+    renderLibrary();
+    if (!els.libraryDlg.open) els.libraryDlg.showModal();
   }
 
   function renderDriveBox() {
@@ -1389,7 +1412,10 @@
       box.innerHTML = `<p class="fine">Keep your band's songs in a shared Google Drive folder. Each person signs in with their own Google account.</p>
         <div class="row-btns"><button class="text-btn primary" id="gPick" type="button">Connect band folder</button><button class="text-btn" id="gCreate" type="button">Create a new one</button></div>`;
       box.querySelector('#gPick').addEventListener('click', async () => {
-        try { const f = await drive.connect(); if (f) { toast(`Connected to “${f.name}”`); renderLibrary(); } } catch (e) { toast(e.message); }
+        await withLibraryHidden(async () => {
+          const f = await drive.connect();
+          if (f) toast(`Connected to “${f.name}”`);
+        });
       });
       box.querySelector('#gCreate').addEventListener('click', async () => {
         try { const f = await drive.createFolder('Setcards band songs'); toast(`Created “${f.name}”. Share it with your band in Google Drive.`); renderLibrary(); } catch (e) { toast(e.message); }
@@ -1508,7 +1534,10 @@
   els.roleBtn.textContent = role().label;
   applyViewChrome();
   (async function start() {
-    if (prefs.last && await openSong(prefs.last)) return;
+    // A band folder song needs a Google sign-in, which can only start from a tap, so begin elsewhere.
+    const needsGoogle = prefs.last && prefs.last.startsWith('drive:') && !SM.library.sources.drive.signedIn();
+    if (needsGoogle) toast('Open Songs and tap Show band songs to get back to your band folder');
+    else if (prefs.last && await openSong(prefs.last)) return;
     try {
       const site = await SM.library.sources.site.list();
       if (site.length) { await openSong(SM.library.key('site', site[0].id)); return; }
