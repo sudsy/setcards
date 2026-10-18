@@ -751,7 +751,28 @@
   }
 
   // Small tab snippets are drawn only when they scroll into view.
+  // As many bars to a row as fit (about 140px a bar at normal size), keeping to 1, 2, 4 or 8 so phrases stay together:
+  // 2 on a phone, 8 on a wide screen.
+  function barsPerRow(width, len) {
+    const fit = Math.max(1, Math.floor(width / (140 * prefs.zoom)));
+    const n = [8, 4, 2, 1].find((x) => x <= fit);
+    return Math.min(len, n);
+  }
+  // Snippets are laid out for the width they had, so redraw the cards when a resize changes how many bars fit.
+  let lastFit = null;
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (!state.score || prefs.view !== 'cards' || els.songView.hidden) return;
+      const fit = barsPerRow(els.cards.clientWidth, 8);
+      if (lastFit !== null && fit !== lastFit) { const top = els.scroller.scrollTop; renderCards(); els.scroller.scrollTop = top; }
+      lastFit = fit;
+    }, 250);
+  });
+
   function startMinis() {
+    lastFit = barsPerRow(els.cards.clientWidth, 8);
     const holders = [...els.cards.querySelectorAll('.mini-tab')];
     if (!holders.length) return;
     const draw = (el) => {
@@ -762,7 +783,9 @@
         display: {
           scale: prefs.zoom * 0.85, layoutMode: AT.LayoutMode.Page, staveProfile: STAVES[prefs.stave] ?? AT.StaveProfile.Tab,
           startBar: Number(el.dataset.start) + 1, barCount: Number(el.dataset.len),
-          barsPerRow: Math.min(Number(el.dataset.len), els.cards.clientWidth < 520 ? 2 : 4)
+          barsPerRow: barsPerRow(el.clientWidth || els.cards.clientWidth, Number(el.dataset.len)),
+          // a full last row is stretched across the card like the others; a short one keeps its natural width
+          justifyLastSystem: Number(el.dataset.len) % barsPerRow(el.clientWidth || els.cards.clientWidth, Number(el.dataset.len)) === 0
         },
         notation: { rhythmMode: AT.TabRhythmMode.ShowWithBars },
         player: { playerMode: AT.PlayerMode.Disabled }
