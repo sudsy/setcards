@@ -1736,6 +1736,8 @@
     if (prefs.sort === 'title') return byText(a.title, b.title) || byText(a.artist, b.artist);
     // songs with no artist go after the rest
     if (prefs.sort === 'artist') return (!a.artist - !b.artist) || byText(a.artist, b.artist) || byText(a.title, b.title);
+    // band songs follow the rows of the band's Song list sheet; songs on this device, the order they were added
+    if (a.order != null && b.order != null) return a.order - b.order;
     return (a.addedAt || 0) - (b.addedAt || 0) || byText(a.title, b.title);
   }
   const sortSongs = (list) => list.sort(compareSongs);
@@ -1748,7 +1750,8 @@
     SORTS.forEach(([id, label]) => {
       const b = document.createElement('button');
       b.type = 'button';
-      b.textContent = label;
+      b.textContent = id === 'added' && inBand() ? 'Song list' : label;
+      if (id === 'added' && inBand()) b.title = 'The order of the rows in the band’s Song list sheet';
       b.setAttribute('aria-pressed', String((prefs.sort || 'added') === id));
       b.addEventListener('click', () => {
         prefs.sort = id;
@@ -1769,7 +1772,7 @@
     const key = SM.library.key(src.id, s.id);
     const li = document.createElement('li');
     li.className = 'song-row' + (state.song && key === state.song.key ? ' current' : '');
-    li.song = { title: s.title, artist: s.artist, addedAt: s.addedAt };
+    li.song = { title: s.title, artist: s.artist, addedAt: s.addedAt, order: s.order };
     const open = document.createElement('button');
     open.className = 'song-open';
     open.innerHTML = '<strong></strong><span class="who"></span><span class="details"></span>';

@@ -261,3 +261,23 @@ test('with nothing saved yet, an unreachable Drive still reports the problem', a
   globalThis.fetch = async () => { throw new TypeError('Failed to fetch'); };
   await assert.rejects(() => drive.list(), /Failed to fetch/);
 });
+
+test('the order of the rows in the Song list sheet is the order songs are listed in, and is kept', async () => {
+  const store = fakeDrive([]);
+  const drive = loadDrive();
+  for (const title of ['First', 'Second', 'Third']) await drive.add(null, null, { title, artist: 'Us', status: 'proposed' });
+  await drive.syncSongList();
+  const sheet = [...store.values()].find((f) => f.name === 'Song list');
+  const lines = sheet.content.trim().split('\r\n');
+  assert.deepEqual(lines.slice(1).map((l) => l.split(',')[0]), ['First', 'Second', 'Third']);
+
+  // someone moves Third to the top in Google Sheets
+  sheet.content = [lines[0], lines[3], lines[1], lines[2]].join('\r\n') + '\r\n';
+  assert.deepEqual((await drive.list()).map((s) => s.title), ['Third', 'First', 'Second']);
+  assert.equal(await drive.syncSongList(), false);
+
+  // a new song goes at the bottom, and the moved rows stay put
+  await drive.add(null, null, { title: 'Fourth', artist: 'Us', status: 'proposed' });
+  assert.equal(await drive.syncSongList(), true);
+  assert.deepEqual(sheet.content.trim().split('\r\n').slice(1).map((l) => l.split(',')[0]), ['Third', 'First', 'Second', 'Fourth']);
+});

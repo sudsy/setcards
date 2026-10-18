@@ -508,9 +508,60 @@
       return norm(a) === norm(b);
     };
 
+    // Reads CSV as Google exports it: quoted cells may hold commas, quotes ("") and line breaks.
+    function parseCsv(text) {
+      const rows = [];
+      let row = [];
+      let cell = '';
+      let quoted = false;
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (quoted) {
+          if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; } else if (ch === '"') quoted = false; else cell += ch;
+        } else if (ch === '"') quoted = true;
+        else if (ch === ',') { row.push(cell); cell = ''; } else if (ch === '\n' || ch === '\r') {
+          if (ch === '\r' && text[i + 1] === '\n') i++;
+          row.push(cell); rows.push(row); row = []; cell = '';
+        } else cell += ch;
+      }
+      if (cell || row.length) { row.push(cell); rows.push(row); }
+      return rows;
+    }
+
+    // The sheet's own order is the band's order: whoever rearranges the rows there decides how songs are listed.
+    // Songs are found by their tab file, or by title and artist; songs not in the sheet go at the bottom, oldest first.
+    function orderBySheet(songs, csv) {
+      const rows = parseCsv(csv || '');
+      const head = (rows.shift() || []).map((h) => h.trim().toLowerCase());
+      const col = (name) => head.indexOf(name);
+      const [ct, ca, cf] = [col('title'), col('artist'), col('tab file')];
+      const norm = (v) => String(v || '').trim().toLowerCase();
+      const used = new Set();
+      const place = (s) => {
+        const r = rowFor(s).cells;
+        const find = (test) => rows.findIndex((row, i) => !used.has(i) && test(row));
+        let i = s.tab && cf >= 0 ? find((row) => row[cf] && row[cf] === s.tab.name) : -1;
+        if (i < 0 && ct >= 0) i = find((row) => norm(row[ct]) === norm(r[0]) && (ca < 0 || norm(row[ca]) === norm(r[1])));
+        if (i >= 0) used.add(i);
+        return i;
+      };
+      // songs with a tab are matched first, as their file name is the surest match
+      const pos = new Map();
+      songs.filter((s) => s.tab).forEach((s) => pos.set(s, place(s)));
+      songs.filter((s) => !s.tab).forEach((s) => pos.set(s, place(s)));
+      const rank = (s) => (pos.get(s) >= 0 ? pos.get(s) : Infinity);
+      return songs.slice().sort((a, b) => rank(a) - rank(b) || (a.addedAt || 0) - (b.addedAt || 0));
+    }
+    async function readSheet() {
+      const sheet = (filesCache || []).find((x) => x.name === SHEET_NAME && x.mimeType === SHEET_TYPE);
+      if (!sheet) return null;
+      lastSheetCsv = await (await call(`${API}/files/${sheet.id}/export?mimeType=text/csv`)).text();
+      return lastSheetCsv;
+    }
+
+    // songs are written in the order given (the sheet's own order, with new songs at the bottom)
     function songListCsv(songs) {
-      // in the order songs were added, so new songs go at the bottom
-      const rows = songs.slice().sort((a, b) => (a.addedAt || 0) - (b.addedAt || 0)).map(rowFor);
+      const rows = songs.map(rowFor);
       const head = ['Title', 'Artist', 'Status', 'Band key', 'Original key', 'Tempo (bpm)', 'Length', 'YouTube', 'Tab file'];
       return [head, ...rows.map((r) => r.cells)].map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
     }
@@ -521,12 +572,12 @@
       filesCache = null;
       const songs = await allSongs();
       songs.forEach((s) => summaries.set(s.id, summaryOf(s)));
-      const csv = songListCsv(songs);
       const sheet = filesCache.find((x) => x.name === SHEET_NAME && x.mimeType === SHEET_TYPE);
-      if (sheet && lastSheetCsv === null) {
-        try { lastSheetCsv = await (await call(`${API}/files/${sheet.id}/export?mimeType=text/csv`)).text(); } catch (e) { lastSheetCsv = ''; }
-      }
-      if (sameTable(csv, lastSheetCsv)) return false;
+      // read it fresh each time, so rows someone has just moved stay where they put them
+      let current = '';
+      if (sheet) { try { current = await readSheet(); } catch (e) { current = lastSheetCsv || ''; } }
+      const csv = songListCsv(orderBySheet(songs, current));
+      if (sameTable(csv, current)) return false;
       if (sheet) {
         await call(`${UPLOAD}/files/${sheet.id}?uploadType=media&supportsAllDrives=true`, { method: 'PATCH', headers: { 'Content-Type': 'text/csv' }, body: csv });
       } else {
@@ -625,8 +676,12 @@
         let songs = await allSongs();
         if (songs.some((sg) => !sg.folder) && await moveLooseSongs(songs)) { filesCache = null; songs = await allSongs(); }
         songs.forEach((s) => summaries.set(s.id, summaryOf(s)));
+        let csv = lastSheetCsv;
+        try { csv = await readSheet(); } catch (e) { /* the last order read is used */ }
+        songs = orderBySheet(songs, csv);
         scheduleSongList();   // brings the sheet up to date if a change was missed (it is only rewritten if different)
-        return songs.map((s) => ({
+        return songs.map((s, order) => ({
+          order,
           id: s.id,
           title: (s.notes && s.notes.title) || (s.tab ? s.tab.name.replace(SONG_EXT, '').replace(/[_-]+/g, ' ') : 'Untitled'),
           artist: (s.notes && s.notes.artist) || '',
