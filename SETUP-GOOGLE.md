@@ -25,7 +25,7 @@ In "APIs & Services", then "Library", turn on:
 4. Under "Data access" (or "Scopes"), add `https://www.googleapis.com/auth/drive.file`. This is the narrowest Drive permission: Setcards can only see files it created or that a person picks for it.
 5. Leave the app in **Testing** and add each bandmate's Google account under "Test users" (up to 100 people).
 
-While in testing, people see a "Google hasn't verified this app" notice the first time they sign in. That is expected. To remove it for the public, submit the app for verification later. Because Setcards only uses `drive.file`, that review is the lighter "brand verification", not a paid security audit.
+While in testing, only the test users can sign in, and they see a "Google hasn't verified this app" notice the first time. That is expected. To let anyone use it, see "Opening it to everyone" below.
 
 ## 4. Create the sign-in client ID
 
@@ -54,6 +54,17 @@ window.SETCARDS_CONFIG = {
 Commit and push. These values identify the app to Google and are meant to be public. They do not give anyone access to files.
 
 Someone running their own copy without editing `config.js` can also paste their own values into the Songs screen, under "I have a Google client ID". They are saved in that browser only.
+
+## Opening it to everyone
+
+When you want any band to be able to use your copy without being added as test users:
+
+1. Add a privacy policy page and a homepage link to the sign-in screen settings. A short page saying that Setcards stores nothing on any server, and that songs stay in each person's browser and Google Drive, is enough.
+2. In "Google Auth Platform", then "Audience", choose **Publish app** to move it to "In production".
+3. Setcards only uses `drive.file`, which Google treats as a non-sensitive permission, so it should not need Google's security review. The console says if verification is required when you publish.
+4. If Google asks for brand verification, the homepage and privacy policy must be on a domain you can prove you own. That is not possible for `github.io`, so you would need a custom domain pointed at GitHub Pages (about $15 a year).
+
+The Drive and Picker APIs are free at this scale, and each band's songs use their own Drive storage, so publishing costs you nothing.
 
 ## Using it with a band
 
