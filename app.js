@@ -18,7 +18,7 @@
     videoBtn: $('videoBtn'), videoPanel: $('videoPanel'), playerStatus: $('playerStatus'),
     homeView: $('homeView'), songView: $('songView'), backBtn: $('backBtn'), bandName: $('bandName'), homeRoleBtn: $('homeRoleBtn'),
     bandBtn: $('bandBtn'), bandDlg: $('bandDlg'), driveBox: $('driveBox'), modeBox: $('modeBox'),
-    welcome: $('welcome'), chooseBand: $('chooseBand'), chooseSolo: $('chooseSolo'), bandBox: $('bandBox'), songListWrap: $('songListWrap'),
+    welcome: $('welcome'), welcomeRoles: $('welcomeRoles'), welcomeMode: $('welcomeMode'), chooseBand: $('chooseBand'), chooseSolo: $('chooseSolo'), bandBox: $('bandBox'), songListWrap: $('songListWrap'),
     fileInput: $('fileInput'), shareUpload: $('shareUpload'), shareUploadWrap: $('shareUploadWrap'),
     originalKeyInput: $('originalKeyInput'), bandKeyInput: $('bandKeyInput'), tabKeyInput: $('tabKeyInput'), keyInfo: $('keyInfo'),
     bandTrDown: $('bandTrDown'), bandTrUp: $('bandTrUp'), bandTrOut: $('bandTrOut'), matchKeyBtn: $('matchKeyBtn'),
@@ -42,10 +42,10 @@
   const PRESETS = ['Intro', 'Verse', 'Pre-chorus', 'Chorus', 'Bridge', 'Solo', 'Outro'];
   const STAVES = { tab: AT.StaveProfile.Tab, scoretab: AT.StaveProfile.ScoreTab, score: AT.StaveProfile.Score };
   const ROLES = [
-    { id: 'bass', label: 'Bass', cardsTab: true, chords: false },
-    { id: 'guitar', label: 'Guitar', cardsTab: false, diagrams: true },
+    { id: 'bass', label: 'Bass', cardsTab: true, chords: false, offer: 'Tab for each riff, shown once' },
+    { id: 'guitar', label: 'Guitar', cardsTab: false, diagrams: true, offer: 'Chord names and shapes' },
     { id: 'keys', label: 'Keys', cardsTab: false },
-    { id: 'vocals', label: 'Vocals', cardsTab: false, cues: true },
+    { id: 'vocals', label: 'Vocals', cardsTab: false, cues: true, offer: 'Song order with lyric cues' },
     { id: 'drums', label: 'Drums', cardsTab: false }
   ];
 
@@ -1111,6 +1111,7 @@
 
   function setRole(id) {
     prefs.role = id;
+    prefs.roleChosen = true;
     savePrefs();
     els.roleBtn.textContent = role().label;
     els.homeRoleBtn.textContent = role().label;
@@ -1956,6 +1957,7 @@
     els.homeRoleBtn.textContent = role().label;
     const wrap = els.songListWrap;
     els.welcome.hidden = !!prefs.mode;
+    els.homeRoleBtn.hidden = !prefs.mode;   // asked on the welcome screen first
     els.homeView.querySelector('.home-foot').hidden = !prefs.mode;
     els.bandBox.hidden = true;
     wrap.innerHTML = '';
@@ -2137,6 +2139,31 @@
     renderHome();
   }
 
+  // First visit: what you play (bass, guitar and vocals first; keys and drums too), then band or just you.
+  function renderWelcomeRoles() {
+    const box = els.welcomeRoles;
+    box.innerHTML = '';
+    [...ROLES.filter((r) => r.offer), ...ROLES.filter((r) => !r.offer)].forEach((r) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'choice role-choice' + (r.offer ? '' : ' minor');
+      b.dataset.role = r.id;
+      b.setAttribute('aria-pressed', String(!!prefs.roleChosen && prefs.role === r.id));
+      b.innerHTML = '<strong></strong>' + (r.offer ? '<span></span>' : '');
+      b.querySelector('strong').textContent = r.label;
+      if (r.offer) b.querySelector('span').textContent = r.offer;
+      b.addEventListener('click', () => {
+        setRole(r.id);
+        box.querySelectorAll('.role-choice').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+        els.welcomeMode.hidden = false;
+        els.welcomeMode.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      });
+      box.appendChild(b);
+    });
+    els.welcomeMode.hidden = !prefs.roleChosen;
+  }
+  renderWelcomeRoles();
+
   els.chooseBand.addEventListener('click', () => setMode('band'));
   els.chooseSolo.addEventListener('click', () => setMode('solo'));
 
@@ -2236,6 +2263,8 @@
         savePrefs();
         toast(`Connected to “${f.name}”`);
         renderHome();
+        // someone joining from an invite skips the welcome, so ask what they play here
+        if (!prefs.roleChosen) openRoles();
       } catch (e) {
         toast(e.message);
       }

@@ -69,11 +69,17 @@ test('first visit asks once how Setcards will be used', async ({ page }) => {
   const errors = watchErrors(page);
   await page.goto('/');
   await expect(page.locator('#welcome')).toBeVisible();
+  // what you play comes first; then band or just you
+  await expect(page.locator('#welcomeRoles .choice')).toHaveText([/Bass/, /Guitar/, /Vocals/, /Keys/, /Drums/]);
+  await expect(page.locator('#chooseSolo')).toBeHidden();
+  await page.locator('#welcomeRoles .choice', { hasText: 'Guitar' }).click();
   await page.click('#chooseSolo');
   await expect(page.locator('#welcome')).toBeHidden();
   await expect(page.locator('.list-title')).toHaveText('Your songs');
+  await expect(page.locator('#homeRoleBtn')).toHaveText('Guitar');
   await page.reload();
   await expect(page.locator('#welcome')).toBeHidden();
+  await expect(page.locator('#homeRoleBtn')).toHaveText('Guitar');
   expect(errors).toEqual([]);
 });
 

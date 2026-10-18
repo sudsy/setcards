@@ -784,3 +784,10 @@ body.paged .card > .role-note { margin-bottom: 4px; }
 body.paged #cards { padding: 2px 0; row-gap: 4px; }
 /* alphaTab leaves room under the stems for effects that bass parts rarely have */
 body.paged .card .mini-tab { margin-bottom: -14px; }
+.welcome-step { margin: 8px 0 0; font-family: var(--font-display); font-weight: 700; font-size: 1.25rem; }
+.welcome-roles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.welcome-roles .choice.minor { padding-top: 8px; padding-bottom: 8px; }
+.welcome-roles .choice.minor strong { font-size: 1.05rem; }
+.welcome-roles .choice[aria-pressed="true"] { border-color: var(--accent-fill); box-shadow: inset 0 0 0 1px var(--accent-fill); }
+@media (max-width: 520px) { .welcome-roles { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .welcome-roles .choice:not(.minor) { grid-column: 1 / -1; } }
+.welcome-mode { display: grid; gap: 8px; }

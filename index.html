@@ -32,7 +32,12 @@
     <main id="homeMain" class="scroller home-main">
       <section id="welcome" class="welcome" hidden>
         <h1>Your band's songs, as short cards for every player</h1>
-        <p>Setcards breaks Guitar Pro songs into the parts that repeat, so a quick look before a song is enough. Choose how you'll use it. You can change this later in settings.</p>
+        <p>Setcards breaks Guitar Pro songs into the parts that repeat, so a quick look before a song is enough.</p>
+        <h2 class="welcome-step">What do you play?</h2>
+        <div id="welcomeRoles" class="welcome-roles" role="group" aria-label="What do you play?"></div>
+        <div id="welcomeMode" class="welcome-mode" hidden>
+        <h2 class="welcome-step">How will you use it?</h2>
+        <p>You can change this later in settings.</p>
         <div class="choice-list">
           <button id="chooseBand" class="choice" type="button">
             <strong>With my band</strong>
@@ -42,6 +47,7 @@
             <strong>Just me, on this device</strong>
             <span>No sign-in. Songs stay in this browser. You can join a band later.</span>
           </button>
+        </div>
         </div>
       </section>
       <section id="bandBox" class="band-box" hidden></section>
