@@ -271,12 +271,36 @@
       });
     }
 
+    // Folder layout: the band folder holds the Song list sheet and a "Tabs" folder, which has a folder
+    // per song ("Title - Artist") holding that song's notes and Guitar Pro file.
+    const FOLDER_TYPE = 'application/vnd.google-apps.folder';
+    const TABS_NAME = 'Tabs';
+    let tabsFolder = null;
+
+    // Everything directly inside any of the given folders.
+    async function childrenOf(parentIds) {
+      const out = [];
+      for (let i = 0; i < parentIds.length; i += 40) {
+        const q = encodeURIComponent(`(${parentIds.slice(i, i + 40).map((id) => `'${id}' in parents`).join(' or ')}) and trashed = false`);
+        let page = '';
+        do {
+          const r = await call(`${API}/files?q=${q}&fields=nextPageToken,files(id,name,mimeType,modifiedTime,size,parents)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true${page ? '&pageToken=' + page : ''}`);
+          const j = await r.json();
+          out.push(...(j.files || []));
+          page = j.nextPageToken || '';
+        } while (page);
+      }
+      return out;
+    }
+
     async function listFolder() {
       const f = folder();
       if (!f) return [];
-      const q = encodeURIComponent(`'${f.id}' in parents and trashed = false`);
-      const r = await call(`${API}/files?q=${q}&fields=files(id,name,mimeType,modifiedTime,size)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true`);
-      filesCache = (await r.json()).files || [];
+      const top = await childrenOf([f.id]);
+      tabsFolder = top.find((x) => x.name === TABS_NAME && x.mimeType === FOLDER_TYPE) || null;
+      const songFolders = tabsFolder ? (await childrenOf([tabsFolder.id])).filter((x) => x.mimeType === FOLDER_TYPE) : [];
+      const inside = songFolders.length ? await childrenOf(songFolders.map((x) => x.id)) : [];
+      filesCache = [...top, ...songFolders, ...inside];
       return filesCache;
     }
 
@@ -291,8 +315,10 @@
     // a song added before it has tab is just "<name>.setcards.json"; once a tab file is attached the notes
     // say which file it is (notes.tabFile). Older notes sit next to their tab as "<tab file>.setcards.json".
     // A song's id is its tab file's id, or "n:<notes file id>" while it has no tab.
+    const isFolder = (x) => x.mimeType === FOLDER_TYPE;
+    const parentOf = (x) => (x.parents || [])[0];
     function noteEntries(files) {
-      return files.filter((x) => x.name.endsWith(NOTES_SUFFIX)).map((nf) => {
+      return files.filter((x) => !isFolder(x) && x.name.endsWith(NOTES_SUFFIX)).map((nf) => {
         const base = nf.name.slice(0, -NOTES_SUFFIX.length);
         return { notesFile: nf, tabName: SONG_EXT.test(base) ? base : null };
       });
@@ -310,12 +336,18 @@
       entries.forEach((e, i) => {
         const notes = notesList[i];
         const tabName = (notes && notes.tabFile) || e.tabName;
-        const tab = tabName ? files.find((x) => x.name === tabName && SONG_EXT.test(x.name)) : null;
+        // a song's tab sits in the same folder as its notes
+        const tab = tabName ? files.find((x) => !isFolder(x) && x.name === tabName && SONG_EXT.test(x.name) && parentOf(x) === parentOf(e.notesFile) && !tabTaken.has(x.id)) : null;
         if (tab) tabTaken.add(tab.id);
         songs.push({ id: tab ? tab.id : 'n:' + e.notesFile.id, tab, notesFile: e.notesFile, notes, modified: (tab || e.notesFile).modifiedTime });
       });
-      files.filter((x) => SONG_EXT.test(x.name) && !tabTaken.has(x.id)).forEach((tab) => {
+      files.filter((x) => !isFolder(x) && SONG_EXT.test(x.name) && !tabTaken.has(x.id)).forEach((tab) => {
         songs.push({ id: tab.id, tab, notesFile: null, notes: null, modified: tab.modifiedTime });
+      });
+      // the song's own folder, when it is in one (inside Tabs)
+      songs.forEach((sg) => {
+        const pid = parentOf(sg.notesFile || sg.tab);
+        sg.folder = files.find((x) => isFolder(x) && x.id === pid && tabsFolder && parentOf(x) === tabsFolder.id) || null;
       });
       return songs;
     }
@@ -327,8 +359,47 @@
     }
     const slug = (t) => (t || 'song').replace(/[\\/:*?"<>|]+/g, '').trim().slice(0, 80) || 'song';
 
-    async function writeNotesFile(song, notes, nameIfNew) {
-      const f = folder();
+    const folderName = (notes) => slug(`${notes.title || 'Untitled'}${notes.artist ? ' - ' + notes.artist : ''}`);
+
+    async function makeFolder(name, parentId) {
+      const r = await call(`${API}/files?fields=id,name,mimeType,parents&supportsAllDrives=true`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, mimeType: FOLDER_TYPE, parents: [parentId] })
+      });
+      const created = await r.json();
+      (filesCache || (filesCache = [])).push(created);
+      return created;
+    }
+    async function ensureTabsFolder() {
+      if (!tabsFolder) await listFolder();
+      if (!tabsFolder) tabsFolder = await makeFolder(TABS_NAME, folder().id);
+      return tabsFolder;
+    }
+    async function createSongFolder(notes) {
+      const tabs = await ensureTabsFolder();
+      return makeFolder(folderName(notes), tabs.id);
+    }
+    async function moveInto(file, folderId) {
+      await call(`${API}/files/${file.id}?addParents=${folderId}&removeParents=${parentOf(file) || folder().id}&supportsAllDrives=true&fields=id,parents`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      file.parents = [folderId];
+    }
+    // Moves songs saved straight in the band folder (before folders per song) into Tabs/<song>/.
+    async function moveLooseSongs(songs) {
+      let moved = 0;
+      for (const sg of songs) {
+        if (sg.folder) continue;
+        try {
+          const f = await createSongFolder(sg.notes || { title: sg.tab ? sg.tab.name.replace(SONG_EXT, '') : 'Untitled' });
+          if (sg.tab) await moveInto(sg.tab, f.id);
+          if (sg.notesFile) await moveInto(sg.notesFile, f.id);
+          sg.folder = f;
+          moved++;
+        } catch (e) { /* no permission to move this one; it still works where it is */ }
+      }
+      return moved;
+    }
+
+    async function writeNotesFile(song, notes, nameIfNew, parentId) {
       const json = JSON.stringify(notes, null, 1);
       if (song && song.notesFile) {
         // Drive drops old versions after 30 days; the first save each day is kept for good.
@@ -339,16 +410,15 @@
         if (keep) ls.set(keptKey, today);
         return song.notesFile;
       }
-      const m = multipart({ name: nameIfNew + NOTES_SUFFIX, parents: [f.id], mimeType: 'application/json' }, json, 'application/json');
-      const r = await call(`${UPLOAD}/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,modifiedTime`, { method: 'POST', headers: { 'Content-Type': m.type }, body: m.body });
+      const m = multipart({ name: nameIfNew + NOTES_SUFFIX, parents: [parentId], mimeType: 'application/json' }, json, 'application/json');
+      const r = await call(`${UPLOAD}/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,modifiedTime,parents`, { method: 'POST', headers: { 'Content-Type': m.type }, body: m.body });
       const created = await r.json();
       (filesCache || (filesCache = [])).push(created);
       return created;
     }
-    async function uploadTab(fileName, bytes) {
-      const f = folder();
-      const m = multipart({ name: fileName, parents: [f.id] }, bytes, 'application/octet-stream');
-      const r = await call(`${UPLOAD}/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,modifiedTime`, { method: 'POST', headers: { 'Content-Type': m.type }, body: m.body });
+    async function uploadTab(fileName, bytes, parentId) {
+      const m = multipart({ name: fileName, parents: [parentId] }, bytes, 'application/octet-stream');
+      const r = await call(`${UPLOAD}/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,modifiedTime,parents`, { method: 'POST', headers: { 'Content-Type': m.type }, body: m.body });
       const created = await r.json();
       (filesCache || (filesCache = [])).push(created);
       return created;
@@ -455,6 +525,7 @@
         ls.del('setcards:driveFolder');
         filesCache = null;
         lastSheetCsv = null;
+        tabsFolder = null;
         summaries.clear();
         token = null;
         try { sessionStorage.removeItem('setcards:gtoken'); } catch (e) { /* storage unavailable */ }
@@ -475,7 +546,8 @@
       async grantAccess() { const picked = await pick('files'); filesCache = null; return picked.length; },
       async list() {
         filesCache = null;
-        const songs = await allSongs();
+        let songs = await allSongs();
+        if (songs.some((sg) => !sg.folder) && await moveLooseSongs(songs)) { filesCache = null; songs = await allSongs(); }
         songs.forEach((s) => summaries.set(s.id, summaryOf(s)));
         scheduleSongList();   // brings the sheet up to date if a change was missed (it is only rewritten if different)
         return songs.map((s) => ({
@@ -497,35 +569,49 @@
       async saveNotes(id, notes) {
         const song = await findSong(id);
         if (song.tab && !notes.tabFile) notes.tabFile = song.tab.name;
-        await writeNotesFile(song, notes, song.tab ? song.tab.name : slug(notes.title));
+        if (!song.folder && !song.notesFile) await moveLooseSongs([song]);
+        await writeNotesFile(song, notes, song.tab ? song.tab.name : folderName(notes), song.folder ? song.folder.id : folder().id);
+        // keep the song's folder named after its title and artist
+        if (song.folder && song.folder.name !== folderName(notes)) {
+          try {
+            await call(`${API}/files/${song.folder.id}?supportsAllDrives=true`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: folderName(notes) }) });
+            song.folder.name = folderName(notes);
+          } catch (e) { /* the old name still works */ }
+        }
         if (summaryOf({ ...song, notes }) !== summaries.get(id)) scheduleSongList();
       },
       // A song with tab (bytes) or without (bytes null: just the notes).
       async add(fileName, bytes, notes) {
+        const songFolder = await createSongFolder(notes);
         if (!bytes) {
-          const nf = await writeNotesFile(null, notes, slug(`${notes.title}${notes.artist ? ' - ' + notes.artist : ''}`));
+          const nf = await writeNotesFile(null, notes, folderName(notes), songFolder.id);
           scheduleSongList();
           return 'n:' + nf.id;
         }
-        const tab = await uploadTab(fileName, bytes);
+        const tab = await uploadTab(fileName, bytes, songFolder.id);
         notes.tabFile = fileName;
-        await writeNotesFile(null, notes, fileName);
+        await writeNotesFile(null, notes, fileName, songFolder.id);
         scheduleSongList();
         return tab.id;
       },
       // Gives a tab-less song its Guitar Pro file. Returns the song's new id.
       async attachTab(id, fileName, bytes, notes) {
         const song = await findSong(id);
-        const tab = await uploadTab(fileName, bytes);
+        if (!song.folder) await moveLooseSongs([song]);
+        const tab = await uploadTab(fileName, bytes, song.folder ? song.folder.id : folder().id);
         notes.tabFile = fileName;
-        await writeNotesFile(song, notes, fileName);
+        await writeNotesFile(song, notes, fileName, song.folder ? song.folder.id : folder().id);
         scheduleSongList();
         return tab.id;
       },
       async remove(id) {
         const song = await findSong(id);
-        if (song.tab) await trash(song.tab.id);
-        if (song.notesFile) await trash(song.notesFile.id);
+        if (song.folder) {
+          await trash(song.folder.id);   // the folder and everything in it
+        } else {
+          if (song.tab) await trash(song.tab.id);
+          if (song.notesFile) await trash(song.notesFile.id);
+        }
         filesCache = null;
         scheduleSongList();
       },

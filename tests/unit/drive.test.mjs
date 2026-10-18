@@ -14,13 +14,20 @@ function memoryStorage(initial = {}) {
 // A pretend Drive folder: files by id, with contents, answering the few API calls the source makes.
 function fakeDrive(files) {
   let next = 100;
-  const store = new Map(files.map((f) => [f.id, { ...f }]));
+  const store = new Map(files.map((f) => [f.id, { parents: ['folder'], ...f }]));
   const json = (body) => ({ ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body), arrayBuffer: async () => new ArrayBuffer(0) });
+  const add = (meta, content) => {
+    const id = 'id' + next++;
+    store.set(id, { id, name: meta.name, mimeType: meta.mimeType, parents: meta.parents || ['folder'], content, modifiedTime: new Date().toISOString() });
+    return { id, name: meta.name, mimeType: meta.mimeType, parents: meta.parents };
+  };
   globalThis.fetch = async (url, opts = {}) => {
     const u = new URL(url);
     const method = opts.method || 'GET';
     if (method === 'GET' && u.pathname.endsWith('/files') && u.searchParams.get('q')) {
-      return json({ files: [...store.values()].filter((f) => !f.trashed).map(({ id, name, mimeType, modifiedTime }) => ({ id, name, mimeType, modifiedTime })) });
+      const ids = [...u.searchParams.get('q').matchAll(/'([^']+)' in parents/g)].map((m) => m[1]);
+      return json({ files: [...store.values()].filter((f) => !f.trashed && f.parents.some((p) => ids.includes(p)))
+        .map(({ id, name, mimeType, modifiedTime, parents }) => ({ id, name, mimeType, modifiedTime, parents })) });
     }
     const exportMatch = u.pathname.match(/\/files\/([^/]+)\/export$/);
     if (method === 'GET' && exportMatch) {
@@ -36,9 +43,10 @@ function fakeDrive(files) {
       const text = await opts.body.text();
       const meta = JSON.parse(text.split('\r\n\r\n')[1].split('\r\n--')[0]);
       const content = text.split('\r\n\r\n')[2].split('\r\n--')[0];
-      const id = 'id' + next++;
-      store.set(id, { id, name: meta.name, mimeType: meta.mimeType, content, modifiedTime: new Date().toISOString() });
-      return json({ id, name: meta.name });
+      return json(add(meta, content));
+    }
+    if (method === 'POST' && u.pathname.endsWith('/files')) {
+      return json(add(JSON.parse(opts.body)));
     }
     if (method === 'PATCH' && u.pathname.includes('/upload/') && idMatch) {
       store.get(idMatch[1]).content = opts.body;
@@ -46,13 +54,26 @@ function fakeDrive(files) {
       return json({ id: idMatch[1] });
     }
     if (method === 'PATCH' && idMatch) {
-      Object.assign(store.get(idMatch[1]), JSON.parse(opts.body));
+      const f = store.get(idMatch[1]);
+      const addTo = u.searchParams.get('addParents');
+      if (addTo) f.parents = [...f.parents.filter((p) => p !== u.searchParams.get('removeParents')), addTo];
+      Object.assign(f, JSON.parse(opts.body));
+      if (f.trashed) [...store.values()].filter((c) => c.parents.includes(f.id)).forEach((c) => { c.trashed = true; });
       return json({ id: idMatch[1] });
     }
     throw new Error(`unexpected ${method} ${url}`);
   };
   return store;
 }
+
+// The folder path of a file, e.g. "Tabs/Smooth Operator - Sade/smooth.gp".
+const pathOf = (store, f) => {
+  const parts = [f.name];
+  let p = f.parents[0];
+  while (p && p !== 'folder') { const parent = store.get(p); parts.unshift(parent.name); p = parent.parents[0]; }
+  return parts.join('/');
+};
+const paths = (store) => [...store.values()].filter((f) => !f.trashed && f.mimeType !== 'application/vnd.google-apps.folder').map((f) => pathOf(store, f)).sort();
 
 function loadDrive() {
   globalThis.window = globalThis;
@@ -88,7 +109,7 @@ test('a song without tab is saved as notes only, and gets its tab later as one s
   const drive = loadDrive();
   const id = await drive.add(null, null, { title: 'New Idea', artist: 'Us', status: 'proposed' });
   assert.match(id, /^n:/);
-  assert.deepEqual([...store.values()].map((f) => f.name), ['New Idea - Us.setcards.json']);
+  assert.deepEqual(paths(store), ['Tabs/New Idea - Us/New Idea - Us.setcards.json']);
 
   const opened = await drive.open(id);
   assert.equal(opened.bytes, null);
@@ -110,6 +131,7 @@ test('saving notes for a tab file without notes creates them next to it', async 
   await drive.saveNotes('b', { title: 'Landslide', status: 'ready' });
   const n = [...store.values()].find((f) => f.name === 'landslide.gp.setcards.json');
   assert.ok(n, 'notes file created');
+  assert.equal(pathOf(store, n), 'Tabs/Landslide/landslide.gp.setcards.json');
   assert.equal(JSON.parse(n.content).tabFile, 'landslide.gp');
   const songs = await drive.list();
   assert.equal(songs.length, 1);
@@ -167,4 +189,35 @@ test('a Song list sheet is kept in the folder, and only rewritten when what it s
   await drive.saveNotes('a', { title: 'Smooth Operator', artist: 'Sade', status: 'learning', meta: { key: 'Dm', keyGuessed: true, tempo: 120, seconds: 254 } });
   assert.equal(await drive.syncSongList(), true);
   assert.match(sheet.content, /Smooth Operator,Sade,Learning/);
+});
+
+test('songs saved straight in the band folder are moved into Tabs, one folder per song', async () => {
+  const store = fakeDrive([
+    { id: 'a', name: 'smooth.gp', content: 'gp' },
+    { id: 'an', name: 'smooth.gp.setcards.json', content: notes({ title: 'Smooth Operator', artist: 'Sade' }) },
+    { id: 'idea', name: 'Idea - Band.setcards.json', content: notes({ title: 'Idea', artist: 'Band' }) },
+    { id: 'b', name: 'landslide.gp', content: 'gp' }
+  ]);
+  const drive = loadDrive();
+  const songs = await drive.list();
+  assert.equal(songs.length, 3);
+  assert.deepEqual(paths(store), [
+    'Tabs/Idea - Band/Idea - Band.setcards.json',
+    'Tabs/Smooth Operator - Sade/smooth.gp',
+    'Tabs/Smooth Operator - Sade/smooth.gp.setcards.json',
+    'Tabs/landslide/landslide.gp'
+  ]);
+  // ids are kept, so songs open as before
+  assert.deepEqual(songs.map((x) => x.id).sort(), ['a', 'b', 'n:idea']);
+});
+
+test('a new song gets its own folder, renamed when its title changes, and removed with it', async () => {
+  const store = fakeDrive([]);
+  const drive = loadDrive();
+  const id = await drive.add('easy.gp', new Uint8Array([1]), { title: 'Easy', artist: 'Commodores' });
+  assert.deepEqual(paths(store), ['Tabs/Easy - Commodores/easy.gp', 'Tabs/Easy - Commodores/easy.gp.setcards.json']);
+  await drive.saveNotes(id, { title: 'Easy (live)', artist: 'Commodores' });
+  assert.deepEqual(paths(store), ['Tabs/Easy (live) - Commodores/easy.gp', 'Tabs/Easy (live) - Commodores/easy.gp.setcards.json']);
+  await drive.remove(id);
+  assert.deepEqual(paths(store), []);
 });

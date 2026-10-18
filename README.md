@@ -39,7 +39,7 @@ Setcards has no server. Songs come from one of these sources, and more can be ad
 | **Band folder (Google Drive)** | Everyone you share the Drive folder with | Yes, into the folder |
 | **Shared with the app** (`songs/` folder in this repository) | Anyone who opens the app | Changes stay in each person's browser |
 
-Notes (status, sections, chords, instrument notes, video) are saved as a small `.setcards.json` file per song, so the band shares one breakdown per song. A song without tab is just its notes file; once a Guitar Pro file is added, the notes name it (`tabFile`).
+In the band folder, the **Song list** sheet sits at the top and each song has its own folder inside **Tabs**, named "Title - Artist", holding its notes and Guitar Pro file. Songs saved before this layout are moved into it automatically the next time the band list opens. Notes (status, sections, chords, instrument notes, video) are saved as a small `.setcards.json` file per song, so the band shares one breakdown per song. A song without tab is just its notes file; once a Guitar Pro file is added, the notes name it (`tabFile`).
 
 Once a band folder is connected, **Share invite link** in Songs gives a link that opens Setcards ready to join that folder: the bandmate signs in to Google and taps the folder.
 
