@@ -221,3 +221,43 @@ test('a new song gets its own folder, renamed when its title changes, and remove
   await drive.remove(id);
   assert.deepEqual(paths(store), []);
 });
+
+test('every song is copied to the device in the background, and opens from there when Drive is out of reach', async () => {
+  const store = fakeDrive([
+    { id: 'a', name: 'smooth.gp', content: 'smooth tab' },
+    { id: 'an', name: 'smooth.gp.setcards.json', content: notes({ title: 'Smooth Operator', artist: 'Sade' }) },
+    { id: 'b', name: 'landslide.gp', content: 'landslide tab' }
+  ]);
+  const drive = loadDrive();
+  const online = await drive.list();
+  await drive.offlineSync();
+  assert.equal(online.some((s) => s.offline), false);
+
+  // the connection drops
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new TypeError('Failed to fetch'); };
+  const saved = await drive.list();
+  assert.deepEqual(saved.map((s) => s.title).sort(), ['Smooth Operator', 'landslide']);
+  assert.ok(saved.every((s) => s.offline));
+  // a song never opened online still opens, tab included
+  const song = await drive.open('b');
+  assert.equal(song.offline, true);
+  assert.equal(new TextDecoder().decode(song.bytes), 'landslide tab');
+
+  // back online: only a changed tab is downloaded again
+  globalThis.fetch = realFetch;
+  const downloads = [];
+  const counting = globalThis.fetch;
+  globalThis.fetch = (url, opts) => { if (String(url).includes('alt=media') && /files\/(a|b)\?/.test(String(url))) downloads.push(String(url).match(/files\/(\w+)\?/)[1]); return counting(url, opts); };
+  store.get('b').modifiedTime = new Date(Date.now() + 1000).toISOString();
+  await drive.list();
+  await drive.offlineSync();
+  assert.deepEqual(downloads, ['b']);
+});
+
+test('with nothing saved yet, an unreachable Drive still reports the problem', async () => {
+  fakeDrive([]);
+  const drive = loadDrive();
+  globalThis.fetch = async () => { throw new TypeError('Failed to fetch'); };
+  await assert.rejects(() => drive.list(), /Failed to fetch/);
+});

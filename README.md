@@ -65,6 +65,10 @@ python3 -m http.server 8000
 
 Anything in `songs/` is public on a public repository. Use the Google Drive folder for songs you do not want to publish.
 
+### Offline
+
+The app itself works offline once opened on Wi-Fi. Whenever the band list loads with a connection, every band song (tab and notes) is copied to the device in the background, downloading only what changed. If Drive can't be reached, or before signing in, the band list and songs open from that copy, marked as offline. Editing assumes a connection; a change that can't be saved is kept on the device and sent the next time the band list loads online.
+
 ### Updates on phones
 
 Each deploy stamps a version (the commit) into `sw.js` and `version.js`. An app added to the home screen checks for a new version whenever it is brought to the front, and refreshes onto it: straight away on the song list, or when going back to the list if a song is open. Band settings show the version that is running.

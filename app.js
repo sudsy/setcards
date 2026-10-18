@@ -203,7 +203,10 @@
 
   function updateBanner() {
     const s = state.song;
-    if (s && s.localOnly) {
+    if (s && s.offline) {
+      els.banner.hidden = false;
+      els.banner.textContent = 'Offline: this is the copy saved on this phone. Changes are kept here and sent to the band when you’re back online.';
+    } else if (s && s.localOnly) {
       els.banner.hidden = false;
       els.banner.textContent = 'Your changes to this song are saved in this browser only. Add the song to a band folder to share them.';
     } else {
@@ -988,7 +991,7 @@
     }
     if (state.playing) api.stop();
     destroyMinis();
-    state.song = { key, title: song.notes.title || song.title || (song.fileName || 'Untitled').replace(SM.SONG_EXT, ''), artist: song.notes.artist || song.artist || '', fileName: song.fileName, canShare: song.canShare, localOnly: song.localOnly };
+    state.song = { key, title: song.notes.title || song.title || (song.fileName || 'Untitled').replace(SM.SONG_EXT, ''), artist: song.notes.artist || song.artist || '', fileName: song.fileName, canShare: song.canShare, localOnly: song.localOnly, offline: !!song.offline };
     state.notes = song.notes;
     state.notes.chords = state.notes.chords || {};
     // changes kept in this browser while the page was closing are sent on to where the song lives
@@ -1686,6 +1689,12 @@
         box.querySelector('#homeSignIn').addEventListener('click', async () => {
           try { await drive.signIn(); renderHome(); } catch (e) { toast(e.message); }
         });
+        // the copy kept on this phone, so songs are there even before signing in or without a connection
+        const saved = await drive.listSaved().catch(() => null);
+        if (saved && saved.length) {
+          saved.sort((a, b) => String(a.title).localeCompare(b.title));
+          songSections(wrap, drive, saved, drive.folder().name, `Saved on this phone ${savedWhen(saved[0].savedAt)}. Sign in to see the latest.`, () => null);
+        }
       } else {
         const loading = document.createElement('p');
         loading.className = 'fine';
@@ -1696,7 +1705,10 @@
           const songs = await drive.list();
           loading.remove();
           songs.sort((a, b) => String(a.title).localeCompare(b.title));
-          sec = songSections(wrap, drive, songs, drive.folder().name, '', (s) => deleteButton(drive, s, 'Delete for the band?'));
+          const isOffline = songs.length && songs[0].offline;
+          const note = isOffline ? `Offline: showing the copy saved on this phone ${savedWhen(songs[0].savedAt)}.` : '';
+          sec = songSections(wrap, drive, songs, drive.folder().name, note, (s) => (isOffline ? null : deleteButton(drive, s, 'Delete for the band?')));
+          if (!isOffline) sendKeptChanges(songs);
           if (!songs.length) sec.querySelector('ul').innerHTML = '<li class="fine">No songs visible yet. Add one below, or if the folder already has songs, give Setcards access to them.</li>';
         } catch (e) {
           loading.textContent = e.message;
@@ -1749,6 +1761,26 @@
       li.querySelector('#addDemoBtn').addEventListener('click', async () => { await addDemo(); renderHome(); });
       ul.appendChild(li);
     }
+  }
+
+  function savedWhen(t) {
+    if (!t) return '';
+    const mins = Math.round((Date.now() - t) / 60000);
+    if (mins < 2) return 'just now';
+    if (mins < 60) return `${mins} minutes ago`;
+    const d = new Date(t);
+    return `on ${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} at ${d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+  }
+
+  // Changes that couldn't reach Drive were kept on this phone; send them now that it can be reached.
+  function sendKeptChanges(songs) {
+    songs.forEach((sg) => {
+      const key = SM.library.key('drive', sg.id);
+      const kept = SM.library.overlay.get(key);
+      if (kept && (!sg.notes || (kept.updatedAt || 0) > (sg.notes.updatedAt || 0))) {
+        SM.library.saveNotes(key, kept).then((r) => { if (!r.local) toast(`Sent your changes to “${sg.title}”`); });
+      }
+    });
   }
 
   // Moves a draft into the band folder, with its sections and chords.

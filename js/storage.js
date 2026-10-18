@@ -158,6 +158,32 @@
   // Songs and notes live in that folder; nothing is stored on any server of ours.
   // Uses the drive.file permission, which only covers files this app created or the person picked,
   // so files added straight into Drive by someone else show up as "needs access" until picked once.
+  /* ---------------- copies kept on this device ---------------- */
+  // Band songs are copied here in the background, so they still open when the connection fails.
+  // IndexedDB in the browser; a plain map where there is none (tests).
+  const offline = (() => {
+    const mem = new Map();
+    let p;
+    const open = () => p || (p = new Promise((res, rej) => {
+      const r = indexedDB.open('setcards-offline', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('items', { keyPath: 'k' });
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    }));
+    const tx = (mode, fn) => open().then((d) => new Promise((res, rej) => {
+      const t = d.transaction('items', mode);
+      const req = fn(t.objectStore('items'));
+      t.oncomplete = () => res(req && req.result);
+      t.onerror = () => rej(t.error);
+    }));
+    const hasIdb = () => typeof indexedDB !== 'undefined';
+    return {
+      get: (k) => (hasIdb() ? tx('readonly', (st) => st.get(k)) : Promise.resolve(mem.get(k))),
+      put: (item) => (hasIdb() ? tx('readwrite', (st) => st.put(item)) : Promise.resolve(void mem.set(item.k, item))),
+      del: (k) => (hasIdb() ? tx('readwrite', (st) => st.delete(k)) : Promise.resolve(void mem.delete(k)))
+    };
+  })();
+
   const drive = (() => {
     const cfg = () => Object.assign({}, root.SETCARDS_CONFIG && root.SETCARDS_CONFIG.google, ls.get('setcards:google') || {});
     const folder = () => ls.get('setcards:driveFolder');   // { id, name }
@@ -423,6 +449,29 @@
       (filesCache || (filesCache = [])).push(created);
       return created;
     }
+    const downloadTab = async (fileId) => new Uint8Array(await (await call(`${API}/files/${fileId}?alt=media&supportsAllDrives=true`)).arrayBuffer());
+
+    // Copies every song to this device, downloading a tab only when it is new or has changed since the last copy.
+    let syncing = null;
+    async function syncOffline(folderId, songs) {
+      if (syncing) return syncing;
+      syncing = (async () => {
+        for (const sg of songs) {
+          const k = `${folderId}:song:${sg.id}`;
+          const saved = await offline.get(k).catch(() => null);
+          let bytes = saved ? saved.bytes : null;
+          if (sg.hasTab && (!saved || saved.tabVersion !== sg.tabVersion || !saved.bytes)) {
+            const tab = (filesCache || []).find((x) => x.id === sg.id);
+            if (!tab) continue;
+            try { bytes = await downloadTab(tab.id); } catch (e) { continue; }
+          }
+          await offline.put({ k, bytes: sg.hasTab ? bytes : null, notes: sg.notes, title: sg.title, artist: sg.artist, fileName: sg.fileName, tabVersion: sg.tabVersion, savedAt: Date.now() }).catch(() => {});
+        }
+      })().finally(() => { syncing = null; });
+      return syncing;
+    }
+    const offlineSync = () => syncing || Promise.resolve();
+
     /* ----- the song list: a Google Sheet anyone can open without Setcards ----- */
     const SHEET_NAME = 'Song list';
     const SHEET_TYPE = 'application/vnd.google-apps.spreadsheet';
@@ -544,7 +593,31 @@
       },
       // Lets the person grant access to songs other bandmates dropped into the folder.
       async grantAccess() { const picked = await pick('files'); filesCache = null; return picked.length; },
+      // The band's songs. Online, the list and every song are also copied to this device in the background;
+      // when Drive can't be reached, the copy is returned instead, marked offline.
       async list() {
+        let songs;
+        try {
+          songs = await this.listOnline();
+        } catch (e) {
+          const saved = await this.listSaved();
+          if (!saved) throw e;
+          return saved;
+        }
+        const f = folder();
+        await offline.put({ k: `${f.id}:list`, songs, savedAt: Date.now() }).catch(() => {});
+        syncOffline(f.id, songs).catch(() => {});
+        return songs;
+      },
+      // The copy of the list kept on this device, or null if there isn't one yet.
+      async listSaved() {
+        const f = folder();
+        if (!f) return null;
+        const saved = await offline.get(`${f.id}:list`).catch(() => null);
+        if (!saved) return null;
+        return saved.songs.map((sg) => ({ ...sg, offline: true, savedAt: saved.savedAt }));
+      },
+      async listOnline() {
         filesCache = null;
         let songs = await allSongs();
         if (songs.some((sg) => !sg.folder) && await moveLooseSongs(songs)) { filesCache = null; songs = await allSongs(); }
@@ -556,15 +629,25 @@
           artist: (s.notes && s.notes.artist) || '',
           fileName: s.tab ? s.tab.name : null,
           hasTab: !!s.tab,
+          tabVersion: s.tab ? s.tab.modifiedTime : null,
           updatedAt: Date.parse(s.modified) || 0,
           notes: s.notes
         }));
       },
       async open(id) {
-        const song = await findSong(id);
-        const bytes = song.tab ? new Uint8Array(await (await call(`${API}/files/${song.tab.id}?alt=media&supportsAllDrives=true`)).arrayBuffer()) : null;
-        const notes = song.notes;
-        return { bytes, notes, title: notes && notes.title, artist: notes && notes.artist, fileName: song.tab ? song.tab.name : null };
+        const f = folder();
+        try {
+          const song = await findSong(id);
+          const bytes = song.tab ? await downloadTab(song.tab.id) : null;
+          const notes = song.notes;
+          const result = { bytes, notes, title: notes && notes.title, artist: notes && notes.artist, fileName: song.tab ? song.tab.name : null };
+          offline.put({ k: `${f.id}:song:${id}`, ...result, tabVersion: song.tab ? song.tab.modifiedTime : null, savedAt: Date.now() }).catch(() => {});
+          return result;
+        } catch (e) {
+          const saved = await offline.get(`${f.id}:song:${id}`).catch(() => null);
+          if (!saved) throw e;
+          return { bytes: saved.bytes, notes: saved.notes, title: saved.title, artist: saved.artist, fileName: saved.fileName, offline: true, savedAt: saved.savedAt };
+        }
       },
       async saveNotes(id, notes) {
         const song = await findSong(id);
@@ -616,6 +699,7 @@
         scheduleSongList();
       },
       syncSongList,
+      offlineSync,
       songListUrl() {
         const sheet = (filesCache || []).find((x) => x.name === SHEET_NAME && x.mimeType === SHEET_TYPE);
         return sheet ? `https://docs.google.com/spreadsheets/d/${sheet.id}` : null;
