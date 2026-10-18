@@ -203,15 +203,21 @@
 
   function updateBanner() {
     const s = state.song;
-    if (s && s.offline) {
-      els.banner.hidden = false;
-      els.banner.textContent = 'Offline: this is the copy saved on this phone. Changes are kept here and sent to the band when you’re back online.';
-    } else if (s && s.localOnly) {
-      els.banner.hidden = false;
-      els.banner.textContent = 'Your changes to this song are saved in this browser only. Add the song to a band folder to share them.';
-    } else {
-      els.banner.hidden = true;
-    }
+    const msgs = [];
+    if (s && s.offline) msgs.push('Offline: this is the copy saved on this phone. Changes are kept here and sent to the band when you’re back online.');
+    else if (s && s.localOnly) msgs.push('Your changes to this song are saved in this browser only. Add the song to a band folder to share them.');
+    if (s && state.score && state.partMissing) msgs.push(missingPartText());
+    els.banner.hidden = !msgs.length;
+    els.banner.textContent = msgs.join(' ');
+  }
+  function missingPartText() {
+    const tracks = state.score.tracks;
+    const t = tracks[state.trackIndex];
+    const what = role().label.toLowerCase();
+    const name = t && t.name ? `“${t.name.trim()}”` : 'the first part';
+    return tracks.length > 1
+      ? `This tab file has no ${what} part, so it shows ${name}. You can choose another part in Settings.`
+      : `This tab file has no ${what} part. It only has ${name}, which is shown instead.`;
   }
 
   /* ---------------- chords ---------------- */
@@ -837,6 +843,7 @@
     state.fileMarkers = markersFromScore(score);
     state.fileChords = SM.analysis.fileChords(score);
     state.trackIndex = pickTrack(score);
+    updateBanner();
     let suggested = false;
     if (!Array.isArray(state.notes.sections)) {
       // Worked out fresh each time until someone edits them, so nothing is saved yet.
@@ -922,9 +929,12 @@
   }
   function pickTrack(score) {
     const chosen = prefs.tracks[state.song.key] && prefs.tracks[state.song.key][prefs.role];
+    state.partMissing = false;
     if (chosen != null && score.tracks[chosen]) return chosen;
     const i = score.tracks.findIndex((t) => trackMatches(t, prefs.role));
     if (i >= 0) return i;
+    // vocals and keys players often read another part; a missing bass, guitar or drum part is worth saying
+    state.partMissing = ['bass', 'guitar', 'drums'].includes(prefs.role);
     const bass = score.tracks.findIndex((t) => trackMatches(t, 'bass'));
     return bass >= 0 ? bass : 0;
   }
@@ -945,6 +955,7 @@
     els.homeRoleBtn.textContent = role().label;
     if (!state.score) return;
     const i = pickTrack(state.score);
+    updateBanner();
     if (i !== state.trackIndex) useTrack(i);
     else if (prefs.view === 'cards') renderCards();
     els.showTabCards.checked = showTabInCards();
@@ -2015,6 +2026,8 @@
     const i = Number(els.trackSel.value);
     prefs.tracks[state.song.key] = Object.assign({}, prefs.tracks[state.song.key], { [prefs.role]: i });
     savePrefs();
+    state.partMissing = false;
+    updateBanner();
     useTrack(i);
   });
   // The full tab shows chord names above the bars only when this instrument shows chords.

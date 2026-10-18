@@ -226,9 +226,58 @@
    * Suggests sections for a file without markers: a new section starts wherever the repeating riff changes.
    * Sections with the same riff sequence get the same name (Part A, Part B…).
    */
+  // Suggests sections for a file without markers: [{start, name}].
+  // Many songs are built from 8 bar phrases, so it first looks for a grid of phrases that repeat
+  // (an A section played twice, a chorus coming back) and falls back to runs of repeating grooves.
   function suggestSections(score, trackIndex, chordsFor) {
-    const n = score.masterBars.length;
     const cmp = makeComparer(score, trackIndex, chordsFor);
+    return phraseSections(score, cmp) || grooveSections(score, cmp);
+  }
+
+  // Lays phrases of 8 bars over the song, choosing the length and starting bar that line up the most repeats.
+  function phraseSections(score, cmp) {
+    const n = score.masterBars.length;
+    const filled = (s, len) => { for (let k = 0; k < len; k++) if (!cmp.isEmpty(s + k)) return true; return false; };
+    function grid(len, offset) {
+      const starts = [];
+      for (let s = offset; s + len <= n; s += len) starts.push(s);
+      const twin = starts.map((a) => starts.filter((b) => b !== a && filled(a, len) && cmp.unitSim(a, b, len) >= RIFF_MATCH));
+      const repeated = twin.filter((t) => t.length).length;
+      return { len, offset, starts, twin, covered: repeated * len };
+    }
+    const best = (len) => {
+      let top = null;
+      for (let o = 0; o < len; o++) {
+        const g = grid(len, o);
+        if (!top || g.covered > top.covered) top = g;
+      }
+      return top;
+    };
+    const g8 = best(8);
+    const g4 = best(4);
+    // 8 bar phrases are used only when they find most of the repetition that 4 bar ones do;
+    // otherwise the song is built from shorter grooves and the groove finder does better
+    if (!g8.covered || g8.covered < 0.6 * g4.covered) return null;
+    const g = g8;
+    // name phrases so repeats share a letter; a first phrase that never comes back is the intro
+    const names = [];
+    const label = g.starts.map((s, i) => {
+      if (i === 0 && !g.twin[0].length) return 'Intro';
+      let idx = names.findIndex((x) => cmp.unitSim(x, s, g.len) >= RIFF_MATCH);
+      if (idx < 0) { names.push(s); idx = names.length - 1; }
+      return `Part ${LETTERS[idx % 26]}`;
+    });
+    // bars before the first phrase (a pickup) join it; bars after the last phrase join the last one
+    const out = [];
+    g.starts.forEach((s, i) => {
+      const start = i === 0 ? 0 : s;
+      out.push({ start, name: label[i] });
+    });
+    return out;
+  }
+
+  function grooveSections(score, cmp) {
+    const n = score.masterBars.length;
     const blocks = [];
     let i = 0;
     while (i < n) {

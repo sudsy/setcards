@@ -150,3 +150,12 @@ test('key signatures and chord names follow the transposition', () => {
   assert.equal(SM.chords.semitonesBetween('Em', 'C'), 5);   // C major sits with A minor: Em up to Am
   assert.equal(SM.chords.semitonesBetween('Cmaj7', 'C'), 0);
 });
+
+test('8 bar phrases are found even when the sections are written out in full', () => {
+  // an intro, then A twice, then B and C, as in a jazz standard written without repeat signs
+  const phrase = (string) => Array.from({ length: 8 }, (_, i) => `${i}.${string}.4 ${i}.${string}.4 ${i + 2}.${string}.4 ${i}.${string}.4`);
+  const score = bassSong([...phrase(4), ...phrase(3), ...phrase(3), ...phrase(2), ...phrase(1)]);
+  const suggested = A.suggestSections(score, 0, noChords);
+  assert.deepEqual(suggested.map((s) => s.start), [0, 8, 16, 24, 32]);
+  assert.deepEqual(suggested.map((s) => s.name), ['Intro', 'Part A', 'Part A', 'Part B', 'Part C']);
+});

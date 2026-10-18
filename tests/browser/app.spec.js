@@ -429,3 +429,21 @@ test('match band key works out the transposition from the tab key', async ({ pag
   await expect(page.locator('#bandTrOut')).toHaveText('-2');
   await expect(page.locator('#keyInfo')).toContainText('shown -2 in Dm');
 });
+
+test('a tab without a bass part says so in the bass view', async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.addInitScript(() => localStorage.setItem('setcards:prefs', JSON.stringify({ mode: 'solo', role: 'bass' })));
+  await page.goto('/');
+  await page.click('#addSongBtn');
+  await page.fill('#addTitle', 'Guitar Only');
+  await page.click('#addForm button[type=submit]');
+  const alphaTab = await import('@coderline/alphatab');
+  const imp = new alphaTab.importer.AlphaTexImporter();
+  imp.initFromString('\\title "Guitar Only"\n.\n\\track "Nylon"\n\\instrument 24\n0.6.4 2.5.4 2.4.4 1.3.4 | 0.6.4 2.5.4 2.4.4 1.3.4 |', new alphaTab.Settings());
+  const bytes = new alphaTab.exporter.Gp7Exporter().export(imp.readScore(), new alphaTab.Settings());
+  await page.locator('#attachInput').setInputFiles({ name: 'guitar-only.gp', mimeType: 'application/octet-stream', buffer: Buffer.from(bytes) });
+  await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
+  await expect(page.locator('#banner')).toContainText('no bass part');
+  await expect(page.locator('#banner')).toContainText('Nylon');
+  expect(errors).toEqual([]);
+});
