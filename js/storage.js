@@ -211,15 +211,20 @@
       await ready();
       const P = root.google.picker;
       return new Promise((resolve) => {
-        let view;
+        const views = [];
         if (mode === 'folder') {
-          view = new P.DocsView(P.ViewId.FOLDERS).setIncludeFolders(true).setSelectFolderEnabled(true).setMimeTypes('application/vnd.google-apps.folder');
+          // A bandmate's folder is usually under "Shared with me" or in a shared drive, so those come first.
+          const folders = () => new P.DocsView(P.ViewId.FOLDERS).setIncludeFolders(true).setSelectFolderEnabled(true).setMimeTypes('application/vnd.google-apps.folder');
+          views.push(folders().setOwnedByMe(false).setLabel('Shared with me'));
+          views.push(folders().setEnableDrives(true).setLabel('Shared drives'));
+          views.push(folders().setOwnedByMe(true).setLabel('My Drive'));
         } else {
-          view = new P.DocsView(P.ViewId.DOCS).setIncludeFolders(false);
+          const view = new P.DocsView(P.ViewId.DOCS).setIncludeFolders(false);
           const f = folder();
           if (f) view.setParent(f.id);
+          views.push(view);
         }
-        const builder = new P.PickerBuilder().addView(view).setOAuthToken(t)
+        const builder = new P.PickerBuilder().setOAuthToken(t)
           .enableFeature(P.Feature.SUPPORT_DRIVES)
           .setCallback((data) => {
             if (data.action === P.Action.PICKED) resolve(data.docs.map((d) => ({ id: d.id, name: d.name })));
@@ -227,6 +232,7 @@
           });
         if (mode !== 'folder') builder.enableFeature(P.Feature.MULTISELECT_ENABLED).setTitle('Pick the songs to open in Setcards');
         else builder.setTitle('Pick your band folder');
+        views.forEach((v) => builder.addView(v));
         if (c.apiKey) builder.setDeveloperKey(c.apiKey);
         if (c.appId) builder.setAppId(c.appId);
         builder.build().setVisible(true);

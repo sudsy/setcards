@@ -2,8 +2,8 @@
 // They identify the app to Google and are safe to publish; they do not give access to anyone's files.
 window.SETCARDS_CONFIG = {
   google: {
-    clientId: '',   // e.g. 1234567890-abc.apps.googleusercontent.com
-    apiKey: '',     // used by Google's file picker
-    appId: ''       // the Google Cloud project number
+    clientId: '928831480685-pk1n6r9h818mkind6eq6nbdqbk4qmbv0.apps.googleusercontent.com',
+    apiKey: 'AIzaSyCRbn2aNQ6bBrmsQxIhNfO91bWvVUWKxyM',   // used by Google's file picker; restricted to this site
+    appId: '928831480685'   // the Google Cloud project number
   }
 };
