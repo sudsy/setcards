@@ -7,7 +7,7 @@
 
   const els = {
     songTitle: $('songTitle'), songMeta: $('songMeta'),
-    structure: $('structure'), chips: $('chips'),
+    structure: $('structure'),
     viewCards: $('viewCards'), viewTab: $('viewTab'), roleBtn: $('roleBtn'),
     sectionHead: $('sectionHead'), sectionName: $('sectionName'), sectionBars: $('sectionBars'),
     prevBtn: $('prevBtn'), nextBtn: $('nextBtn'),
@@ -311,62 +311,52 @@
   }
 
   /* ---------------- song map ---------------- */
+  // The song order is the only map: in Cards it jumps to that part's card, in Full tab it shows that section.
   function renderMap() {
-    const parts = state.parts;
     els.structure.innerHTML = '';
-    els.chips.innerHTML = '';
-    parts.forEach((p, i) => {
+    const whole = document.createElement('button');
+    whole.className = 'step whole';
+    whole.dataset.index = -1;
+    whole.textContent = 'Whole song';
+    whole.title = `${state.score.masterBars.length} bars`;
+    whole.addEventListener('click', () => {
+      if (prefs.view === 'cards') els.scroller.scrollTo({ top: 0, behavior: 'smooth' });
+      else selectView(-1);
+    });
+    els.structure.appendChild(whole);
+    state.parts.forEach((p, i) => {
       const t = document.createElement('button');
       t.className = 'step';
       t.style.setProperty('--seg', segColor(p.kind));
       t.dataset.index = i;
       t.textContent = p.label;
       t.title = `${p.label} · bars ${p.start + 1}–${p.end + 1} · ${p.summary}`;
-      t.addEventListener('click', () => { setView('tab'); selectView(i); });
-      els.structure.appendChild(t);
-    });
-
-    const whole = chip('Whole song', `${state.score.masterBars.length} bars`);
-    whole.classList.add('whole');
-    whole.dataset.group = '';
-    whole.addEventListener('click', () => { if (prefs.view === 'cards') els.scroller.scrollTo({ top: 0, behavior: 'smooth' }); else selectView(-1); });
-    els.chips.appendChild(whole);
-    state.groups.forEach((g) => {
-      const first = state.parts[g.occ[0]];
-      const c = chip(g.name, g.occ.length > 1 ? `×${g.occ.length}` : `${first.bars} bars`);
-      c.style.setProperty('--seg', segColor(g.kind));
-      c.dataset.group = g.key;
-      c.addEventListener('click', () => {
-        if (prefs.view === 'cards') {
-          const card = els.cards.querySelector(`[data-group="${CSS.escape(g.key)}"]`);
-          if (card) els.scroller.scrollTo({ top: card.offsetTop - 8, behavior: 'smooth' });
-          return;
-        }
-        const cur = state.parts[state.view];
-        if (cur && cur.group === g) return;
-        selectView(g.occ[0]);
+      t.addEventListener('click', () => {
+        if (prefs.view === 'cards') scrollToCard(i);
+        else selectView(i);
       });
-      els.chips.appendChild(c);
+      els.structure.appendChild(t);
     });
     if (!sortedSections().length) {
       const hint = document.createElement('span');
       hint.className = 'fine';
       hint.style.margin = '4px 0';
       hint.textContent = 'No sections yet. Tap Edit to mark the verse, chorus and so on, or let Setcards suggest them.';
-      els.chips.appendChild(hint);
+      els.structure.appendChild(hint);
     }
     refreshChipStates();
     updateHeader();
   }
 
-  function chip(label, small) {
-    const b = document.createElement('button');
-    b.className = 'chip';
-    b.append(label);
-    const s = document.createElement('small');
-    s.textContent = small;
-    b.appendChild(s);
-    return b;
+  function scrollToCard(partIndex) {
+    const p = state.parts[partIndex];
+    const target = els.cards.querySelector(`.cue[data-index="${partIndex}"]`) ||
+      els.cards.querySelector(`.card[data-group="${CSS.escape(p.group.key)}"]`);
+    if (!target) return;
+    els.scroller.scrollTo({ top: target.offsetTop - 8, behavior: 'smooth' });
+    target.classList.remove('flash');
+    void target.offsetWidth;
+    target.classList.add('flash');
   }
 
   function updateHeader() {
@@ -389,20 +379,14 @@
 
   function refreshChipStates() {
     const cur = prefs.view === 'tab' ? state.parts[state.view] : null;
-    const playing = state.parts[state.playingPart];
-    els.chips.querySelectorAll('.chip').forEach((c) => {
-      const key = c.dataset.group;
-      const on = prefs.view === 'tab' && (key === '' ? state.view === -1 : !!(cur && cur.group.key === key));
-      c.setAttribute('aria-pressed', String(on));
-      c.classList.toggle('playing', !!(playing && key && playing.group.key === key && !on));
-    });
     els.structure.querySelectorAll('.step').forEach((t) => {
       const i = Number(t.dataset.index);
       t.setAttribute('aria-current', prefs.view === 'tab' && i === state.view ? 'true' : 'false');
-      t.classList.toggle('same', !!(cur && i !== state.view && state.parts[i].group === cur.group));
-      t.classList.toggle('playing', i === state.playingPart);
+      t.classList.toggle('same', !!(cur && i >= 0 && i !== state.view && state.parts[i].group === cur.group));
+      t.classList.toggle('playing', i >= 0 && i === state.playingPart);
     });
   }
+
 
   /* ---------------- cards (the quick reference) ---------------- */
   function destroyMinis() {
@@ -522,6 +506,7 @@
       const cue = SM.analysis.lyricCue(state.score, p.start, p.end, 8);
       const li = document.createElement('li');
       li.className = 'cue';
+      li.dataset.index = i;
       li.style.setProperty('--seg', segColor(p.kind));
       li.innerHTML = `
         <div class="cue-head"><span class="cue-name">${esc(p.label)}</span><span class="cue-bars">${plural(p.bars, 'bar')}</span></div>

@@ -587,3 +587,12 @@ dialog::backdrop { background: rgba(10, 12, 18, 0.55); }
 .bar-form .field { margin: 0; }
 #songLists .card-label { margin-top: 12px; }
 #songLists > .text-btn { margin-bottom: 8px; font-size: 0.8rem; }
+
+/* ---------- song order additions ---------- */
+.step.whole { --seg: var(--ink); background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
+.step.whole[aria-current="true"] { background: var(--ink); color: var(--bg); box-shadow: none; }
+.structure { margin-bottom: 2px; max-height: 26vh; }
+.step { font-size: 0.95rem; padding: 5px 9px 4px; }
+@keyframes flash { from { outline: 3px solid var(--accent-fill); outline-offset: 2px; } to { outline: 3px solid transparent; outline-offset: 2px; } }
+.flash { animation: flash 1.2s ease-out; }
+@media (prefers-reduced-motion: reduce) { .flash { animation: none; } }
