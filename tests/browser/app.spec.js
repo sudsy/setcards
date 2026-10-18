@@ -526,3 +526,47 @@ test('a band song opens from the saved copy, then shows what the band changed', 
   await expect(page.locator('#songMeta')).not.toContainText('Proposed');
   await expect(page.locator('#songMeta')).toContainText('Commodores');
 });
+
+test.describe('on a phone turned on its side', () => {
+  test.use({ viewport: { width: 844, height: 390 }, isMobile: true, hasTouch: true });
+  test('cards become a screen per part, picked from a compact song order with bar counts', async ({ page }) => {
+    const errors = watchErrors(page);
+    await openDemo(page);
+    await expect(page.locator('body')).toHaveClass(/paged/);
+    await expect(page.locator('#songView .playerbar')).toBeHidden();
+    await expect(page.locator('#editBtn')).toBeHidden();
+    const verse = steps(page).filter({ hasText: 'Verse' }).first();
+    expect(Number(await verse.getAttribute('data-bars'))).toBeGreaterThan(0);
+    // a tap on a later part slides its card into view, no scrolling needed
+    const cards = page.locator('#cards');
+    await steps(page).filter({ hasText: 'Outro' }).click();
+    await expect.poll(() => cards.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+    await expect(steps(page).filter({ hasText: 'Outro' })).toHaveClass(/in-view/);
+    // upright again, everything is back
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator('body')).not.toHaveClass(/paged/);
+    await expect(page.locator('#songView .playerbar')).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+});
+
+test('a part the bass sits out has no card, and its chip says how many bars to wait', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('setcards:prefs', JSON.stringify({ mode: 'solo', role: 'bass' })));
+  await page.goto('/');
+  await page.click('#addSongBtn');
+  await page.fill('#addTitle', 'Late Bass');
+  await page.click('#addForm button[type=submit]');
+  const alphaTab = await import('@coderline/alphatab');
+  const imp = new alphaTab.importer.AlphaTexImporter();
+  const gtr = Array(8).fill('0.6.4 2.5.4 2.4.4 1.3.4').join(' | ');
+  const bass = ['r.1', 'r.1', 'r.1', 'r.1', '0.4.2 3.4.2', '5.4.2 3.4.2', '0.4.2 3.4.2', '5.4.2 3.4.2'].join(' | ');
+  imp.initFromString(`\\title "Late Bass"\n.\n\\track "Gtr"\n\\section "Intro" ${gtr.split(' | ').slice(0, 4).join(' | ')} | \\section "Verse" ${gtr.split(' | ').slice(4).join(' | ')} |\n\\track "Bass"\n\\staff {tabs}\n\\tuning (G2 D2 A1 E1)\n\\instrument 33\n${bass} |`, new alphaTab.Settings());
+  const bytes = new alphaTab.exporter.Gp7Exporter().export(imp.readScore(), new alphaTab.Settings());
+  await page.locator('#attachInput').setInputFiles({ name: 'late-bass.gp', mimeType: 'application/octet-stream', buffer: Buffer.from(bytes) });
+  await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
+  await expect(page.locator('.card')).toHaveCount(1);
+  await expect(page.locator('.card h2')).toHaveText('Verse');
+  const intro = steps(page).filter({ hasText: 'Intro' });
+  await expect(intro).toHaveClass(/rest/);
+  await expect(intro).toHaveAttribute('data-bars', '4');
+});

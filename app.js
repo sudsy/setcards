@@ -389,7 +389,10 @@
       p.units = res.parts[i].units;
       p.unit = res.parts[i].unit;
       p.summary = res.parts[i].summary;
+      // nothing to play here on this instrument (the bass sitting out the intro)
+      p.empty = p.units.length > 0 && p.units.every((u) => state.riffs[u.riff] && state.riffs[u.riff].empty);
     });
+    groups.forEach((g) => { g.empty = g.occ.every((i) => parts[i].empty); });
     state.parts = parts;
     state.groups = groups;
   }
@@ -499,8 +502,11 @@
       t.className = 'step';
       t.style.setProperty('--seg', segColor(p.kind));
       t.dataset.index = i;
+      t.dataset.group = p.group.key;
+      t.dataset.bars = p.bars;   // shown after the name, so you know how long to wait
+      t.classList.toggle('rest', !!p.empty && !role().cues);
       t.textContent = p.label;
-      t.title = `${p.label} · bars ${p.start + 1}–${p.end + 1} · ${p.summary}`;
+      t.title = `${p.label} · ${plural(p.bars, 'bar')} · bars ${p.start + 1}–${p.end + 1}${p.empty ? ' · nothing to play' : ` · ${p.summary}`}`;
       t.addEventListener('click', () => {
         if (prefs.view === 'cards') scrollToCard(i);
         else selectView(i);
@@ -519,10 +525,20 @@
   }
 
   function scrollToCard(partIndex) {
-    const p = state.parts[partIndex];
-    const target = els.cards.querySelector(`.cue[data-index="${partIndex}"]`) ||
-      els.cards.querySelector(`.card[data-group="${CSS.escape(p.group.key)}"]`);
+    // a part with nothing to play has no card: go to the next one that has
+    let i = partIndex;
+    const cardFor = (k) => els.cards.querySelector(`.cue[data-index="${k}"]`) || els.cards.querySelector(`.card[data-group="${CSS.escape(state.parts[k].group.key)}"]`);
+    while (i < state.parts.length - 1 && !cardFor(i)) i++;
+    const target = cardFor(i);
     if (!target) return;
+    if (isPaged()) {
+      pagedTarget = target.dataset.group;
+      els.cards.scrollTo({ left: target.offsetLeft - els.cards.offsetLeft, behavior: 'smooth' });
+      target.classList.remove('flash');
+      void target.offsetWidth;
+      target.classList.add('flash');
+      return;
+    }
     // Tab snippets above the card can still be drawing and change height, so re-align once they settle.
     const align = () => { els.scroller.scrollTop = target.offsetTop - 8; };
     align();
@@ -619,8 +635,12 @@
   els.noteClear.addEventListener('click', () => { els.noteText.value = ''; });
 
   function renderCards() {
+    // in performance mode a redraw keeps the part that was on screen
+    const keep = isPaged() ? els.structure.querySelector('.step.in-view') : null;
+    const keepGroup = keep && keep.dataset.group;
     destroyMinis();
     els.cards.innerHTML = '';
+    applyPaged();
     if (!state.score) return;
     const r = role();
     const frag = document.createDocumentFragment();
@@ -647,6 +667,7 @@
 
     const shown = new Set();   // riffs already drawn on an earlier card
     state.groups.forEach((g) => {
+      if (g.empty) return;   // its chip in the song order says how many bars to wait
       const occ = g.occ.map((i) => state.parts[i]);
       const card = document.createElement('section');
       card.className = 'card';
@@ -680,6 +701,7 @@
       // riffs this part uses, in order of first use
       const riffIds = [];
       occ.forEach((p) => p.units.forEach((u) => { if (!riffIds.includes(u.riff)) riffIds.push(u.riff); }));
+      card.classList.toggle('single-riff', riffIds.length === 1);
       riffIds.forEach((id) => {
         const riff = state.riffs[id];
         if (!riff) return;
@@ -691,7 +713,10 @@
 
     els.cards.appendChild(frag);
     els.loading.hidden = true;
+    const back = keepGroup && isPaged() && els.cards.querySelector(`.card[data-group="${CSS.escape(keepGroup)}"]`);
+    if (back) els.cards.scrollLeft = back.offsetLeft - els.cards.offsetLeft;
     startMinis();
+    markInView();
   }
 
   function riffBlock(riff, seenBefore) {
@@ -715,7 +740,8 @@
       ${seenBefore ? `<p class="seen-note">Same riff as in ${esc(firstPart ? firstPart.label : 'an earlier section')}.</p>` : ''}`;
     div.querySelectorAll('.chord-cell').forEach((b) => b.addEventListener('click', () => openChordDialog(Number(b.dataset.bar), b.dataset.riff, Number(b.dataset.offset))));
     div.querySelector('.riff-play').addEventListener('click', () => playRange(riff.start, riff.start + riff.len - 1));
-    if (!seenBefore && showTabInCards() && !riff.empty) {
+    // one part per screen in landscape, so a riff is drawn on every card that uses it
+    if ((!seenBefore || isPaged()) && showTabInCards() && !riff.empty) {
       const holder = document.createElement('div');
       holder.className = 'mini-tab';
       holder.dataset.start = riff.start;
@@ -754,10 +780,36 @@
   // As many bars to a row as fit (about 140px a bar at normal size), keeping to 1, 2, 4 or 8 so phrases stay together:
   // 2 on a phone, 8 on a wide screen.
   function barsPerRow(width, len) {
-    const fit = Math.max(1, Math.floor(width / (140 * prefs.zoom)));
+    const fit = Math.max(1, Math.floor(width / ((isPaged() ? 90 : 140) * prefs.zoom)));
     const n = [8, 4, 2, 1].find((x) => x <= fit);
     return Math.min(len, n);
   }
+  // A phone on its side: one screen per part (two when they fit), swiped or picked from the song order.
+  const landscapeQuery = window.matchMedia('(orientation: landscape) and (max-height: 540px)');
+  const isPaged = () => document.body.classList.contains('paged');
+  function applyPaged() {
+    const paged = landscapeQuery.matches && prefs.view === 'cards' && !els.songView.hidden && !role().cues && !!state.score && state.song && state.song.hasTab !== false;
+    if (paged === isPaged()) return false;
+    document.body.classList.toggle('paged', paged);
+    return true;
+  }
+  const relayout = () => { if (applyPaged() && state.score && prefs.view === 'cards') renderCards(); };
+  if (landscapeQuery.addEventListener) landscapeQuery.addEventListener('change', relayout);
+  // the song order lights up the parts on screen
+  function markInView() {
+    if (!isPaged()) return;
+    const box = els.cards.getBoundingClientRect();
+    const keys = new Set([...els.cards.querySelectorAll('.card')].filter((c) => {
+      const r = c.getBoundingClientRect();
+      return r.left < box.right - 20 && r.right > box.left + 20;
+    }).map((c) => c.dataset.group));
+    els.structure.querySelectorAll('.step').forEach((t) => t.classList.toggle('in-view', keys.has(t.dataset.group)));
+  }
+  // the part picked from the song order, until the person swipes somewhere else themselves
+  let pagedTarget = null;
+  ['touchstart', 'wheel', 'mousedown'].forEach((ev) => els.cards.addEventListener(ev, () => { pagedTarget = null; }, { passive: true }));
+  els.cards.addEventListener('scroll', () => { clearTimeout(markInView.t); markInView.t = setTimeout(markInView, 80); }, { passive: true });
+
   // Snippets are laid out for the width they had, so redraw the cards when a resize changes how many bars fit.
   let lastFit = null;
   let resizeTimer = null;
@@ -781,7 +833,7 @@
       const mini = new AT.AlphaTabApi(el, {
         core: { fontDirectory: 'lib/font/', engine: 'svg', logLevel: 'error', useWorkers: false, enableLazyLoading: false },
         display: {
-          scale: prefs.zoom * 0.85, layoutMode: AT.LayoutMode.Page, staveProfile: STAVES[prefs.stave] ?? AT.StaveProfile.Tab,
+          scale: prefs.zoom * (isPaged() ? 0.72 : 0.85), layoutMode: AT.LayoutMode.Page, staveProfile: STAVES[prefs.stave] ?? AT.StaveProfile.Tab,
           startBar: Number(el.dataset.start) + 1, barCount: Number(el.dataset.len),
           barsPerRow: barsPerRow(el.clientWidth || els.cards.clientWidth, Number(el.dataset.len)),
           // a full last row is stretched across the card like the others; a short one keeps its natural width
@@ -798,13 +850,20 @@
       mini.updateSettings();
       // alphaTab adds a "rendered by alphaTab" line to every render; the full tab keeps it, snippets drop it.
       mini.renderFinished.on(() => {
+        // the card is its full height now, which can move the parts after it on to the next screen;
+        // a part just picked from the song order is kept in view
+        const picked = pagedTarget && isPaged() && els.cards.querySelector(`.card[data-group="${CSS.escape(pagedTarget)}"]`);
+        if (picked) els.cards.scrollLeft = picked.offsetLeft - els.cards.offsetLeft;
+        clearTimeout(markInView.t);
+        markInView.t = setTimeout(markInView, 80);
         el.querySelectorAll('svg').forEach((svg) => { if (svg.querySelectorAll('text').length === 1 && /alphaTab/.test(svg.textContent)) svg.parentElement.style.display = 'none'; });
       });
       mini.renderScore(state.score, [state.trackIndex]);
       minis.push(mini);
     };
     if ('IntersectionObserver' in window) {
-      miniObserver = new IntersectionObserver((entries) => entries.forEach((en) => { if (en.isIntersecting) draw(en.target); }), { root: els.scroller, rootMargin: '300px' });
+      miniObserver = new IntersectionObserver((entries) => entries.forEach((en) => { if (en.isIntersecting) draw(en.target); }),
+        isPaged() ? { root: els.cards, rootMargin: '0px 100% 0px 100%' } : { root: els.scroller, rootMargin: '300px' });
       holders.forEach((h) => miniObserver.observe(h));
     } else {
       holders.forEach(draw);
@@ -829,6 +888,7 @@
   }
 
   function applyViewChrome() {
+    applyPaged();
     const cards = prefs.view === 'cards';
     els.viewCards.setAttribute('aria-pressed', String(cards));
     els.viewTab.setAttribute('aria-pressed', String(!cards));
@@ -1091,6 +1151,8 @@
 
   // While another song is on its way, the last one is hidden rather than left on screen.
   function startSwitching(title) {
+    pagedTarget = null;
+    els.cards.scrollLeft = 0;
     if (state.playing) api.stop();
     destroyMinis();
     els.cards.innerHTML = '';
@@ -1724,7 +1786,7 @@
     if (state.editing) setEditing(false);
     els.songView.hidden = true;
     els.homeView.hidden = false;
-    document.body.classList.remove('no-tab');
+    document.body.classList.remove('no-tab', 'paged');
     document.title = 'Setcards';
     await flushSave();   // so the list shows what was just changed
     renderHome();
