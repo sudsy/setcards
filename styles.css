@@ -727,3 +727,6 @@ body.no-tab .tab-only { display: none !important; }
 .sync-line:not(.busy) .sync-text::before { content: "✓ "; color: var(--accent); }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .sync-line.busy .spinner { animation-duration: 2.4s; } }
+/* the previous song is hidden while the next one loads */
+#songView.switching #cards, #songView.switching #tab, #songView.switching #structure,
+#songView.switching #sectionHead, #songView.switching #noTab { visibility: hidden; }

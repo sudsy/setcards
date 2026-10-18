@@ -969,12 +969,12 @@
     renderMap();
     fillTrackSelect();
     applyPlaybackRange();
-    if (prefs.view === 'cards') renderCards();
+    if (prefs.view === 'cards') { renderCards(); doneSwitching(); }
     if (suggested) toast(`This file had no sections, so Setcards suggested ${state.notes.sections.length}. Rename them in Edit.`);
   });
 
   api.renderStarted.on(() => { els.loading.hidden = false; });
-  api.renderFinished.on(() => { els.loading.hidden = true; });
+  api.renderFinished.on(() => { els.loading.hidden = true; doneSwitching(); });
   api.error.on((e) => {
     els.loading.hidden = true;
     console.error(e);
@@ -1089,18 +1089,63 @@
     api.updateSettings();
   }
 
-  async function openSong(key) {
-    flushSave();
+  // While another song is on its way, the last one is hidden rather than left on screen.
+  function startSwitching(title) {
+    if (state.playing) api.stop();
+    destroyMinis();
+    els.cards.innerHTML = '';
+    els.structure.innerHTML = '';
+    els.songView.classList.add('switching');
+    els.songTitle.textContent = title || '';
+    els.songMeta.textContent = '';
+    els.banner.hidden = true;
     els.loading.hidden = false;
+  }
+  const doneSwitching = () => els.songView.classList.remove('switching');
+
+  let opening = null;
+  async function openSong(key, title) {
+    flushSave();
+    opening = key;
+    startSwitching(title);
     let song;
     try {
       song = await SM.library.open(key);
     } catch (e) {
       console.error(e);
       els.loading.hidden = true;
+      doneSwitching();
       toast(e.message || 'That song could not be opened');
       return false;
     }
+    if (opening !== key) return true;   // another song was picked meanwhile
+    applySong(key, song);
+    if (song.latest) checkForChanges(key, song);
+    return true;
+  }
+
+  // The saved copy is on screen; if the band folder has something newer, show that instead.
+  function checkForChanges(key, song) {
+    // song details worked out from the tab (meta) are refreshed on every open, so they don't count as an edit
+    const edits = () => JSON.stringify({ ...state.notes, meta: null, updatedAt: null });
+    const shown = edits();
+    song.latest().then((fresh) => {
+      if (!fresh || !state.song || state.song.key !== key) return;
+      // changes made here in the meantime are being saved, and win
+      if (edits() !== shown) return;
+      const top = els.scroller.scrollTop;
+      applySong(key, fresh, true);
+      setTimeout(() => { els.scroller.scrollTop = top; }, 300);
+      toast('Updated with the band’s latest changes');
+    }).catch(() => {
+      if (!state.song || state.song.key !== key) return;
+      state.song.offline = true;
+      updateBanner();
+    });
+  }
+
+  function applySong(key, song, refresh) {
+    const prevVideo = state.notes && state.notes.youtubeUrl;
     if (state.playing) api.stop();
     destroyMinis();
     state.song = { key, title: song.notes.title || song.title || (song.fileName || 'Untitled').replace(SM.SONG_EXT, ''), artist: song.notes.artist || song.artist || '', fileName: song.fileName, canShare: song.canShare, localOnly: song.localOnly, offline: !!song.offline };
@@ -1118,7 +1163,7 @@
     updateBanner();
     resetDisplay();
     if (state.editing) setEditing(false);
-    setupVideo();
+    if (!refresh || song.notes.youtubeUrl !== prevVideo) setupVideo();
     const hasTab = !!(song.bytes || song.tex);
     state.song.hasTab = hasTab;
     document.body.classList.toggle('no-tab', !hasTab);
@@ -1129,13 +1174,12 @@
       state.groups = [];
       els.loading.hidden = true;
       renderNoTab();
-      return true;
+      doneSwitching();
+      return;
     }
     // All tracks are loaded; the one for this person's role is chosen once the file is read.
-    const settingsTrack = prefs.tracks[key] && prefs.tracks[key][prefs.role];
     state.source = { bytes: song.bytes, tex: song.tex };
     loadSource();
-    return true;
   }
 
   // Reads the tab again from the copy already downloaded, for example after a change of transposition.
@@ -1691,9 +1735,9 @@
     els.songView.hidden = false;
   }
 
-  async function openFromList(key) {
+  async function openFromList(key, title) {
     showSongView();
-    const ok = await openSong(key);
+    const ok = await openSong(key, title);
     if (!ok) showHome();
   }
 
@@ -1787,7 +1831,7 @@
       chip.textContent = STATUS_LABELS[status];
       open.querySelector('strong').after(chip);
     }
-    open.addEventListener('click', () => openFromList(key));
+    open.addEventListener('click', () => openFromList(key, s.title));
     li.appendChild(open);
     if (extra) li.appendChild(extra);
     return li;

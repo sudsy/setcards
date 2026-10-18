@@ -693,19 +693,37 @@
           notes: s.notes
         }));
       },
+      // Opens the copy saved on this device straight away when there is one; `latest()` then checks the band
+      // folder and gives the song again only if something changed. Without a saved copy it is fetched first.
       async open(id) {
         const f = folder();
-        try {
+        const k = `${f.id}:song:${id}`;
+        const saved = await offline.get(k).catch(() => null);
+        const fetchLatest = async () => {
           const song = await findSong(id);
-          const bytes = song.tab ? await downloadTab(song.tab.id) : null;
+          const tabVersion = song.tab ? song.tab.modifiedTime : null;
+          // the tab is only downloaded again when it has changed
+          const bytes = !song.tab ? null : (saved && saved.bytes && saved.tabVersion === tabVersion ? saved.bytes : await downloadTab(song.tab.id));
           const notes = song.notes;
-          const result = { bytes, notes, title: notes && notes.title, artist: notes && notes.artist, fileName: song.tab ? song.tab.name : null };
-          offline.put({ k: `${f.id}:song:${id}`, ...result, tabVersion: song.tab ? song.tab.modifiedTime : null, savedAt: Date.now() }).catch(() => {});
+          const result = { bytes, notes, title: notes && notes.title, artist: notes && notes.artist, fileName: song.tab ? song.tab.name : null, tabVersion };
+          offline.put({ k, ...result, savedAt: Date.now() }).catch(() => {});
           return result;
+        };
+        const fromSaved = (extra) => ({ bytes: saved.bytes, notes: saved.notes, title: saved.title, artist: saved.artist, fileName: saved.fileName, tabVersion: saved.tabVersion, savedAt: saved.savedAt, ...extra });
+        if (saved && (saved.bytes || !saved.fileName)) {
+          return fromSaved({
+            latest: async () => {
+              const fresh = await fetchLatest();
+              const same = fresh.tabVersion === saved.tabVersion && JSON.stringify(fresh.notes || null) === JSON.stringify(saved.notes || null);
+              return same ? null : fresh;
+            }
+          });
+        }
+        try {
+          return await fetchLatest();
         } catch (e) {
-          const saved = await offline.get(`${f.id}:song:${id}`).catch(() => null);
           if (!saved) throw e;
-          return { bytes: saved.bytes, notes: saved.notes, title: saved.title, artist: saved.artist, fileName: saved.fileName, offline: true, savedAt: saved.savedAt };
+          return fromSaved({ offline: true });
         }
       },
       async saveNotes(id, notes) {
@@ -721,6 +739,10 @@
           } catch (e) { /* the old name still works */ }
         }
         if (summaryOf({ ...song, notes }) !== summaries.get(id)) scheduleSongList();
+        // the copy on this device opens first next time, so it carries the change too
+        const k = `${folder().id}:song:${id}`;
+        const saved = await offline.get(k).catch(() => null);
+        if (saved) await offline.put({ ...saved, notes }).catch(() => {});
       },
       // A song with tab (bytes) or without (bytes null: just the notes).
       async add(fileName, bytes, notes) {
@@ -778,12 +800,16 @@
     async open(key) {
       const { source, id } = library.parse(key);
       if (!source) throw new Error('Unknown song source');
-      const song = await source.open(id);
-      const ov = overlay.get(key);
-      if (ov && (!song.notes || (ov.updatedAt || 0) >= (song.notes.updatedAt || 0))) { song.notes = ov; song.localOnly = !source.canWrite; song.fromOverlay = true; }
-      song.notes = Object.assign(emptyNotes(song), song.notes || {});
-      song.key = key;
-      song.canShare = source.canWrite;
+      const finish = (song) => {
+        const ov = overlay.get(key);
+        if (ov && (!song.notes || (ov.updatedAt || 0) >= (song.notes.updatedAt || 0))) { song.notes = ov; song.localOnly = !source.canWrite; song.fromOverlay = true; }
+        song.notes = Object.assign(emptyNotes(song), song.notes || {});
+        song.key = key;
+        song.canShare = source.canWrite;
+        return song;
+      };
+      const song = finish(await source.open(id));
+      if (song.latest) { const latest = song.latest; song.latest = () => latest().then((fresh) => fresh && finish(fresh)); }
       return song;
     },
 

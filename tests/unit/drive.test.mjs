@@ -239,10 +239,10 @@ test('every song is copied to the device in the background, and opens from there
   const saved = await drive.list();
   assert.deepEqual(saved.map((s) => s.title).sort(), ['Smooth Operator', 'landslide']);
   assert.ok(saved.every((s) => s.offline));
-  // a song never opened online still opens, tab included
+  // a song never opened online still opens from the copy on the device, tab included; the check for news fails
   const song = await drive.open('b');
-  assert.equal(song.offline, true);
   assert.equal(new TextDecoder().decode(song.bytes), 'landslide tab');
+  await assert.rejects(() => song.latest(), /Failed to fetch/);
 
   // back online: only a changed tab is downloaded again
   globalThis.fetch = realFetch;
@@ -253,6 +253,15 @@ test('every song is copied to the device in the background, and opens from there
   await drive.list();
   await drive.offlineSync();
   assert.deepEqual(downloads, ['b']);
+
+  // opening shows the saved copy at once; the check only gives the song again when the band changed it
+  const again = await drive.open('a');
+  assert.equal(await again.latest(), null);
+  const bandEdit = await drive.open('a');
+  store.get('an').content = notes({ title: 'Smooth Operator', artist: 'Sade', chords: { 0: 'Dm' } });
+  const fresh = await bandEdit.latest();
+  assert.deepEqual(fresh.notes.chords, { 0: 'Dm' });
+  assert.equal(downloads.filter((d) => d === 'a').length, 0);   // the tab hadn't changed, so it wasn't downloaded
 });
 
 test('with nothing saved yet, an unreachable Drive still reports the problem', async () => {

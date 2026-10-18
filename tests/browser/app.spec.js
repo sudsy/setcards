@@ -45,7 +45,10 @@ async function fakeDrive(page, { folder = { id: 'f1', name: 'The Band (Setcards)
             d.listSaved = async () => window.fakeSavedSongs || null;
             d.open = async (id) => {
               const song = window.fakeBandSongs.find((x) => x.id === id);
-              return { bytes: null, notes: song.notes, title: song.title, artist: song.artist, fileName: song.fileName };
+              const out = { bytes: null, notes: song.notes, title: song.title, artist: song.artist, fileName: song.fileName };
+              // stands in for a copy saved on the device, with a newer one waiting in Drive
+              if (window.fakeLatest) out.latest = async () => window.fakeLatest;
+              return out;
             };
             d.saveNotes = async (id, notes) => { window.fakeBandSongs.find((x) => x.id === id).notes = notes; };
             d.add = async (fileName, bytes, notes) => {
@@ -507,4 +510,19 @@ test.describe('on a desktop browser', () => {
     await page.mouse.wheel(0, 600);
     await expect.poll(() => main.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
   });
+});
+
+test('a band song opens from the saved copy, then shows what the band changed', async ({ page }) => {
+  await fakeDrive(page);
+  await page.addInitScript(() => {
+    window.fakeBandSongs = [{ id: 'b1', title: 'Easy', artist: 'Commodores', notes: { title: 'Easy', artist: 'Commodores' }, hasTab: false }];
+    window.fakeLatest = { bytes: null, notes: { title: 'Easy', artist: 'Commodores', status: 'ready' }, title: 'Easy', artist: 'Commodores', fileName: null };
+  });
+  await page.goto('/');
+  await page.locator('.song-row .song-open', { hasText: 'Easy' }).click();
+  await expect(page.locator('#songTitle')).toHaveText('Easy');
+  await expect(page.locator('#toast')).toContainText('Updated with the band’s latest changes');
+  // it was proposed in the saved copy; the band has since marked it ready
+  await expect(page.locator('#songMeta')).not.toContainText('Proposed');
+  await expect(page.locator('#songMeta')).toContainText('Commodores');
 });
