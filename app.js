@@ -335,16 +335,37 @@
   }
 
   function deriveParts() {
-    const n = state.score.masterBars.length;
+    const mbs = state.score.masterBars;
     const list = sortedSections();
+    const startsAt = {};
+    list.forEach((s) => { startsAt[s.start] = s; });
+    const sectionOf = (bar) => { let found = null; list.forEach((s) => { if (s.start <= bar) found = s; }); return found; };
+    // Sections are marked on the written bars; the song order follows the repeats, so a section inside
+    // repeat signs is played (and listed) again on each pass.
+    const order = SM.analysis.playOrder(state.score);
     const parts = [];
-    if (!list.length || list[0].start > 0) parts.push({ name: list.length ? 'Pickup' : 'Whole song', start: 0, synthetic: true });
-    list.forEach((s) => parts.push({ name: s.name, start: s.start, ref: s }));
+    const seen = new Set();
+    let tick = 0;
+    state.firstTick = {};
+    order.forEach((bar, k) => {
+      const len = mbs[bar].calculateDuration();
+      if (state.firstTick[bar] == null) state.firstTick[bar] = tick;
+      const last = parts[parts.length - 1];
+      if (last && bar === order[k - 1] + 1 && !startsAt[bar]) {
+        last.end = bar;
+        last.playEnd = tick + len;
+      } else {
+        const sec = sectionOf(bar);
+        parts.push({ name: sec ? sec.name : (list.length ? 'Pickup' : 'Whole song'), start: bar, end: bar, ref: sec || undefined,
+          synthetic: !sec, again: seen.has(bar), playStart: tick, playEnd: tick + len });
+      }
+      seen.add(bar);
+      tick += len;
+    });
 
     const groups = [];
     const byKey = {};
     parts.forEach((p, i) => {
-      p.end = i + 1 < parts.length ? parts[i + 1].start - 1 : n - 1;
       p.bars = p.end - p.start + 1;
       const name = baseName(p.name);
       const key = name.toLowerCase();
@@ -373,16 +394,21 @@
     state.groups = groups;
   }
 
+  // The first time a written bar is played (a bar inside repeat signs is in more than one part).
   function partIndexForBar(bar) {
-    for (let i = state.parts.length - 1; i >= 0; i--) if (state.parts[i].start <= bar) return i;
+    const i = state.parts.findIndex((p) => p.start <= bar && bar <= p.end);
+    if (i >= 0) return i;
+    for (let j = state.parts.length - 1; j >= 0; j--) if (state.parts[j].start <= bar) return j;
     return -1;
   }
+  // The part playing at a point in the playback, which counts repeats.
+  const partIndexForTick = (tick) => state.parts.findIndex((p) => p.playStart <= tick && tick < p.playEnd);
 
   // Every bar where a given bar of a riff is played (used to copy chords to each repeat).
   function riffBars(riffId, offset) {
     const out = [];
     state.parts.forEach((p) => p.units.forEach((u) => { if (u.riff === riffId && offset < u.len) out.push(u.start + offset); }));
-    return out;
+    return [...new Set(out)];
   }
   function riffForBar(bar) {
     const p = state.parts[partIndexForBar(bar)];
@@ -640,7 +666,7 @@
       }).join('');
 
       const fills = [];
-      occ.forEach((p) => p.units.forEach((u) => { if (u.variant) fills.push(...u.changed.map((b) => b + 1)); }));
+      occ.forEach((p) => p.units.forEach((u) => { if (u.variant) u.changed.forEach((b) => { if (!fills.includes(b + 1)) fills.push(b + 1); }); }));
 
       card.innerHTML = `
         <header class="card-head">
@@ -806,11 +832,13 @@
     if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
 
+  // Playback counts ticks in the order bars are played, so bars after a repeat start later than written.
   function rangeFor(start, end) {
     const mbs = state.score.masterBars;
+    const at = (bar) => (state.firstTick && state.firstTick[bar] != null ? state.firstTick[bar] : mbs[bar].start);
     const range = new AT.synth.PlaybackRange();
-    range.startTick = mbs[start].start;
-    range.endTick = mbs[end].start + mbs[end].calculateDuration();
+    range.startTick = at(start);
+    range.endTick = at(end) + mbs[end].calculateDuration();
     return range;
   }
 
@@ -818,7 +846,9 @@
     if (!state.score) return;
     if (state.view === -1) { api.playbackRange = null; api.isLooping = false; return; }
     const p = state.parts[state.view];
-    const range = rangeFor(p.start, p.end);
+    const range = new AT.synth.PlaybackRange();
+    range.startTick = p.playStart;
+    range.endTick = p.playEnd;
     api.playbackRange = range;
     api.isLooping = state.loop;
     api.tickPosition = range.startTick;
@@ -942,10 +972,7 @@
   });
   api.playerPositionChanged.on((e) => {
     if (!state.score || !state.playing) return;
-    const bars = state.score.masterBars;
-    let bar = 0;
-    for (let i = bars.length - 1; i >= 0; i--) if (bars[i].start <= e.currentTick) { bar = i; break; }
-    setPlayingPart(partIndexForBar(bar));
+    setPlayingPart(partIndexForTick(e.currentTick));
   });
   function setPlayingPart(i) {
     if (i === state.playingPart) return;
@@ -980,8 +1007,10 @@
     const chosen = prefs.tracks[state.song.key] && prefs.tracks[state.song.key][prefs.role];
     state.partMissing = false;
     if (chosen != null && score.tracks[chosen]) return chosen;
-    const i = score.tracks.findIndex((t) => trackMatches(t, prefs.role));
-    if (i >= 0) return i;
+    // a file can hold a notation copy and a tab copy of the same part; string players get the tab
+    const matches = score.tracks.map((t, k) => k).filter((k) => trackMatches(score.tracks[k], prefs.role));
+    const withTab = matches.find((k) => score.tracks[k].staves.some((st) => st.showTablature));
+    if (matches.length) return ['bass', 'guitar'].includes(prefs.role) && withTab != null ? withTab : matches[0];
     // vocals and keys players often read another part; a missing bass, guitar or drum part is worth saying
     state.partMissing = ['bass', 'guitar', 'drums'].includes(prefs.role);
     const bass = score.tracks.findIndex((t) => trackMatches(t, 'bass'));
@@ -1588,7 +1617,8 @@
     if (!ytPlayer || !ytReady || !state.parts.length || typeof ytPlayer.getPlayerState !== 'function') return;
     if (ytPlayer.getPlayerState() !== 1) return;
     const t = ytPlayer.getCurrentTime();
-    const timed = state.parts.map((p, i) => ({ i, t: p.ref && p.ref.videoTime })).filter((x) => x.t != null);
+    // a section's video time is where it is first played
+    const timed = state.parts.map((p, i) => ({ i, t: !p.again && p.ref && p.ref.start === p.start ? p.ref.videoTime : null })).filter((x) => x.t != null);
     if (!timed.length) return;
     if (state.view !== -1 && state.loop) {
       const start = state.parts[state.view].ref && state.parts[state.view].ref.videoTime;
@@ -2050,7 +2080,11 @@
     state.score.tracks.forEach((t, i) => {
       const o = document.createElement('option');
       o.value = i;
-      o.textContent = t.name || `Track ${i + 1}`;
+      const name = (t.name || '').trim() || `Track ${i + 1}`;
+      const twin = state.score.tracks.some((u, j) => j !== i && (u.name || '').trim() === (t.name || '').trim());
+      // tell apart a notation copy and a tab copy of the same part
+      const st = t.staves[0];
+      o.textContent = twin && st ? `${name} (${st.showTablature ? 'tab' : 'notation'})` : name;
       els.trackSel.appendChild(o);
     });
     els.trackSel.value = state.trackIndex;

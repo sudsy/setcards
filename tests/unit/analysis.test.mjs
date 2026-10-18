@@ -159,3 +159,32 @@ test('8 bar phrases are found even when the sections are written out in full', (
   assert.deepEqual(suggested.map((s) => s.start), [0, 8, 16, 24, 32]);
   assert.deepEqual(suggested.map((s) => s.name), ['Intro', 'Part A', 'Part A', 'Part B', 'Part C']);
 });
+
+test('repeat signs and 1st and 2nd endings are followed in the play order', () => {
+  const bar = (f) => `${f}.4.1`;
+  // A |: B C |1. D :|2. E | F, with no repeat start before a later repeat of G
+  const tex = `\\title "Repeats"\n.\n\\track "Bass"\n\\staff {tabs}\n\\tuning (G2 D2 A1 E1)\n` +
+    `${bar(0)} | \\ro ${bar(1)} | ${bar(2)} | \\ae 1 \\rc 2 ${bar(3)} | \\ae 2 ${bar(4)} | ${bar(5)} | \\rc 2 ${bar(6)} |`;
+  const score = scoreFromTex(tex);
+  assert.deepEqual(A.playOrder(score), [0, 1, 2, 3, 1, 2, 4, 5, 6, 5, 6]);
+  const plain = bassSong([...riffX, ...riffY]);
+  assert.deepEqual(A.playOrder(plain), [0, 1, 2, 3]);
+});
+
+test('chords are read from one track so a notation copy and a tab copy are not mixed', () => {
+  const tex = `\\title "Copies"\n.\n\\track "Gtr"\n\\staff {score}\n\\chord ("Am" 0 1 2 2 0 x) \\chord ("G" 3 0 0 0 2 3)\n` +
+    `0.6.2 {ch "Am"} 0.6.2 {ch "G"} |\n\\track "Gtr tab"\n\\staff {tabs}\n\\chord ("Am" 0 1 2 2 0 x)\n0.6.1 {ch "Am"} |`;
+  const score = scoreFromTex(tex);
+  assert.deepEqual(A.fileChords(score)[0].map((c) => c.name), ['Am', 'G']);
+});
+
+test('a part that comes in late and a short bar before a section do not throw the sections out', () => {
+  const phrase = (string) => Array.from({ length: 8 }, (_, i) => `${i}.${string}.4 ${i}.${string}.4 ${i + 2}.${string}.4 ${i}.${string}.4`);
+  const rest = Array(8).fill('r.1');
+  // guitar: intro, A, A, a one beat bar, B; the bass sits out the intro
+  const gtr = [...phrase(6), ...phrase(5), ...phrase(5), '\\ts 1 4 0.6.4', '\\ts 4 4 ' + phrase(4)[0], ...phrase(4).slice(1)];
+  const bass = [...rest, ...phrase(3), ...phrase(3), '\\ts 1 4 r.4', '\\ts 4 4 ' + phrase(2)[0], ...phrase(2).slice(1)];
+  const score = scoreFromTex(`\\title "Late bass"\n.\n\\track "Gtr"\n${gtr.join(' | ')} |\n\\track "Bass"\n\\staff {tabs}\n\\tuning (G2 D2 A1 E1)\n${bass.join(' | ')} |`);
+  const suggested = A.suggestSections(score, 1, noChords);
+  assert.deepEqual(suggested.map((s) => [s.start, s.name]), [[0, 'Intro'], [8, 'Part A'], [16, 'Part A'], [24, 'Part B']]);
+});

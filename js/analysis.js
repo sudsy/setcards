@@ -43,10 +43,14 @@
   /* ---------- chords and lyrics from the file ---------- */
 
   // Chord names written anywhere in the file, per bar, with their position in the bar (0 to 1).
+  // Chords come from the first staff that has any: files with a notation copy and a tab copy of a part
+  // (common in MusicXML) can place the same chords differently, and mixing them doubles every change.
   function fileChords(score) {
     const out = {};
-    score.tracks.forEach((track) => track.staves.forEach((staff) => {
-      if (!staff.chords || !staff.chords.size) return;
+    const hasChords = (staff) => staff.chords && staff.chords.size && staff.bars.some((bar) => bar.voices.some((v) => v.beats.some((b) => b.chordId && staff.chords.get(b.chordId))));
+    let source = null;
+    score.tracks.forEach((track) => track.staves.forEach((staff) => { if (!source && hasChords(staff)) source = staff; }));
+    [source].filter(Boolean).forEach((staff) => {
       staff.bars.forEach((bar, i) => {
         const total = score.masterBars[i].calculateDuration() || 1;
         bar.voices.forEach((v) => v.beats.forEach((b) => {
@@ -56,7 +60,7 @@
           (out[i] = out[i] || []).push({ name: ch.name.trim(), pos: b.playbackStart / total });
         }));
       });
-    }));
+    });
     Object.keys(out).forEach((k) => {
       const seen = {};
       out[k] = out[k].sort((a, b) => a.pos - b.pos).filter((c) => {
@@ -231,25 +235,57 @@
   // (an A section played twice, a chorus coming back) and falls back to runs of repeating grooves.
   function suggestSections(score, trackIndex, chordsFor) {
     const cmp = makeComparer(score, trackIndex, chordsFor);
-    return phraseSections(score, cmp) || grooveSections(score, cmp);
+    return phraseSections(score, bandComparer(score, chordsFor)) || grooveSections(score, cmp);
   }
 
-  // Lays phrases of 8 bars over the song, choosing the length and starting bar that line up the most repeats.
+  // Compares bars across every pitched part, so a part that sits out (a bass that comes in late) doesn't hide the form.
+  function bandComparer(score, chordsFor) {
+    const each = score.tracks.map((t, i) => i).filter((i) => !score.tracks[i].staves[0].isPercussion).map((i) => makeComparer(score, i, chordsFor));
+    return {
+      barSim(a, b) {
+        let sum = 0;
+        let n = 0;
+        each.forEach((c) => { if (!c.isEmpty(a) || !c.isEmpty(b)) { sum += c.barSim(a, b); n++; } });
+        return n ? sum / n : (each[0] ? each[0].barSim(a, b) : 1);
+      },
+      isEmpty: (i) => each.every((c) => c.isEmpty(i))
+    };
+  }
+
+  // Lays phrases of 8 bars over the song, choosing the starting bar that lines up the most repeats.
+  // Short bars (a pickup, a bar of 1 beat before a new section) don't count towards the 8 and join the next phrase.
   function phraseSections(score, cmp) {
-    const n = score.masterBars.length;
-    const filled = (s, len) => { for (let k = 0; k < len; k++) if (!cmp.isEmpty(s + k)) return true; return false; };
+    const mbs = score.masterBars;
+    const durs = mbs.map((m) => m.calculateDuration());
+    const common = durs.slice().sort((x, y) => durs.filter((d) => d === y).length - durs.filter((d) => d === x).length)[0] || 1;
+    const full = durs.map((d, i) => i).filter((i) => durs[i] >= common * 0.75);
+    const n = full.length;
+    const sim = (pa, pb, len) => { let t = 0; for (let k = 0; k < len; k++) t += cmp.barSim(full[pa + k], full[pb + k]); return t / len; };
+    const filled = (pa, len) => { for (let k = 0; k < len; k++) if (!cmp.isEmpty(full[pa + k])) return true; return false; };
     function grid(len, offset) {
       const starts = [];
       for (let s = offset; s + len <= n; s += len) starts.push(s);
-      const twin = starts.map((a) => starts.filter((b) => b !== a && filled(a, len) && cmp.unitSim(a, b, len) >= RIFF_MATCH));
+      let total = 0;
+      const twin = starts.map((a) => {
+        let best = 0;
+        const t = starts.filter((b) => {
+          if (b === a || !filled(a, len)) return false;
+          const v = sim(a, b, len);
+          best = Math.max(best, v);
+          return v >= RIFF_MATCH;
+        });
+        if (t.length) total += best;
+        return t;
+      });
+      // repeated bars first; how closely the phrases match breaks a tie between starting bars
       const repeated = twin.filter((t) => t.length).length;
-      return { len, offset, starts, twin, covered: repeated * len };
+      return { len, starts, twin, covered: repeated * len, total: repeated ? total / repeated : 0 };
     }
     const best = (len) => {
       let top = null;
       for (let o = 0; o < len; o++) {
         const g = grid(len, o);
-        if (!top || g.covered > top.covered) top = g;
+        if (!top || g.covered > top.covered || (g.covered === top.covered && g.total > top.total)) top = g;
       }
       return top;
     };
@@ -263,16 +299,19 @@
     const names = [];
     const label = g.starts.map((s, i) => {
       if (i === 0 && !g.twin[0].length) return 'Intro';
-      let idx = names.findIndex((x) => cmp.unitSim(x, s, g.len) >= RIFF_MATCH);
+      let idx = names.findIndex((x) => sim(x, s, g.len) >= RIFF_MATCH);
       if (idx < 0) { names.push(s); idx = names.length - 1; }
       return `Part ${LETTERS[idx % 26]}`;
     });
-    // bars before the first phrase (a pickup) join it; bars after the last phrase join the last one
-    const out = [];
-    g.starts.forEach((s, i) => {
-      const start = i === 0 ? 0 : s;
-      out.push({ start, name: label[i] });
+    // a short bar just before a phrase starts it; bars after the last phrase join the last one
+    const out = g.starts.map((s, i) => {
+      let start = full[s];
+      while (start > 0 && durs[start - 1] < common * 0.75) start--;
+      return { start, name: label[i] };
     });
+    // bars before the first phrase: an intro of their own, or a pickup that joins it
+    if (g.starts[0] >= 2 && out[0].name !== 'Intro') out.unshift({ start: 0, name: 'Intro' });
+    else out[0].start = 0;
     return out;
   }
 
@@ -354,13 +393,44 @@
 
   // Key, tempo, bars and an approximate length (repeats and tempo changes aside).
   // The key comes from the file when it sets one; C major is Guitar Pro's default, so then it is estimated.
+  /* ---------- repeats ---------- */
+
+  // The written bars in the order they are played: repeat signs are followed, and an alternate ending
+  // (1st or 2nd time bar) is played only on its pass. Jumps such as D.S. al Coda are not followed.
+  function playOrder(score) {
+    const bars = score.masterBars;
+    const order = [];
+    let start = 0;
+    let pass = 1;
+    let i = 0;
+    let jumped = false;
+    while (i < bars.length && order.length < bars.length * 16) {
+      const mb = bars[i];
+      const ending = mb.alternateEndings;
+      if (!jumped) {
+        if (mb.isRepeatStart && pass === 1) start = i;
+        // the first bar after a set of endings: the repeat is over
+        if (!ending && pass > 1 && i > 0 && bars[i - 1].alternateEndings) { pass = 1; start = i; }
+      }
+      jumped = false;
+      if (ending && !(ending & (1 << (pass - 1)))) { i++; continue; }   // not this time round
+      order.push(i);
+      if (mb.repeatCount > 1) {
+        if (pass < mb.repeatCount) { pass++; i = start; jumped = true; continue; }
+        if (!ending) { pass = 1; start = i + 1; }
+      }
+      i++;
+    }
+    return order;
+  }
+
   function songMeta(score) {
     const mb = score.masterBars[0];
     const sig = mb ? mb.keySignature : 0;
     const minor = mb ? mb.keySignatureType === 1 : false;
     const fromFile = sig !== 0 || minor;
     const key = fromFile ? (minor ? SIG_MINOR[sig] : SIG_MAJOR[sig]) : estimateKey(score);
-    const ticks = score.masterBars.reduce((sum, m) => sum + m.calculateDuration(), 0);
+    const ticks = playOrder(score).reduce((sum, i) => sum + score.masterBars[i].calculateDuration(), 0);
     const tempo = Math.round(score.tempo || 120);
     return { key: key || '', keyGuessed: !fromFile && !!key, tempo, bars: score.masterBars.length, seconds: Math.round((ticks / 960) * (60 / tempo)) };
   }
@@ -419,5 +489,5 @@
     return { octaveMoved };
   }
 
-  SM.analysis = { transposeScore, shiftKeySignature, songMeta, estimateKey, barTokens, tokenSim, fileChords, lyricCue, analyse, runs, summarise, suggestSections, SIMILAR, RIFF_MATCH };
+  SM.analysis = { playOrder, transposeScore, shiftKeySignature, songMeta, estimateKey, barTokens, tokenSim, fileChords, lyricCue, analyse, runs, summarise, suggestSections, SIMILAR, RIFF_MATCH };
 })(typeof window !== 'undefined' ? window : globalThis);
