@@ -275,7 +275,7 @@
       const f = folder();
       if (!f) return [];
       const q = encodeURIComponent(`'${f.id}' in parents and trashed = false`);
-      const r = await call(`${API}/files?q=${q}&fields=files(id,name,modifiedTime,size)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true`);
+      const r = await call(`${API}/files?q=${q}&fields=files(id,name,mimeType,modifiedTime,size)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true`);
       filesCache = (await r.json()).files || [];
       return filesCache;
     }
@@ -353,6 +353,74 @@
       (filesCache || (filesCache = [])).push(created);
       return created;
     }
+    /* ----- the song list: a Google Sheet anyone can open without Setcards ----- */
+    const SHEET_NAME = 'Song list';
+    const SHEET_TYPE = 'application/vnd.google-apps.spreadsheet';
+    const STATUS = { proposed: 'Proposed', learning: 'Learning', ready: 'Ready' };
+    let lastSheetCsv = null;
+    let sheetTimer = 0;
+    const summaries = new Map();   // song id -> the fields the sheet shows, to spot changes that matter
+
+    function rowFor(s) {
+      const n = s.notes || {};
+      const m = n.meta || {};
+      const status = STATUS[n.status] ? n.status : (s.tab ? 'learning' : 'proposed');
+      const key = n.key || (m.key ? `${m.key}${m.keyGuessed ? ' (estimated)' : ''}` : '');
+      const seconds = m.seconds;
+      return {
+        title: n.title || (s.tab ? s.tab.name.replace(SONG_EXT, '') : 'Untitled'),
+        artist: n.artist || '',
+        status,
+        cells: [
+          n.title || (s.tab ? s.tab.name.replace(SONG_EXT, '') : 'Untitled'), n.artist || '', STATUS[status], key,
+          n.tempo || m.tempo || '', seconds ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : '',
+          n.youtubeUrl || '', s.tab ? s.tab.name : ''
+        ]
+      };
+    }
+    const summaryOf = (s) => JSON.stringify(rowFor(s).cells);
+    const csvCell = (v) => { const t = String(v ?? ''); return /[",\r\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+    // Sheets may write CSV back with different line endings or quoting, so compare cell by cell.
+    const sameTable = (a, b) => {
+      const norm = (csv) => (csv || '').replace(/\r/g, '').replace(/"/g, '').trim();
+      return norm(a) === norm(b);
+    };
+
+    function songListCsv(songs) {
+      const order = { ready: 0, learning: 1, proposed: 2 };
+      const rows = songs.map(rowFor).sort((a, b) => order[a.status] - order[b.status] || a.title.localeCompare(b.title));
+      const head = ['Title', 'Artist', 'Status', 'Key', 'Tempo (bpm)', 'Length', 'YouTube', 'Tab file'];
+      return [head, ...rows.map((r) => r.cells)].map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
+    }
+
+    // Writes the song list sheet if what it shows has changed. Creates it the first time.
+    async function syncSongList() {
+      clearTimeout(sheetTimer);
+      filesCache = null;
+      const songs = await allSongs();
+      songs.forEach((s) => summaries.set(s.id, summaryOf(s)));
+      const csv = songListCsv(songs);
+      const sheet = filesCache.find((x) => x.name === SHEET_NAME && x.mimeType === SHEET_TYPE);
+      if (sheet && lastSheetCsv === null) {
+        try { lastSheetCsv = await (await call(`${API}/files/${sheet.id}/export?mimeType=text/csv`)).text(); } catch (e) { lastSheetCsv = ''; }
+      }
+      if (sameTable(csv, lastSheetCsv)) return false;
+      if (sheet) {
+        await call(`${UPLOAD}/files/${sheet.id}?uploadType=media&supportsAllDrives=true`, { method: 'PATCH', headers: { 'Content-Type': 'text/csv' }, body: csv });
+      } else {
+        const m = multipart({ name: SHEET_NAME, parents: [folder().id], mimeType: SHEET_TYPE }, csv, 'text/csv');
+        const r = await call(`${UPLOAD}/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,mimeType`, { method: 'POST', headers: { 'Content-Type': m.type }, body: m.body });
+        filesCache.push(await r.json());
+      }
+      lastSheetCsv = csv;
+      return true;
+    }
+    // Several changes in a row are written to the sheet together.
+    function scheduleSongList() {
+      clearTimeout(sheetTimer);
+      sheetTimer = setTimeout(() => { syncSongList().catch(() => {}); }, 5000);
+    }
+
     const trash = (id) => call(`${API}/files/${id}?supportsAllDrives=true`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) });
 
     return {
@@ -386,6 +454,8 @@
       disconnect() {
         ls.del('setcards:driveFolder');
         filesCache = null;
+        lastSheetCsv = null;
+        summaries.clear();
         token = null;
         try { sessionStorage.removeItem('setcards:gtoken'); } catch (e) { /* storage unavailable */ }
       },
@@ -406,6 +476,8 @@
       async list() {
         filesCache = null;
         const songs = await allSongs();
+        songs.forEach((s) => summaries.set(s.id, summaryOf(s)));
+        scheduleSongList();   // brings the sheet up to date if a change was missed (it is only rewritten if different)
         return songs.map((s) => ({
           id: s.id,
           title: (s.notes && s.notes.title) || (s.tab ? s.tab.name.replace(SONG_EXT, '').replace(/[_-]+/g, ' ') : 'Untitled'),
@@ -426,16 +498,19 @@
         const song = await findSong(id);
         if (song.tab && !notes.tabFile) notes.tabFile = song.tab.name;
         await writeNotesFile(song, notes, song.tab ? song.tab.name : slug(notes.title));
+        if (summaryOf({ ...song, notes }) !== summaries.get(id)) scheduleSongList();
       },
       // A song with tab (bytes) or without (bytes null: just the notes).
       async add(fileName, bytes, notes) {
         if (!bytes) {
           const nf = await writeNotesFile(null, notes, slug(`${notes.title}${notes.artist ? ' - ' + notes.artist : ''}`));
+          scheduleSongList();
           return 'n:' + nf.id;
         }
         const tab = await uploadTab(fileName, bytes);
         notes.tabFile = fileName;
         await writeNotesFile(null, notes, fileName);
+        scheduleSongList();
         return tab.id;
       },
       // Gives a tab-less song its Guitar Pro file. Returns the song's new id.
@@ -444,6 +519,7 @@
         const tab = await uploadTab(fileName, bytes);
         notes.tabFile = fileName;
         await writeNotesFile(song, notes, fileName);
+        scheduleSongList();
         return tab.id;
       },
       async remove(id) {
@@ -451,6 +527,12 @@
         if (song.tab) await trash(song.tab.id);
         if (song.notesFile) await trash(song.notesFile.id);
         filesCache = null;
+        scheduleSongList();
+      },
+      syncSongList,
+      songListUrl() {
+        const sheet = (filesCache || []).find((x) => x.name === SHEET_NAME && x.mimeType === SHEET_TYPE);
+        return sheet ? `https://docs.google.com/spreadsheets/d/${sheet.id}` : null;
       }
     };
   })();

@@ -1761,6 +1761,14 @@
         <p class="fine">To add a bandmate, share that folder with them in Google Drive, then send them the invite link.</p>
         <div class="row-btns"><button class="text-btn primary" id="gInvite" type="button">Share invite link</button><button class="text-btn" id="gDisconnect" type="button">Leave this folder</button></div>`;
       box.querySelector('#gInvite').addEventListener('click', () => shareInvite(drive.inviteLink(), f.name));
+      const sheetUrl = drive.songListUrl();
+      if (sheetUrl) {
+        const p = document.createElement('p');
+        p.className = 'fine';
+        p.innerHTML = 'The band’s songs are also listed in the <a target="_blank" rel="noopener">Song list</a> sheet in that folder, for anyone who prefers a spreadsheet. Setcards keeps it up to date; changes made in the sheet aren’t read back.';
+        p.querySelector('a').href = sheetUrl;
+        box.insertBefore(p, box.querySelector('.row-btns'));
+      }
       box.querySelector('#gDisconnect').addEventListener('click', () => { drive.disconnect(); closeDialog(els.bandDlg); renderHome(); });
     } else if (inBand()) {
       box.innerHTML = '<p class="fine">No band folder connected yet. Connect one from the home screen.</p>';

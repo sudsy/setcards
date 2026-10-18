@@ -20,7 +20,12 @@ function fakeDrive(files) {
     const u = new URL(url);
     const method = opts.method || 'GET';
     if (method === 'GET' && u.pathname.endsWith('/files') && u.searchParams.get('q')) {
-      return json({ files: [...store.values()].filter((f) => !f.trashed).map(({ id, name, modifiedTime }) => ({ id, name, modifiedTime })) });
+      return json({ files: [...store.values()].filter((f) => !f.trashed).map(({ id, name, mimeType, modifiedTime }) => ({ id, name, mimeType, modifiedTime })) });
+    }
+    const exportMatch = u.pathname.match(/\/files\/([^/]+)\/export$/);
+    if (method === 'GET' && exportMatch) {
+      const f = store.get(exportMatch[1]);
+      return { ok: true, status: 200, text: async () => f.content.replace(/\r\n/g, '\n') };
     }
     const idMatch = u.pathname.match(/\/files\/([^/]+)$/);
     if (method === 'GET' && idMatch && u.searchParams.get('alt') === 'media') {
@@ -32,7 +37,7 @@ function fakeDrive(files) {
       const meta = JSON.parse(text.split('\r\n\r\n')[1].split('\r\n--')[0]);
       const content = text.split('\r\n\r\n')[2].split('\r\n--')[0];
       const id = 'id' + next++;
-      store.set(id, { id, name: meta.name, content, modifiedTime: new Date().toISOString() });
+      store.set(id, { id, name: meta.name, mimeType: meta.mimeType, content, modifiedTime: new Date().toISOString() });
       return json({ id, name: meta.name });
     }
     if (method === 'PATCH' && u.pathname.includes('/upload/') && idMatch) {
@@ -133,4 +138,33 @@ test('the first save of the day is kept as a permanent version, later saves are 
   await drive.saveNotes('a', { title: 'Smooth Operator', status: 'ready' });
   assert.deepEqual(store.get('an').saves, [{ keepForever: true }, { keepForever: false }]);
   assert.equal(JSON.parse(store.get('an').content).status, 'ready');
+});
+
+test('a Song list sheet is kept in the folder, and only rewritten when what it shows changes', async () => {
+  const store = fakeDrive([
+    { id: 'a', name: 'smooth.gp', content: 'gp' },
+    { id: 'an', name: 'smooth.gp.setcards.json', content: notes({ title: 'Smooth Operator', artist: 'Sade', status: 'ready', meta: { key: 'Dm', keyGuessed: true, tempo: 120, seconds: 254 } }) }
+  ]);
+  let drive = loadDrive();
+  await drive.add(null, null, { title: 'New, Idea', artist: 'Us', status: 'proposed', youtubeUrl: 'https://youtu.be/x' });
+  assert.equal(await drive.syncSongList(), true);
+  const sheet = [...store.values()].find((f) => f.name === 'Song list');
+  assert.equal(sheet.mimeType, 'application/vnd.google-apps.spreadsheet');
+  assert.deepEqual(sheet.content.trim().split('\r\n'), [
+    'Title,Artist,Status,Key,Tempo (bpm),Length,YouTube,Tab file',
+    'Smooth Operator,Sade,Ready,Dm (estimated),120,4m 14s,,smooth.gp',
+    '"New, Idea",Us,Proposed,,,,https://youtu.be/x,'
+  ]);
+
+  // a fresh start with nothing changed reads the sheet and leaves it alone
+  drive = loadDrive();
+  assert.equal(await drive.syncSongList(), false);
+
+  // a chord change doesn't touch the sheet; a status change does
+  await drive.list();
+  await drive.saveNotes('a', { title: 'Smooth Operator', artist: 'Sade', status: 'ready', meta: { key: 'Dm', keyGuessed: true, tempo: 120, seconds: 254 }, chords: { 3: 'Am' } });
+  assert.equal(await drive.syncSongList(), false);
+  await drive.saveNotes('a', { title: 'Smooth Operator', artist: 'Sade', status: 'learning', meta: { key: 'Dm', keyGuessed: true, tempo: 120, seconds: 254 } });
+  assert.equal(await drive.syncSongList(), true);
+  assert.match(sheet.content, /Smooth Operator,Sade,Learning/);
 });

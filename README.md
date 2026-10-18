@@ -42,6 +42,8 @@ Notes (status, sections, chords, instrument notes, video) are saved as a small `
 
 Once a band folder is connected, **Share invite link** in Songs gives a link that opens Setcards ready to join that folder: the bandmate signs in to Google and taps the folder.
 
+The band folder also gets a **Song list** Google Sheet, kept up to date by Setcards, so anyone can see the band's songs (title, artist, status, key, tempo, length, YouTube link and tab file) without the app. It is rewritten only when one of those changes. Changes made in the sheet are not read back.
+
 To use Google Drive, the person hosting this copy of the app sets it up once. See [SETUP-GOOGLE.md](SETUP-GOOGLE.md). It costs nothing: each band's files live in their own Google Drive.
 
 ## Running it
