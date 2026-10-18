@@ -101,3 +101,21 @@ test('chords written in the file are read per bar', () => {
   assert.equal(fc[0][1].pos, 0.5);
   assert.deepEqual(fc[1].map((c) => c.name), ['Am']);
 });
+
+test('song details: key from the file when set, estimated otherwise, plus tempo and length', () => {
+  const minorSong = scoreFromTex(`\\title "Minor" \\tempo 90
+.
+\\track "Bass" \\staff {tabs} \\tuning (G2 D2 A1 E1) \\instrument 33
+\\ks Dminor 0.3.4 0.3.4 3.3.4 5.3.4 | 0.2.4 3.2.4 0.3.2 |`);
+  const meta = A.songMeta(minorSong);
+  assert.equal(meta.key, 'Dm');
+  assert.equal(meta.keyGuessed, false);
+  assert.equal(meta.tempo, 90);
+  assert.equal(meta.bars, 2);
+  assert.equal(meta.seconds, Math.round(8 * 60 / 90));
+
+  const demo = A.songMeta(scoreFromTex(globalThis.DEMO_SONG.tex));
+  assert.equal(demo.keyGuessed, true);
+  assert.ok(demo.key, 'an estimated key is given');
+  assert.equal(demo.tempo, 104);
+});

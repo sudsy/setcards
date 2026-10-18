@@ -4,6 +4,13 @@ Guitar Pro songs as short section cards for every player in the band.
 
 Most songs are built from a few short patterns played many times. Setcards finds those patterns in a Guitar Pro file and shows each one once, so a quick look on your phone before the song is enough. The whole song is still there, in order, whenever you need it.
 
+## How it's organised
+
+- **First open:** choose **With my band** (songs in a shared Google Drive folder) or **Just me, on this device**. It's asked once, and Settings can change it.
+- **Home is the song list:** title, artist, key, tempo, length and number of sections for each song. Key and tempo come from the Guitar Pro file; when the file doesn't set a key it is estimated and shown with a "?", and anyone can correct it in the song's settings.
+- **Drafts:** in a band, a song you add can go straight to the band or stay on your device as a draft while you get it right. Drafts are listed separately, marked as only on this device, with **Share with band**.
+- **Instrument notes:** notes are kept with the song, so they follow you to every device, and each instrument has its own: one for the whole song and one per part. The bass player's notes show in the bass view, the guitarist's in the guitar view.
+
 ## What it does
 
 - **Song order:** the sections in sequence (Intro, Verse, Chorus…), always at the top.

@@ -596,3 +596,65 @@ dialog::backdrop { background: rgba(10, 12, 18, 0.55); }
 @keyframes flash { from { outline: 3px solid var(--accent-fill); outline-offset: 2px; } to { outline: 3px solid transparent; outline-offset: 2px; } }
 .flash { animation: flash 1.2s ease-out; }
 @media (prefers-reduced-motion: reduce) { .flash { animation: none; } }
+
+/* ---------- home: the band's songs ---------- */
+.home-main { padding-top: 12px; }
+.home-main > * { max-width: 760px; margin-left: auto; margin-right: auto; }
+.welcome { display: grid; gap: 12px; padding: 8px 0 16px; }
+.welcome h1 { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: 1.9rem; line-height: 1.1; text-wrap: balance; }
+.welcome p { margin: 0; color: var(--muted); max-width: 60ch; }
+.choice-list { display: grid; gap: 10px; margin-top: 6px; }
+.choice {
+  display: grid; gap: 4px; text-align: left;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--surface); padding: 14px 16px;
+}
+.choice strong { font-family: var(--font-display); font-size: 1.3rem; font-weight: 700; letter-spacing: 0.02em; }
+.choice span { color: var(--muted); font-size: 0.9rem; }
+.choice:hover { border-color: var(--accent-fill); }
+.band-box { display: grid; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
+.band-box p { margin: 0; }
+.list-section { margin-bottom: 18px; }
+.list-title { margin: 0 0 6px; font-family: var(--font-display); font-weight: 700; font-size: 1.35rem; letter-spacing: 0.02em; }
+.list-note { margin: -2px 0 8px; }
+.song-list { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 6px; }
+.song-row {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding-right: 6px;
+}
+.song-row.current { border-color: var(--accent-fill); }
+.song-row .song-open { padding: 10px 12px; display: grid; gap: 1px; }
+.song-row .song-open strong { font-size: 1.05rem; }
+.song-row .who { color: var(--ink); font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.song-row .details { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-actions { display: flex; align-items: center; gap: 4px; flex: none; }
+.row-actions .text-btn { padding: 6px 9px; font-size: 0.8rem; }
+.link-btn { border: 0; background: none; padding: 0; color: var(--accent); font-weight: 600; text-decoration: underline; cursor: pointer; }
+.home-foot { flex-wrap: wrap; }
+.home-foot .file-btn { flex: 1; min-width: 160px; padding: 11px; }
+.home-foot .check { margin: 0; }
+.mode-box { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 10px; }
+.inline-form { display: flex; gap: 8px; }
+.inline-form input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+
+/* ---------- song settings additions ---------- */
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.field-row .field input { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+
+/* ---------- instrument notes ---------- */
+.role-note {
+  display: grid; gap: 2px; text-align: left; width: 100%;
+  border: 0; border-left: 3px solid var(--accent-fill); border-radius: 0 6px 6px 0;
+  background: color-mix(in srgb, var(--accent-fill) 12%, var(--surface));
+  padding: 6px 10px;
+}
+.role-note-label { font-size: 0.68rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.role-note-text { white-space: pre-wrap; font-size: 0.95rem; }
+.add-note {
+  justify-self: start; border: 1px dashed var(--line); background: transparent;
+  border-radius: 6px; padding: 4px 9px; font-size: 0.8rem; color: var(--muted);
+}
+.cards > .add-note, .cards > .role-note { margin-bottom: -4px; }
+.cue .role-note, .cue .add-note { margin-top: 6px; }
+#noteText { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); font: inherit; resize: vertical; }

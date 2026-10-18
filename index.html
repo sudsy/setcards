@@ -17,10 +17,48 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="app">
+  <div id="homeView" class="app home">
     <header class="topbar">
-      <button id="libraryBtn" class="icon-btn" aria-label="Songs" title="Songs">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+      <div class="song-id">
+        <div class="song-title">Setcards</div>
+        <div id="bandName" class="song-meta"></div>
+      </div>
+      <button id="homeRoleBtn" class="role-btn" title="What you play">Bass</button>
+      <button id="bandBtn" class="icon-btn" aria-label="Band settings" title="Band settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+      </button>
+    </header>
+    <main id="homeMain" class="scroller home-main">
+      <section id="welcome" class="welcome" hidden>
+        <h1>Your band's songs, as short cards for every player</h1>
+        <p>Setcards breaks Guitar Pro songs into the parts that repeat, so a quick look before a song is enough. Choose how you'll use it. You can change this later in settings.</p>
+        <div class="choice-list">
+          <button id="chooseBand" class="choice" type="button">
+            <strong>With my band</strong>
+            <span>Songs live in a shared Google Drive folder. Everyone sees the same songs, sections and chords.</span>
+          </button>
+          <button id="chooseSolo" class="choice" type="button">
+            <strong>Just me, on this device</strong>
+            <span>No sign-in. Songs stay in this browser. You can join a band later.</span>
+          </button>
+        </div>
+      </section>
+      <section id="bandBox" class="band-box" hidden></section>
+      <div id="songListWrap" class="song-list-wrap"></div>
+    </main>
+    <footer class="playerbar home-foot">
+      <label class="file-btn">
+        <input id="fileInput" type="file">
+        Add a song
+      </label>
+      <label id="shareUploadWrap" class="check" hidden><input id="shareUpload" type="checkbox" checked> Share with the band now</label>
+    </footer>
+  </div>
+
+  <div id="songView" class="app" hidden>
+    <header class="topbar">
+      <button id="backBtn" class="icon-btn" aria-label="All songs" title="All songs">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
       </button>
       <div class="song-id">
         <div id="songTitle" class="song-title">Setcards</div>
@@ -106,30 +144,50 @@
     </footer>
   </div>
 
-  <dialog id="libraryDlg" class="sheet">
+  <dialog id="bandDlg" class="sheet">
     <div class="sheet-head">
-      <h2>Songs</h2>
+      <h2>Band</h2>
       <button class="icon-btn" data-close aria-label="Close">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
     </div>
-    <label class="file-btn">
-      <input id="fileInput" type="file">
-      Add a Guitar Pro file
-    </label>
-    <label id="shareUploadWrap" class="check" hidden><input id="shareUpload" type="checkbox" checked> Add it to the band folder</label>
-    <p class="fine">Reads .gp, .gpx, .gp5, .gp4, .gp3 and MusicXML.</p>
     <div id="driveBox" class="drive-box"></div>
-    <div id="songLists"></div>
-    <button id="demoBtn" class="text-btn">Add the demo song</button>
+    <div id="modeBox" class="mode-box"></div>
+  </dialog>
+
+  <dialog id="noteDlg" class="sheet small">
+    <div class="sheet-head">
+      <h2 id="noteTitle">Note</h2>
+      <button class="icon-btn" data-close aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <p id="noteHint" class="fine"></p>
+    <form id="noteForm" class="bar-form">
+      <textarea id="noteText" rows="4" placeholder="e.g. Watch the push into bar 3" aria-label="Note"></textarea>
+      <div class="row-btns">
+        <button class="text-btn" type="button" id="noteClear">Clear</button>
+        <button class="text-btn primary" type="submit">Save note</button>
+      </div>
+    </form>
   </dialog>
 
   <dialog id="settingsDlg" class="sheet">
     <div class="sheet-head">
-      <h2>Settings</h2>
+      <h2>Song settings</h2>
       <button class="icon-btn" data-close aria-label="Close">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
+    </div>
+    <div class="field-row">
+      <label class="field">
+        <span>Key</span>
+        <input id="keyInput" placeholder="e.g. Dm" autocomplete="off" autocapitalize="off">
+      </label>
+      <label class="field">
+        <span>Tempo (bpm)</span>
+        <input id="tempoInput" inputmode="numeric" placeholder="120" autocomplete="off">
+      </label>
     </div>
     <label class="field">
       <span>Track you follow in this song</span>

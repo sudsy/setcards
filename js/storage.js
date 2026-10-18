@@ -68,7 +68,10 @@
       available: () => typeof indexedDB !== 'undefined',
       async list() {
         const all = await tx('readonly', (s) => s.getAll());
-        return all.map((r) => ({ id: r.id, title: r.title, artist: r.artist, fileName: r.fileName, updatedAt: r.updatedAt || 0, isDemo: !!r.isDemo, sections: (notesOf(r).sections || []).length }));
+        return all.map((r) => {
+          const n = notesOf(r);
+          return { id: r.id, title: n.title || r.title, artist: n.artist || r.artist, fileName: r.fileName, updatedAt: r.updatedAt || 0, isDemo: !!r.isDemo, notes: n, canShare: !r.tex };
+        });
       },
       async open(id) {
         const r = await tx('readonly', (s) => s.get(id));
@@ -338,9 +341,18 @@
       async grantAccess() { const picked = await pick('files'); filesCache = null; return picked.length; },
       async list() {
         const files = await listFolder();
-        return files.filter((x) => SONG_EXT.test(x.name)).map((x) => ({
-          id: x.id, title: x.name.replace(SONG_EXT, '').replace(/[_-]+/g, ' '), artist: '', fileName: x.name,
-          updatedAt: Date.parse(x.modifiedTime) || 0, hasNotes: files.some((n) => n.name === x.name + NOTES_SUFFIX)
+        const songs = files.filter((x) => SONG_EXT.test(x.name));
+        // each song's notes hold its title, key and tempo for the list; they are small, so read them together
+        return Promise.all(songs.map(async (x) => {
+          const nf = files.find((n) => n.name === x.name + NOTES_SUFFIX);
+          let notes = null;
+          if (nf) {
+            try { notes = await (await call(`${API}/files/${nf.id}?alt=media&supportsAllDrives=true`)).json(); } catch (e) { notes = null; }
+          }
+          return {
+            id: x.id, title: (notes && notes.title) || x.name.replace(SONG_EXT, '').replace(/[_-]+/g, ' '), artist: (notes && notes.artist) || '',
+            fileName: x.name, updatedAt: Date.parse(x.modifiedTime) || 0, notes
+          };
         }));
       },
       async open(id) {

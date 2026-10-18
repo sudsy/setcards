@@ -16,8 +16,12 @@
     scroller: $('scroller'), tab: $('tab'), cards: $('cards'), loading: $('loading'), drop: $('drop'), banner: $('banner'),
     playBtn: $('playBtn'), loopBtn: $('loopBtn'), speedSel: $('speedSel'),
     videoBtn: $('videoBtn'), videoPanel: $('videoPanel'), playerStatus: $('playerStatus'),
-    libraryBtn: $('libraryBtn'), libraryDlg: $('libraryDlg'), fileInput: $('fileInput'), shareUpload: $('shareUpload'), shareUploadWrap: $('shareUploadWrap'),
-    songLists: $('songLists'), demoBtn: $('demoBtn'), driveBox: $('driveBox'),
+    homeView: $('homeView'), songView: $('songView'), backBtn: $('backBtn'), bandName: $('bandName'), homeRoleBtn: $('homeRoleBtn'),
+    bandBtn: $('bandBtn'), bandDlg: $('bandDlg'), driveBox: $('driveBox'), modeBox: $('modeBox'),
+    welcome: $('welcome'), chooseBand: $('chooseBand'), chooseSolo: $('chooseSolo'), bandBox: $('bandBox'), songListWrap: $('songListWrap'),
+    fileInput: $('fileInput'), shareUpload: $('shareUpload'), shareUploadWrap: $('shareUploadWrap'),
+    keyInput: $('keyInput'), tempoInput: $('tempoInput'),
+    noteDlg: $('noteDlg'), noteTitle: $('noteTitle'), noteHint: $('noteHint'), noteForm: $('noteForm'), noteText: $('noteText'), noteClear: $('noteClear'),
     settingsBtn: $('settingsBtn'), settingsDlg: $('settingsDlg'), trackSel: $('trackSel'),
     zoomRange: $('zoomRange'), zoomOut: $('zoomOut'), ytInput: $('ytInput'), exportBtn: $('exportBtn'), showTabCards: $('showTabCards'),
     barDlg: $('barDlg'), barDlgTitle: $('barDlgTitle'), barDlgText: $('barDlgText'),
@@ -64,6 +68,7 @@
     playingPart: -1,
     videoOn: true,
     barDlgIndex: 0,
+    noteEdit: null,
     chordEdit: null
   };
 
@@ -144,8 +149,8 @@
     const notes = state.notes;
     notes.title = state.song.title;
     notes.artist = state.song.artist;
-    pendingSave = async () => {
-      pendingSave = null;
+    const run = async () => {
+      if (pendingSave === run) pendingSave = null;
       const r = await SM.library.saveNotes(key, notes);
       if (r.error) toast('Saved on this device only. The band folder could not be reached.');
       if (state.song && state.song.key === key) {
@@ -153,19 +158,32 @@
         updateBanner();
       }
     };
+    pendingSave = run;
     pendingSave.key = key;
     pendingSave.notes = notes;
     saveTimer = setTimeout(() => pendingSave && pendingSave(), 400);
   }
+  // Returns a promise that settles once the save has been written.
   function flushSave(leaving) {
     clearTimeout(saveTimer);
-    if (!pendingSave) return;
+    if (!pendingSave) return Promise.resolve();
     // The page may close before the real save finishes, so keep an instant copy that wins on next open.
     if (leaving === true) SM.library.overlay.set(pendingSave.key, Object.assign({}, pendingSave.notes, { updatedAt: Date.now() }));
-    pendingSave();
+    return pendingSave();
   }
   window.addEventListener('pagehide', () => flushSave(true));
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSave(true); });
+
+  // Under the title: where the song lives, who it's by, and its key and tempo.
+  function updateSongMeta() {
+    if (!state.song) return;
+    const key = state.song.key;
+    const place = key.startsWith('drive:') ? 'Band' : (key.startsWith('local:') && prefs.mode === 'band' ? 'Draft, only on this device' : '');
+    const m = (state.notes && state.notes.meta) || {};
+    const k = (state.notes && state.notes.key) || (m.key ? m.key + (m.keyGuessed ? '?' : '') : '');
+    const t = (state.notes && state.notes.tempo) || m.tempo;
+    els.songMeta.textContent = [place, state.song.artist, k, t ? `${t} bpm` : ''].filter(Boolean).join(' · ') || state.song.fileName || '';
+  }
 
   function updateBanner() {
     const s = state.song;
@@ -370,7 +388,11 @@
     const target = els.cards.querySelector(`.cue[data-index="${partIndex}"]`) ||
       els.cards.querySelector(`.card[data-group="${CSS.escape(p.group.key)}"]`);
     if (!target) return;
-    els.scroller.scrollTo({ top: target.offsetTop - 8, behavior: 'smooth' });
+    // Tab snippets above the card can still be drawing and change height, so re-align once they settle.
+    const align = () => { els.scroller.scrollTop = target.offsetTop - 8; };
+    align();
+    setTimeout(align, 250);
+    setTimeout(align, 700);
     target.classList.remove('flash');
     void target.offsetWidth;
     target.classList.add('flash');
@@ -412,12 +434,63 @@
     minis = [];
   }
 
+  /* ---------------- instrument notes ---------------- */
+  // Shared with the band and kept with the song, one set per instrument:
+  // notes.roleNotes = { bass: { song: '…', parts: { verse: '…' } }, guitar: {…} }
+  function getNote(partKey) {
+    const r = (state.notes.roleNotes || {})[prefs.role] || {};
+    return (partKey ? (r.parts || {})[partKey] : r.song) || '';
+  }
+  function setNote(partKey, text) {
+    const all = state.notes.roleNotes = state.notes.roleNotes || {};
+    const r = all[prefs.role] = all[prefs.role] || { song: '', parts: {} };
+    r.parts = r.parts || {};
+    if (partKey) { if (text) r.parts[partKey] = text; else delete r.parts[partKey]; } else r.song = text;
+    saveNotes();
+  }
+
+  // A note, or a small button to add one. partKey null means the note for the whole song.
+  function noteBlock(partKey, partName) {
+    const text = getNote(partKey);
+    const label = `${role().label} note`;
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = text ? 'role-note' : 'add-note';
+    if (text) {
+      el.innerHTML = '<span class="role-note-label"></span><span class="role-note-text"></span>';
+      el.querySelector('.role-note-label').textContent = partName ? label : `${label} for the song`;
+      el.querySelector('.role-note-text').textContent = text;
+    } else {
+      el.textContent = partName ? `+ ${label}` : `+ ${label} for the whole song`;
+    }
+    el.addEventListener('click', (e) => { e.stopPropagation(); openNoteDialog(partKey, partName); });
+    return el;
+  }
+
+  function openNoteDialog(partKey, partName) {
+    state.noteEdit = partKey;
+    els.noteTitle.textContent = `${role().label} note · ${partName || 'whole song'}`;
+    els.noteHint.textContent = `Everyone sees this in the ${role().label.toLowerCase()} view, on any device.`;
+    els.noteText.value = getNote(partKey);
+    els.noteDlg.showModal();
+    setTimeout(() => els.noteText.focus(), 50);
+  }
+  els.noteForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    setNote(state.noteEdit, els.noteText.value.trim());
+    closeDialog(els.noteDlg);
+    renderCards();
+  });
+  els.noteClear.addEventListener('click', () => { els.noteText.value = ''; });
+
   function renderCards() {
     destroyMinis();
     els.cards.innerHTML = '';
     if (!state.score) return;
     const r = role();
     const frag = document.createDocumentFragment();
+
+    frag.appendChild(noteBlock(null));
 
     if (r.cues) {
       frag.appendChild(cueSheet());
@@ -466,6 +539,7 @@
         </header>
         ${layoutHtml}
         ${fills.length ? `<p class="fills">Small changes at bar${fills.length > 1 ? 's' : ''} ${fills.slice(0, 8).join(', ')}${fills.length > 8 ? '…' : ''}. Tap a section in the song order to see them.</p>` : ''}`;
+      card.appendChild(noteBlock(g.key, g.name));
 
       // riffs this part uses, in order of first use
       const riffIds = [];
@@ -529,6 +603,7 @@
         <div class="cue-head"><span class="cue-name">${esc(p.label)}</span><span class="cue-bars">${plural(p.bars, 'bar')}</span></div>
         ${cue ? `<p class="cue-words">“${esc(cue)}…”</p>` : '<p class="cue-words none">No singing</p>'}
         ${chordsAt(p.start).length ? `<p class="cue-chords">${esc(chordsAt(p.start).join(' '))}</p>` : ''}`;
+      if (getNote(p.group.key) || p.occNo === 1) li.appendChild(noteBlock(p.group.key, p.group.name));
       li.addEventListener('click', () => { setView('tab'); selectView(i); });
       list.appendChild(li);
     });
@@ -715,6 +790,13 @@
     }
     deriveParts();
     applyAnnotations();
+    // key, tempo and length are kept with the song so the song list can show them without opening it
+    const meta = SM.analysis.songMeta(score);
+    if (state.song.canShare && JSON.stringify(meta) !== JSON.stringify(state.notes.meta)) {
+      state.notes.meta = meta;
+      saveNotes();
+    }
+    updateSongMeta();
     state.view = -1;
     renderMap();
     fillTrackSelect();
@@ -801,6 +883,7 @@
     prefs.role = id;
     savePrefs();
     els.roleBtn.textContent = role().label;
+    els.homeRoleBtn.textContent = role().label;
     if (!state.score) return;
     const i = pickTrack(state.score);
     if (i !== state.trackIndex) useTrack(i);
@@ -808,7 +891,7 @@
     els.showTabCards.checked = showTabInCards();
   }
 
-  els.roleBtn.addEventListener('click', () => {
+  const openRoles = () => {
     els.roleList.innerHTML = '';
     ROLES.forEach((r) => {
       const b = document.createElement('button');
@@ -819,7 +902,9 @@
       els.roleList.appendChild(b);
     });
     els.roleDlg.showModal();
-  });
+  };
+  els.roleBtn.addEventListener('click', openRoles);
+  els.homeRoleBtn.addEventListener('click', openRoles);
 
   /* ---------------- loading songs ---------------- */
   function resetDisplay() {
@@ -855,7 +940,7 @@
     prefs.last = key;
     savePrefs();
     els.songTitle.textContent = state.song.title;
-    els.songMeta.textContent = state.song.artist || state.song.fileName || '';
+    updateSongMeta();
     document.title = `${state.song.title} · Setcards`;
     updateBanner();
     resetDisplay();
@@ -882,14 +967,13 @@
       const score = AT.importer.ScoreLoader.loadScoreFromBytes(bytes, api.settings);
       const meta = { title: score.title || file.name.replace(/\.[^.]+$/, ''), artist: score.artist || '' };
       const notes = SM.library.emptyNotes(meta);
-      const drive = SM.library.sources.drive;
-      const toBand = drive.available() && els.shareUpload.checked;
+      notes.meta = SM.analysis.songMeta(score);
+      const toBand = inBand() && drive.connected() && drive.signedIn() && els.shareUpload.checked;
       const source = toBand ? drive : SM.library.sources.local;
-      toast(toBand ? 'Adding to the band folder…' : 'Adding to this device…');
+      toast(toBand ? 'Adding to the band folder…' : (inBand() ? 'Adding to your drafts…' : 'Adding to this device…'));
       const id = await source.add(file.name, bytes, notes, meta);
-      closeDialog(els.libraryDlg);
-      await openSong(SM.library.key(source.id, id));
-      toast(toBand ? 'Added to the band folder' : 'Added to this device');
+      await openFromList(SM.library.key(source.id, id));
+      toast(toBand ? 'Added to the band folder' : (inBand() ? 'Added to your drafts. Share it with the band from the song list.' : 'Added to this device'));
     } catch (e) {
       console.error(e);
       toast(e.message && /Google|Drive/.test(e.message) ? e.message : 'That file could not be read. Setcards opens Guitar Pro 3 to 8 files and MusicXML.');
@@ -1306,104 +1390,235 @@
     });
   });
 
-  /* ---------------- library ---------------- */
-  async function renderLibrary() {
-    els.songLists.innerHTML = '<p class="fine">Loading songs…</p>';
-    renderDriveBox();
-    const drive = SM.library.sources.drive;
-    els.shareUploadWrap.hidden = !drive.available();
-    const groups = [];
-    for (const src of [drive, SM.library.sources.site, SM.library.sources.local]) {
-      if (!src.available()) continue;
-      // Listing the band folder needs a Google sign-in, which should only happen when someone taps for it.
-      if (src.id === 'drive' && !drive.signedIn()) { groups.push({ src, songs: [], needsSignIn: true }); continue; }
-      try {
-        const songs = await src.list();
-        if (songs.length || src.id === 'local') groups.push({ src, songs });
-      } catch (e) {
-        groups.push({ src, songs: [], error: e.message });
-      }
-    }
-    els.songLists.innerHTML = '';
-    let hasDemo = false;
-    groups.forEach(({ src, songs, error, needsSignIn }) => {
-      const h = document.createElement('h3');
-      h.className = 'card-label';
-      h.textContent = src.label;
-      els.songLists.appendChild(h);
-      if (needsSignIn) {
-        const show = document.createElement('button');
-        show.className = 'text-btn primary';
-        show.textContent = 'Show band songs';
-        show.addEventListener('click', async () => {
-          try { await src.signIn(); renderLibrary(); } catch (e) { toast(e.message); }
-        });
-        els.songLists.appendChild(show);
+  /* ---------------- home: the band's songs ---------------- */
+  // prefs.mode is chosen once on the welcome screen: 'band' (shared Google Drive folder) or 'solo' (this device).
+  const drive = SM.library.sources.drive;
+  const local = SM.library.sources.local;
+  const inBand = () => prefs.mode === 'band';
+
+  async function showHome() {
+    if (state.playing) api.stop();
+    destroyMinis();
+    if (state.editing) setEditing(false);
+    els.songView.hidden = true;
+    els.homeView.hidden = false;
+    document.title = 'Setcards';
+    await flushSave();   // so the list shows what was just changed
+    renderHome();
+  }
+
+  function showSongView() {
+    els.homeView.hidden = true;
+    els.songView.hidden = false;
+  }
+
+  async function openFromList(key) {
+    showSongView();
+    const ok = await openSong(key);
+    if (!ok) showHome();
+  }
+
+  // "Dm · 120 bpm · 4:14 · 12 sections", from the song's saved details
+  function detailsLine(notes) {
+    const m = (notes && notes.meta) || {};
+    const key = (notes && notes.key) || (m.key ? m.key + (m.keyGuessed ? '?' : '') : '');
+    const tempo = (notes && notes.tempo) || m.tempo;
+    const bits = [];
+    if (key) bits.push(key);
+    if (tempo) bits.push(`${tempo} bpm`);
+    if (m.seconds) bits.push(fmtTime(m.seconds));
+    if (notes && Array.isArray(notes.sections) && notes.sections.length) bits.push(plural(notes.sections.length, 'section'));
+    return bits.join(' · ');
+  }
+
+  function songRow(src, s, extra) {
+    const key = SM.library.key(src.id, s.id);
+    const li = document.createElement('li');
+    li.className = 'song-row' + (state.song && key === state.song.key ? ' current' : '');
+    const open = document.createElement('button');
+    open.className = 'song-open';
+    open.innerHTML = '<strong></strong><span class="who"></span><span class="details"></span>';
+    open.querySelector('strong').textContent = s.title || 'Untitled';
+    open.querySelector('.who').textContent = s.artist || '';
+    open.querySelector('.details').textContent = detailsLine(s.notes) || 'Open once to read its key and tempo';
+    open.addEventListener('click', () => openFromList(key));
+    li.appendChild(open);
+    if (extra) li.appendChild(extra);
+    return li;
+  }
+
+  function deleteButton(src, s, label) {
+    const del = document.createElement('button');
+    del.className = 'song-del';
+    del.textContent = 'Delete';
+    del.addEventListener('click', async () => {
+      if (!del.classList.contains('confirm')) {
+        del.classList.add('confirm');
+        del.textContent = label;
+        setTimeout(() => { del.classList.remove('confirm'); del.textContent = 'Delete'; }, 3000);
         return;
       }
-      if (error) {
-        const p = document.createElement('p');
-        p.className = 'fine';
-        p.textContent = error;
-        els.songLists.appendChild(p);
-      }
-      const ul = document.createElement('ul');
-      ul.className = 'song-list';
-      songs.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0) || String(a.title).localeCompare(b.title)).forEach((s) => {
-        if (s.isDemo) hasDemo = true;
-        const key = SM.library.key(src.id, s.id);
-        const li = document.createElement('li');
-        li.className = 'song-item' + (state.song && key === state.song.key ? ' current' : '');
-        const open = document.createElement('button');
-        open.className = 'song-open';
-        open.innerHTML = '<strong></strong><span></span>';
-        open.querySelector('strong').textContent = s.title || 'Untitled';
-        open.querySelector('span').textContent = [s.artist, s.fileName].filter(Boolean).join(' · ');
-        open.addEventListener('click', () => { closeDialog(els.libraryDlg); openSong(key); });
-        li.appendChild(open);
-        if (src.canWrite) {
-          const del = document.createElement('button');
-          del.className = 'song-del';
-          del.textContent = 'Delete';
-          del.addEventListener('click', async () => {
-            if (!del.classList.contains('confirm')) {
-              del.classList.add('confirm');
-              del.textContent = src.id === 'drive' ? 'Delete for the band?' : 'Tap to confirm';
-              setTimeout(() => { del.classList.remove('confirm'); del.textContent = 'Delete'; }, 3000);
-              return;
-            }
-            await src.remove(s.id);
-            if (state.song && state.song.key === key) openSong(await addDemo());
-            renderLibrary();
-          });
-          li.appendChild(del);
-        }
-        ul.appendChild(li);
-      });
-      if (!songs.length) {
-        const li = document.createElement('li');
-        li.className = 'fine';
-        li.textContent = src.id === 'drive'
-          ? 'No songs visible yet. If the folder already has songs, tap the button below and select them so Setcards can open them.'
-          : 'No songs here yet.';
-        ul.appendChild(li);
-      }
-      els.songLists.appendChild(ul);
-      if (src.id === 'drive') {
-        const more = document.createElement('button');
-        more.className = songs.length ? 'text-btn' : 'text-btn primary';
-        more.textContent = songs.length ? 'Missing a song someone added? Give Setcards access' : 'Give Setcards access to the band’s songs';
-        more.addEventListener('click', async () => {
-          await withLibraryHidden(async () => {
-            const n = await src.grantAccess();
-            if (n) toast(`Setcards can now open ${plural(n, 'more song')}`);
-          });
-        });
-        els.songLists.appendChild(more);
-      }
+      try { await src.remove(s.id); } catch (e) { toast(e.message); }
+      renderHome();
     });
-    els.demoBtn.hidden = hasDemo;
+    return del;
   }
+
+  function listSection(title, note) {
+    const sec = document.createElement('section');
+    sec.className = 'list-section';
+    sec.innerHTML = `<h2 class="list-title"></h2>${note ? '<p class="fine list-note"></p>' : ''}<ul class="song-list"></ul>`;
+    sec.querySelector('.list-title').textContent = title;
+    if (note) sec.querySelector('.list-note').textContent = note;
+    return sec;
+  }
+
+  async function renderHome() {
+    els.homeRoleBtn.textContent = role().label;
+    const wrap = els.songListWrap;
+    els.welcome.hidden = !!prefs.mode;
+    els.homeView.querySelector('.home-foot').hidden = !prefs.mode;
+    els.bandBox.hidden = true;
+    wrap.innerHTML = '';
+    els.shareUploadWrap.hidden = !(inBand() && drive.connected() && drive.signedIn());
+    els.bandName.textContent = inBand() ? (drive.folder() ? drive.folder().name : 'No band folder yet') : (prefs.mode === 'solo' ? 'On this device' : '');
+    if (!prefs.mode) return;
+
+    if (inBand()) {
+      if (!drive.configured()) {
+        renderBandBox('This copy of Setcards has no Google sign-in set up, so it can only keep songs on this device for now.');
+      } else if (!drive.connected()) {
+        renderBandBox();
+      } else if (!drive.signedIn()) {
+        const box = els.bandBox;
+        box.hidden = false;
+        box.innerHTML = `<p>Sign in to Google to see <strong></strong>’s songs.</p><button class="text-btn primary" id="homeSignIn" type="button">Show band songs</button>`;
+        box.querySelector('strong').textContent = drive.folder().name;
+        box.querySelector('#homeSignIn').addEventListener('click', async () => {
+          try { await drive.signIn(); renderHome(); } catch (e) { toast(e.message); }
+        });
+      } else {
+        const sec = listSection(drive.folder().name);
+        const ul = sec.querySelector('ul');
+        ul.innerHTML = '<li class="fine">Loading songs…</li>';
+        wrap.appendChild(sec);
+        try {
+          const songs = await drive.list();
+          ul.innerHTML = '';
+          songs.sort((a, b) => String(a.title).localeCompare(b.title)).forEach((s) => ul.appendChild(songRow(drive, s, deleteButton(drive, s, 'Delete for the band?'))));
+          if (!songs.length) ul.innerHTML = '<li class="fine">No songs visible yet. Add one below, or if the folder already has songs, give Setcards access to them.</li>';
+        } catch (e) {
+          ul.innerHTML = '';
+          const li = document.createElement('li');
+          li.className = 'fine';
+          li.textContent = e.message;
+          ul.appendChild(li);
+        }
+        const more = document.createElement('button');
+        more.className = 'text-btn';
+        more.textContent = 'Missing a song someone added? Give Setcards access';
+        more.addEventListener('click', async () => {
+          try { const n = await drive.grantAccess(); if (n) toast(`Setcards can now open ${plural(n, 'more song')}`); } catch (e) { toast(e.message); }
+          renderHome();
+        });
+        sec.appendChild(more);
+      }
+    }
+
+    // Songs only on this device: drafts when in a band, the whole list when on your own.
+    let mine = [];
+    try { mine = await local.list(); } catch (e) { mine = []; }
+    if (inBand()) mine = mine.filter((s) => !s.isDemo);
+    if (inBand() && !mine.length) return;
+    const sec = inBand()
+      ? listSection('Drafts', 'Only on this device until you share them with the band.')
+      : listSection('Your songs');
+    const ul = sec.querySelector('ul');
+    mine.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).forEach((s) => {
+      const actions = document.createElement('div');
+      actions.className = 'row-actions';
+      if (inBand() && s.canShare && drive.connected()) {
+        const share = document.createElement('button');
+        share.className = 'text-btn';
+        share.textContent = 'Share with band';
+        share.addEventListener('click', () => shareDraft(s));
+        actions.appendChild(share);
+      }
+      actions.appendChild(deleteButton(local, s, 'Tap to confirm'));
+      ul.appendChild(songRow(local, s, actions));
+    });
+    if (!mine.length) {
+      const li = document.createElement('li');
+      li.className = 'fine';
+      li.innerHTML = 'No songs yet. Add a Guitar Pro file below, or <button class="link-btn" id="addDemoBtn" type="button">try the demo song</button>.';
+      li.querySelector('#addDemoBtn').addEventListener('click', async () => { await addDemo(); renderHome(); });
+      ul.appendChild(li);
+    }
+    wrap.appendChild(sec);
+  }
+
+  // Moves a draft into the band folder, with its sections and chords.
+  async function shareDraft(s) {
+    try {
+      if (!drive.signedIn()) await drive.signIn();
+      const song = await local.open(s.id);
+      if (!song.bytes) { toast('The demo song can’t be shared'); return; }
+      toast('Sharing with the band…');
+      const notes = Object.assign({}, song.notes, { updatedAt: Date.now() });
+      await drive.add(song.fileName || `${s.title}.gp`, song.bytes, notes);
+      await local.remove(s.id);
+      toast(`“${s.title}” is now in the band folder`);
+    } catch (e) {
+      toast(e.message);
+    }
+    renderHome();
+  }
+
+  // Connect or create the band folder, shown on the home screen and in Band settings.
+  function renderBandBox(message) {
+    const box = els.bandBox;
+    box.hidden = false;
+    if (message) {
+      box.innerHTML = `<p class="fine"></p><button class="text-btn" id="soloInstead" type="button">Use Setcards on this device only</button>`;
+      box.querySelector('p').textContent = message;
+      box.querySelector('#soloInstead').addEventListener('click', () => setMode('solo'));
+      return;
+    }
+    box.innerHTML = `<p>Connect your band’s Google Drive folder. If a bandmate sent you an invite link, open that instead.</p>
+      <div class="row-btns">
+        <button class="text-btn primary" id="gPick" type="button">Connect band folder</button>
+        <button class="text-btn" id="gCreate" type="button">Start a new band folder</button>
+      </div>
+      <form id="gCreateForm" class="inline-form" hidden>
+        <input id="gBandName" placeholder="Band name" autocomplete="off" aria-label="Band name">
+        <button class="text-btn primary" type="submit">Create</button>
+      </form>`;
+    box.querySelector('#gPick').addEventListener('click', async () => {
+      try { const f = await drive.connect(); if (f) toast(`Connected to “${f.name}”`); } catch (e) { toast(e.message); }
+      renderHome();
+    });
+    const form = box.querySelector('#gCreateForm');
+    box.querySelector('#gCreate').addEventListener('click', () => { form.hidden = false; form.querySelector('input').focus(); });
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = form.querySelector('input').value.trim() || 'My band';
+      try {
+        const f = await drive.createFolder(`${name} (Setcards)`);
+        toast(`Created “${f.name}”. Share it with your band in Google Drive, then send them the invite link from Band settings.`);
+      } catch (err) { toast(err.message); }
+      renderHome();
+    });
+  }
+
+  function setMode(mode) {
+    prefs.mode = mode;
+    savePrefs();
+    closeDialog(els.bandDlg);
+    renderHome();
+  }
+
+  els.chooseBand.addEventListener('click', () => setMode('band'));
+  els.chooseSolo.addEventListener('click', () => setMode('solo'));
 
   async function shareInvite(link, name) {
     const text = `Join “${name}” on Setcards`;
@@ -1418,16 +1633,66 @@
     }
   }
 
+  // Band settings: the folder, the invite link, and switching between band and this-device-only.
+  function renderBandDialog() {
+    const box = els.driveBox;
+    const modeBox = els.modeBox;
+    box.innerHTML = '';
+    modeBox.innerHTML = '';
+    if (inBand() && drive.connected()) {
+      const f = drive.folder();
+      box.innerHTML = `<p>Band folder: <a href="${esc(drive.folderUrl())}" target="_blank" rel="noopener">${esc(f.name)}</a></p>
+        <p class="fine">To add a bandmate, share that folder with them in Google Drive, then send them the invite link.</p>
+        <div class="row-btns"><button class="text-btn primary" id="gInvite" type="button">Share invite link</button><button class="text-btn" id="gDisconnect" type="button">Leave this folder</button></div>`;
+      box.querySelector('#gInvite').addEventListener('click', () => shareInvite(drive.inviteLink(), f.name));
+      box.querySelector('#gDisconnect').addEventListener('click', () => { drive.disconnect(); closeDialog(els.bandDlg); renderHome(); });
+    } else if (inBand()) {
+      box.innerHTML = '<p class="fine">No band folder connected yet. Connect one from the home screen.</p>';
+    }
+    if (!drive.configured()) {
+      const adv = document.createElement('details');
+      adv.className = 'advanced';
+      adv.innerHTML = `<summary>Set up Google sign-in for this copy</summary>
+        <label class="field"><span>Client ID</span><input id="gClientId" placeholder="….apps.googleusercontent.com"></label>
+        <label class="field"><span>API key (for the file picker)</span><input id="gApiKey"></label>
+        <label class="field"><span>Project number</span><input id="gAppId" inputmode="numeric"></label>
+        <button class="text-btn primary" id="gSave" type="button">Save</button>`;
+      adv.querySelector('#gSave').addEventListener('click', () => {
+        drive.setClient({ clientId: adv.querySelector('#gClientId').value.trim(), apiKey: adv.querySelector('#gApiKey').value.trim(), appId: adv.querySelector('#gAppId').value.trim() });
+        renderBandDialog();
+        renderHome();
+      });
+      box.appendChild(adv);
+    }
+    const p = document.createElement('p');
+    p.className = 'fine';
+    const btn = document.createElement('button');
+    btn.className = 'text-btn';
+    btn.type = 'button';
+    if (inBand()) {
+      p.textContent = 'Using Setcards with a band. Songs you keep as drafts stay on this device.';
+      btn.textContent = 'Use on this device only instead';
+      btn.addEventListener('click', () => setMode('solo'));
+    } else {
+      p.textContent = 'Using Setcards on this device only.';
+      btn.textContent = 'Use with my band';
+      btn.addEventListener('click', () => setMode('band'));
+    }
+    modeBox.append(p, btn);
+  }
+
+  els.bandBtn.addEventListener('click', () => { renderBandDialog(); els.bandDlg.showModal(); });
+  els.backBtn.addEventListener('click', showHome);
+
   // Opening the app from an invite link (?band=<folder id>&name=<folder name>) offers to join that folder.
   function checkInvite() {
     const params = new URLSearchParams(location.search);
     const id = params.get('band');
     if (!id) return;
     const name = params.get('name') || 'band folder';
-    const drive = SM.library.sources.drive;
     const clear = () => history.replaceState(null, '', location.pathname);
     const current = drive.folder();
-    if (current && current.id === id) { clear(); toast(`You're already connected to “${current.name}”`); return; }
+    if (current && current.id === id) { clear(); prefs.mode = 'band'; savePrefs(); toast(`You're already connected to “${current.name}”`); return; }
     els.joinTitle.textContent = `Join “${name}”`;
     els.joinBtn.onclick = async () => {
       closeDialog(els.joinDlg);
@@ -1435,9 +1700,10 @@
         const f = await drive.connect(id);
         if (!f) { toast('Not connected. Open the invite link again to retry.'); return; }
         clear();
+        prefs.mode = 'band';
+        savePrefs();
         toast(`Connected to “${f.name}”`);
-        renderLibrary();
-        els.libraryDlg.showModal();
+        renderHome();
       } catch (e) {
         toast(e.message);
       }
@@ -1445,61 +1711,9 @@
     els.joinDlg.showModal();
   }
 
-  // Google's picker sits in the page, so the Songs window steps aside while it is open, then comes back.
-  async function withLibraryHidden(fn) {
-    closeDialog(els.libraryDlg);
-    try { await fn(); } catch (e) { toast(e.message); }
-    renderLibrary();
-    if (!els.libraryDlg.open) els.libraryDlg.showModal();
-  }
-
-  function renderDriveBox() {
-    const drive = SM.library.sources.drive;
-    const box = els.driveBox;
-    if (!drive.configured()) {
-      box.innerHTML = `<p class="fine">Share songs with your band through a Google Drive folder. This copy of Setcards needs a Google sign-in ID first: see SETUP-GOOGLE.md.</p>
-        <details class="advanced"><summary>I have a Google client ID</summary>
-          <label class="field"><span>Client ID</span><input id="gClientId" placeholder="….apps.googleusercontent.com"></label>
-          <label class="field"><span>API key (for the file picker)</span><input id="gApiKey"></label>
-          <label class="field"><span>Project number</span><input id="gAppId" inputmode="numeric"></label>
-          <button class="text-btn primary" id="gSave" type="button">Save</button>
-        </details>`;
-      box.querySelector('#gSave').addEventListener('click', () => {
-        drive.setClient({ clientId: box.querySelector('#gClientId').value.trim(), apiKey: box.querySelector('#gApiKey').value.trim(), appId: box.querySelector('#gAppId').value.trim() });
-        renderDriveBox();
-      });
-      return;
-    }
-    if (!drive.connected()) {
-      box.innerHTML = `<p class="fine">Keep your band's songs in a shared Google Drive folder. Each person signs in with their own Google account.</p>
-        <div class="row-btns"><button class="text-btn primary" id="gPick" type="button">Connect band folder</button><button class="text-btn" id="gCreate" type="button">Create a new one</button></div>`;
-      box.querySelector('#gPick').addEventListener('click', async () => {
-        await withLibraryHidden(async () => {
-          const f = await drive.connect();
-          if (f) toast(`Connected to “${f.name}”`);
-        });
-      });
-      box.querySelector('#gCreate').addEventListener('click', async () => {
-        try { const f = await drive.createFolder('Setcards band songs'); toast(`Created “${f.name}”. Share it with your band in Google Drive.`); renderLibrary(); } catch (e) { toast(e.message); }
-      });
-      return;
-    }
-    const f = drive.folder();
-    box.innerHTML = `<p class="fine">Band folder: <a href="${esc(drive.folderUrl())}" target="_blank" rel="noopener">${esc(f.name)}</a>. To add a bandmate, share that folder with them in Google Drive, then send them the invite link.</p>
-      <div class="row-btns"><button class="text-btn primary" id="gInvite" type="button">Share invite link</button><button class="text-btn" id="gDisconnect" type="button">Disconnect</button></div>`;
-    box.querySelector('#gInvite').addEventListener('click', () => shareInvite(drive.inviteLink(), f.name));
-    box.querySelector('#gDisconnect').addEventListener('click', () => { drive.disconnect(); renderLibrary(); });
-  }
-
-  els.libraryBtn.addEventListener('click', () => { renderLibrary(); els.libraryDlg.showModal(); });
   els.fileInput.addEventListener('change', () => {
     importFile(els.fileInput.files[0]);
     els.fileInput.value = '';
-  });
-  els.demoBtn.addEventListener('click', async () => {
-    const key = await addDemo();
-    closeDialog(els.libraryDlg);
-    openSong(key);
   });
 
   /* ---------------- settings ---------------- */
@@ -1519,6 +1733,11 @@
     els.zoomRange.value = prefs.zoom;
     els.zoomOut.textContent = `${Math.round(prefs.zoom * 100)}%`;
     els.ytInput.value = state.notes.youtubeUrl || '';
+    const m = state.notes.meta || {};
+    els.keyInput.value = state.notes.key || '';
+    els.keyInput.placeholder = m.key ? `${m.key}${m.keyGuessed ? ' (estimated)' : ''}` : 'e.g. Dm';
+    els.tempoInput.value = state.notes.tempo || '';
+    els.tempoInput.placeholder = m.tempo ? String(m.tempo) : '120';
     els.showTabCards.checked = showTabInCards();
     document.querySelectorAll('input[name="stave"]').forEach((r) => { r.checked = r.value === prefs.stave; });
     els.settingsDlg.showModal();
@@ -1554,6 +1773,19 @@
   els.zoomRange.addEventListener('change', () => setZoom(Number(els.zoomRange.value)));
   $('zoomOutBtn').addEventListener('click', () => setZoom(prefs.zoom - 0.1));
   $('zoomInBtn').addEventListener('click', () => setZoom(prefs.zoom + 0.1));
+  els.keyInput.addEventListener('change', () => {
+    const v = els.keyInput.value.trim();
+    if (v) state.notes.key = v; else delete state.notes.key;
+    saveNotes();
+    updateSongMeta();
+  });
+  els.tempoInput.addEventListener('change', () => {
+    const v = Math.round(Number(els.tempoInput.value));
+    if (v > 0) state.notes.tempo = v; else delete state.notes.tempo;
+    els.tempoInput.value = state.notes.tempo || '';
+    saveNotes();
+    updateSongMeta();
+  });
   els.ytInput.addEventListener('change', () => {
     const v = els.ytInput.value.trim();
     if (v && !youtubeId(v)) { toast('That does not look like a YouTube link'); return; }
@@ -1594,23 +1826,11 @@
   });
 
   /* ---------------- start ---------------- */
+  // The app always opens on the band's song list.
   els.roleBtn.textContent = role().label;
   applyViewChrome();
+  showHome();
   checkInvite();
-  (async function start() {
-    // A band folder song needs a Google sign-in, which can only start from a tap, so begin elsewhere.
-    const needsGoogle = prefs.last && prefs.last.startsWith('drive:') && !SM.library.sources.drive.signedIn();
-    if (needsGoogle) toast('Open Songs and tap Show band songs to get back to your band folder');
-    else if (prefs.last && await openSong(prefs.last)) return;
-    try {
-      const site = await SM.library.sources.site.list();
-      if (site.length) { await openSong(SM.library.key('site', site[0].id)); return; }
-      await openSong(await addDemo());
-    } catch (e) {
-      console.error(e);
-      toast('Saving is unavailable in this browser window');
-    }
-  })();
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));

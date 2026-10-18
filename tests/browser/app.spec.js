@@ -1,20 +1,86 @@
 // End-to-end checks of the main flows, using the built-in demo song.
-// Google sign-in and the Drive picker are replaced with stand-ins, since tests cannot sign in to Google.
+// Google sign-in and Drive are replaced with stand-ins, since tests cannot sign in to Google.
 const { test, expect } = require('@playwright/test');
 
-async function openApp(page, path = '/') {
+function watchErrors(page) {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(path);
-  await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
   return errors;
+}
+
+// Opens the app as someone using it on their own, with the demo song added, and opens that song.
+async function openDemo(page, path = '/') {
+  await page.addInitScript(() => {
+    if (!localStorage.getItem('setcards:prefs')) localStorage.setItem('setcards:prefs', JSON.stringify({ mode: 'solo' }));
+  });
+  await page.goto(path);
+  await page.locator('#addDemoBtn').click();
+  await page.locator('.song-row .song-open', { hasText: 'Low Road (demo)' }).click();
+  await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
+}
+
+// Stand-ins for the Google Drive source, so band features can be tested without signing in.
+async function fakeDrive(page, { folder = { id: 'f1', name: 'The Band (Setcards)' }, signedIn = true } = {}) {
+  await page.addInitScript(({ folder, signedIn }) => {
+    localStorage.setItem('setcards:prefs', JSON.stringify({ mode: 'band' }));
+    if (folder) localStorage.setItem('setcards:driveFolder', JSON.stringify(folder));
+    window.fakeBandSongs = [];
+    // Swap in the stand-ins the moment the app's library is created, before the home screen draws.
+    let sm;
+    Object.defineProperty(window, 'SM', {
+      configurable: true,
+      get() { return sm; },
+      set(v) {
+        sm = v;
+        let library;
+        Object.defineProperty(v, 'library', {
+          configurable: true,
+          get() { return library; },
+          set(lib) {
+            library = lib;
+            const d = lib.sources.drive;
+            d.configured = () => true;
+            d.signedIn = () => signedIn;
+            d.list = async () => window.fakeBandSongs.map((s) => ({ ...s }));
+            d.add = async (fileName, bytes, notes) => {
+              const id = 'b' + (window.fakeBandSongs.length + 1);
+              window.fakeBandSongs.push({ id, title: notes.title, artist: notes.artist, fileName, notes, bytes: bytes.length });
+              return id;
+            };
+          }
+        });
+      }
+    });
+  }, { folder, signedIn });
 }
 
 const steps = (page) => page.locator('#structure .step');
 
-test('opens on the demo song as cards, with the song order at the top', async ({ page }) => {
-  const errors = await openApp(page);
+test('first visit asks once how Setcards will be used', async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.goto('/');
+  await expect(page.locator('#welcome')).toBeVisible();
+  await page.click('#chooseSolo');
+  await expect(page.locator('#welcome')).toBeHidden();
+  await expect(page.locator('.list-title')).toHaveText('Your songs');
+  await page.reload();
+  await expect(page.locator('#welcome')).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
+test('the song list is home, and shows key, tempo and length once a song is opened', async ({ page }) => {
+  await openDemo(page);
   await expect(page.locator('#songTitle')).toHaveText('Low Road (demo)');
+  await page.click('#backBtn');
+  await expect(page.locator('#homeView')).toBeVisible();
+  await expect(page.locator('.song-row .details').first()).toHaveText(/\?? · 104 bpm · 2:28 · 10 sections/);
+  await page.reload();
+  await expect(page.locator('#homeView')).toBeVisible();
+});
+
+test('opens a song as cards, with the song order at the top', async ({ page }) => {
+  const errors = watchErrors(page);
+  await openDemo(page);
   await expect(steps(page)).toHaveText(['Whole song', 'Intro', 'Verse', 'Pre-chorus', 'Chorus', 'Verse', 'Pre-chorus', 'Chorus', 'Bridge', 'Chorus', 'Outro']);
   await expect(page.locator('.card-head h2')).toHaveText(['Intro', 'Verse', 'Pre-chorus', 'Chorus', 'Bridge', 'Outro']);
   await expect(page.locator('.mini-tab svg').first()).toBeVisible();
@@ -22,7 +88,7 @@ test('opens on the demo song as cards, with the song order at the top', async ({
 });
 
 test('nothing on the page is wider than a phone screen', async ({ page }) => {
-  await openApp(page);
+  await openDemo(page);
   const overflow = await page.evaluate(() => ({
     page: document.documentElement.scrollWidth > window.innerWidth,
     scroller: document.getElementById('scroller').scrollWidth > document.getElementById('scroller').clientWidth
@@ -31,13 +97,13 @@ test('nothing on the page is wider than a phone screen', async ({ page }) => {
 });
 
 test('tapping a section in the song order scrolls to its card', async ({ page }) => {
-  await openApp(page);
+  await openDemo(page);
   await steps(page).nth(4).click();
   await expect(page.locator('.card[data-group="chorus"]')).toBeInViewport();
 });
 
 test('the full tab shows one section at a time, or the whole song', async ({ page }) => {
-  await openApp(page);
+  await openDemo(page);
   await page.click('#viewTab');
   await expect(page.locator('#tab .at-surface svg').first()).toBeVisible();
   await steps(page).nth(4).click();
@@ -50,7 +116,7 @@ test('the full tab shows one section at a time, or the whole song', async ({ pag
 });
 
 test('chords entered on a riff apply to every repeat and survive a reload', async ({ page }) => {
-  await openApp(page);
+  await openDemo(page);
   const verseCard = page.locator('.card[data-group="verse"]');
   await verseCard.locator('.chord-cell').first().click();
   await expect(page.locator('#chordAllLabel')).toContainText('Every time riff');
@@ -60,11 +126,12 @@ test('chords entered on a riff apply to every repeat and survive a reload', asyn
   await expect(page.locator('#toast')).toContainText(/Chords set in \d+ bars/);
   await expect(verseCard.locator('.chord-cell').first()).toHaveText('Em');
   await page.reload();
+  await page.locator('.song-row .song-open').first().click();
   await expect(page.locator('.card[data-group="verse"] .chord-cell').first()).toHaveText('Em');
 });
 
 test('guitar shows chord diagrams and vocals shows the cue list', async ({ page }) => {
-  await openApp(page);
+  await openDemo(page);
   await page.locator('.card[data-group="verse"] .chord-cell').first().click();
   await page.fill('#chordInput', 'Em C');
   await page.click('#chordForm button[type=submit]');
@@ -80,8 +147,40 @@ test('guitar shows chord diagrams and vocals shows the cue list', async ({ page 
   await expect(page.locator('.cue').first()).toContainText('Intro');
 });
 
+test('instrument notes are kept with the song and shown only in that instrument’s view', async ({ page }) => {
+  await openDemo(page);
+  const verseCard = page.locator('.card[data-group="verse"]');
+  await verseCard.locator('.add-note').click();
+  await expect(page.locator('#noteTitle')).toHaveText('Bass note · Verse');
+  await page.fill('#noteText', 'Walk up into the chorus');
+  await page.click('#noteForm button[type=submit]');
+  await expect(verseCard.locator('.role-note-text')).toHaveText('Walk up into the chorus');
+
+  await page.click('#roleBtn');
+  await page.click('.role-opt:has-text("Guitar")');
+  await expect(page.locator('.card[data-group="verse"] .role-note')).toHaveCount(0);
+
+  await page.click('#roleBtn');
+  await page.click('.role-opt:has-text("Bass")');
+  await page.reload();
+  await page.locator('.song-row .song-open').first().click();
+  await expect(page.locator('.card[data-group="verse"] .role-note-text')).toHaveText('Walk up into the chorus');
+});
+
+test('key and tempo can be corrected and show in the song list', async ({ page }) => {
+  await openDemo(page);
+  await page.click('#settingsBtn');
+  await page.fill('#keyInput', 'Em');
+  await page.fill('#tempoInput', '100');
+  await page.locator('#tempoInput').blur();
+  await page.locator('#settingsDlg [data-close]').click();
+  await expect(page.locator('#songMeta')).toContainText('Em · 100 bpm');
+  await page.click('#backBtn');
+  await expect(page.locator('.song-row .details').first()).toContainText('Em · 100 bpm');
+});
+
 test('in Edit, tapping a bar starts a new section there', async ({ page }) => {
-  await openApp(page);
+  await openDemo(page);
   await page.click('#editBtn');
   await expect(page.locator('#editPanel')).toBeVisible();
   const surface = page.locator('#tab .at-surface');
@@ -95,35 +194,56 @@ test('in Edit, tapping a bar starts a new section there', async ({ page }) => {
   await expect(steps(page).filter({ hasText: 'Solo' })).toHaveCount(1);
 });
 
-test('the Songs window steps aside while the Drive folder picker is open', async ({ page }) => {
-  await openApp(page);
-  await page.evaluate(() => {
-    SM.library.sources.drive.connect = async () => {
-      window.dialogOpenDuringPicker = document.getElementById('libraryDlg').open;
-      localStorage.setItem('setcards:driveFolder', JSON.stringify({ id: 'f1', name: 'Band songs' }));
-      return { id: 'f1', name: 'Band songs' };
-    };
-  });
-  await page.click('#libraryBtn');
-  await page.click('#gPick');
-  await expect(page.locator('#toast')).toContainText('Connected to “Band songs”');
-  expect(await page.evaluate(() => window.dialogOpenDuringPicker)).toBe(false);
-  await expect(page.locator('#libraryDlg')).toBeVisible();
-  await expect(page.locator('#songLists')).toContainText('Show band songs');
-});
-
-test('opening the Songs window does not start a Google sign-in', async ({ page }) => {
+test('in a band, the home screen waits for a tap before signing in to Google', async ({ page }) => {
   const signIns = [];
   page.on('request', (r) => { if (/accounts\.google\.com|apis\.google\.com|googleapis\.com\/drive/.test(r.url())) signIns.push(r.url()); });
-  await page.addInitScript(() => localStorage.setItem('setcards:driveFolder', JSON.stringify({ id: 'f1', name: 'Band songs' })));
-  await openApp(page);
-  await page.click('#libraryBtn');
-  await expect(page.locator('#songLists')).toContainText('Show band songs');
+  await page.addInitScript(() => {
+    localStorage.setItem('setcards:prefs', JSON.stringify({ mode: 'band' }));
+    localStorage.setItem('setcards:driveFolder', JSON.stringify({ id: 'f1', name: 'The Band (Setcards)' }));
+  });
+  await page.goto('/');
+  await expect(page.locator('#bandBox')).toContainText('The Band (Setcards)');
+  await expect(page.locator('#homeSignIn')).toHaveText('Show band songs');
   expect(signIns).toEqual([]);
 });
 
+test('drafts stay on this device until shared with the band', async ({ page }) => {
+  await fakeDrive(page);
+  await page.goto('/');
+  await expect(page.locator('.list-title').first()).toHaveText('The Band (Setcards)');
+  // make a draft from the demo song as a Guitar Pro file
+  await page.evaluate(async () => {
+    const imp = new alphaTab.importer.AlphaTexImporter();
+    imp.initFromString(window.DEMO_SONG.tex, new alphaTab.Settings());
+    const bytes = new alphaTab.exporter.Gp7Exporter().export(imp.readScore(), new alphaTab.Settings());
+    const notes = SM.library.emptyNotes({ title: 'Groove draft', artist: 'Me' });
+    await SM.library.sources.local.add('groove.gp', bytes, notes, { title: 'Groove draft', artist: 'Me' });
+  });
+  await page.reload();
+  const drafts = page.locator('.list-section', { hasText: 'Drafts' });
+  await expect(drafts.locator('.song-row')).toHaveCount(1);
+  await drafts.locator('button', { hasText: 'Share with band' }).click();
+  await expect(page.locator('#toast')).toContainText('is now in the band folder');
+  await expect(page.locator('.list-section', { hasText: 'Drafts' })).toHaveCount(0);
+  await expect(page.locator('.list-section').first().locator('.song-row')).toHaveText(/Groove draft/);
+});
+
+test('connecting the band folder from the home screen', async ({ page }) => {
+  await fakeDrive(page, { folder: null });
+  await page.goto('/');
+  await page.evaluate(() => {
+    SM.library.sources.drive.connect = async () => {
+      localStorage.setItem('setcards:driveFolder', JSON.stringify({ id: 'f2', name: 'Picked folder' }));
+      return { id: 'f2', name: 'Picked folder' };
+    };
+  });
+  await page.click('#gPick');
+  await expect(page.locator('#toast')).toContainText('Connected to “Picked folder”');
+  await expect(page.locator('.list-title').first()).toHaveText('Picked folder');
+});
+
 test('an invite link offers to join the named band folder', async ({ page }) => {
-  await openApp(page, '/?band=folder123&name=The%20Band');
+  await page.goto('/?band=folder123&name=The%20Band');
   await expect(page.locator('#joinDlg')).toBeVisible();
   await expect(page.locator('#joinTitle')).toHaveText('Join “The Band”');
   await page.evaluate(() => {
@@ -136,21 +256,19 @@ test('an invite link offers to join the named band folder', async ({ page }) => 
   await page.click('#joinBtn');
   await expect(page.locator('#toast')).toContainText('Connected to “The Band”');
   expect(await page.evaluate(() => window.joinedId)).toBe('folder123');
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('setcards:prefs')).mode)).toBe('band');
   expect(new URL(page.url()).search).toBe('');
 });
 
-test('a connected band folder can share an invite link', async ({ page, context }) => {
+test('band settings share an invite link for the connected folder', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-  await page.addInitScript(() => {
-    localStorage.setItem('setcards:driveFolder', JSON.stringify({ id: 'f9', name: 'Our Band' }));
-    navigator.share = undefined;
-  });
-  await openApp(page);
-  await page.click('#libraryBtn');
+  await fakeDrive(page, { folder: { id: 'f9', name: 'Our Band' } });
+  await page.addInitScript(() => { navigator.share = undefined; });
+  await page.goto('/');
+  await page.click('#bandBtn');
   await page.click('#gInvite');
   await expect(page.locator('#toast')).toContainText('Invite link copied');
-  const link = await page.evaluate(() => navigator.clipboard.readText());
-  const u = new URL(link);
+  const u = new URL(await page.evaluate(() => navigator.clipboard.readText()));
   expect(u.searchParams.get('band')).toBe('f9');
   expect(u.searchParams.get('name')).toBe('Our Band');
 });

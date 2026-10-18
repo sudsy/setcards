@@ -263,5 +263,58 @@
     });
   }
 
-  SM.analysis = { barTokens, tokenSim, fileChords, lyricCue, analyse, runs, summarise, suggestSections, SIMILAR, RIFF_MATCH };
+  /* ---------- key, tempo and length for the song list ---------- */
+
+  const MAJOR_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+  const MINOR_NAMES = ['Cm', 'C#m', 'Dm', 'Ebm', 'Em', 'Fm', 'F#m', 'Gm', 'G#m', 'Am', 'Bbm', 'Bm'];
+  const SIG_MAJOR = { '-7': 'Cb', '-6': 'Gb', '-5': 'Db', '-4': 'Ab', '-3': 'Eb', '-2': 'Bb', '-1': 'F', 0: 'C', 1: 'G', 2: 'D', 3: 'A', 4: 'E', 5: 'B', 6: 'F#', 7: 'C#' };
+  const SIG_MINOR = { '-7': 'Abm', '-6': 'Ebm', '-5': 'Bbm', '-4': 'Fm', '-3': 'Cm', '-2': 'Gm', '-1': 'Dm', 0: 'Am', 1: 'Em', 2: 'Bm', 3: 'F#m', 4: 'C#m', 5: 'G#m', 6: 'D#m', 7: 'A#m' };
+  // Krumhansl-Kessler key profiles: how strongly each scale degree belongs to a major or minor key.
+  const PROFILE_MAJOR = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
+  const PROFILE_MINOR = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
+
+  function correlate(a, b) {
+    const ma = a.reduce((x, y) => x + y, 0) / a.length;
+    const mb = b.reduce((x, y) => x + y, 0) / b.length;
+    let num = 0; let da = 0; let db = 0;
+    for (let i = 0; i < a.length; i++) { num += (a[i] - ma) * (b[i] - mb); da += (a[i] - ma) ** 2; db += (b[i] - mb) ** 2; }
+    return da && db ? num / Math.sqrt(da * db) : 0;
+  }
+
+  // Estimates the key from how long each pitch class sounds across all pitched tracks.
+  function estimateKey(score) {
+    const hist = new Array(12).fill(0);
+    score.tracks.forEach((t) => t.staves.forEach((st) => {
+      if (st.isPercussion) return;
+      st.bars.forEach((bar) => bar.voices.forEach((v) => v.beats.forEach((b) => {
+        if (b.isRest) return;
+        b.notes.forEach((n) => { if (!n.isDead) hist[((n.realValue % 12) + 12) % 12] += b.playbackDuration || 1; });
+      })));
+    }));
+    if (!hist.some((x) => x > 0)) return null;
+    let best = null;
+    for (let root = 0; root < 12; root++) {
+      const rotated = hist.map((_, i) => hist[(i + root) % 12]);
+      const maj = correlate(rotated, PROFILE_MAJOR);
+      const min = correlate(rotated, PROFILE_MINOR);
+      if (!best || maj > best.score) best = { score: maj, name: MAJOR_NAMES[root] };
+      if (min > best.score) best = { score: min, name: MINOR_NAMES[root] };
+    }
+    return best.name;
+  }
+
+  // Key, tempo, bars and an approximate length (repeats and tempo changes aside).
+  // The key comes from the file when it sets one; C major is Guitar Pro's default, so then it is estimated.
+  function songMeta(score) {
+    const mb = score.masterBars[0];
+    const sig = mb ? mb.keySignature : 0;
+    const minor = mb ? mb.keySignatureType === 1 : false;
+    const fromFile = sig !== 0 || minor;
+    const key = fromFile ? (minor ? SIG_MINOR[sig] : SIG_MAJOR[sig]) : estimateKey(score);
+    const ticks = score.masterBars.reduce((sum, m) => sum + m.calculateDuration(), 0);
+    const tempo = Math.round(score.tempo || 120);
+    return { key: key || '', keyGuessed: !fromFile && !!key, tempo, bars: score.masterBars.length, seconds: Math.round((ticks / 960) * (60 / tempo)) };
+  }
+
+  SM.analysis = { songMeta, estimateKey, barTokens, tokenSim, fileChords, lyricCue, analyse, runs, summarise, suggestSections, SIMILAR, RIFF_MATCH };
 })(typeof window !== 'undefined' ? window : globalThis);
