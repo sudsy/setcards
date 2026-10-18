@@ -316,5 +316,59 @@
     return { key: key || '', keyGuessed: !fromFile && !!key, tempo, bars: score.masterBars.length, seconds: Math.round((ticks / 960) * (60 / tempo)) };
   }
 
-  SM.analysis = { songMeta, estimateKey, barTokens, tokenSim, fileChords, lyricCue, analyse, runs, summarise, suggestSections, SIMILAR, RIFF_MATCH };
+  /* ---------- transposing the tab ---------- */
+
+  const MAX_FRET = 24;
+  // Key signature (sharps positive, flats negative) moved by a number of semitones, written with 6 or fewer.
+  function shiftKeySignature(sig, semis) {
+    const pc = ((sig * 7) % 12 + 12) % 12;            // major key pitch class for this signature
+    const next = (pc + semis + 120) % 12;
+    let k = (next * 7) % 12;                          // signature of the new major key, 0..11 sharps
+    if (k > 6) k -= 12;
+    return k;
+  }
+
+  /**
+   * Moves every pitched note in the score by `semis` semitones, in place.
+   * Fretted notes keep their string when the new fret fits; otherwise they move to the string closest to the
+   * original hand position. Notes that would be lower than the lowest open string move up an octave.
+   * Chord names written in the file and key signatures move too. Returns how many notes changed octave.
+   */
+  function transposeScore(score, semis, transposeName) {
+    if (!semis) return { octaveMoved: 0 };
+    let octaveMoved = 0;
+    score.tracks.forEach((track) => track.staves.forEach((staff) => {
+      if (staff.isPercussion) return;
+      const tuning = staff.tuning || [];
+      const strings = tuning.length;
+      const openPitch = (s) => tuning[strings - s];   // string 1 is the lowest
+      staff.bars.forEach((bar) => bar.voices.forEach((v) => v.beats.forEach((b) => b.notes.forEach((n) => {
+        if (n.isPercussion) return;
+        if (strings && n.isStringed) {
+          if (n.isDead) return;
+          let target = openPitch(n.string) + n.fret + semis;
+          let best = null;
+          for (let tries = 0; tries < 3 && !best; tries++) {
+            for (let s = 1; s <= strings; s++) {
+              const f = target - openPitch(s);
+              if (f < 0 || f > MAX_FRET) continue;
+              const score_ = Math.abs(f - n.fret) + (s === n.string ? -0.5 : 0);
+              if (!best || score_ < best.score) best = { s, f, score: score_ };
+            }
+            if (!best) { target += target < openPitch(1) ? 12 : -12; octaveMoved++; }
+          }
+          if (best) { n.string = best.s; n.fret = best.f; }
+        } else if (typeof n.octave === 'number' && typeof n.tone === 'number') {
+          const p = n.octave * 12 + n.tone + semis;
+          n.octave = Math.floor(p / 12);
+          n.tone = ((p % 12) + 12) % 12;
+        }
+      }))));
+      if (staff.chords && transposeName) staff.chords.forEach((ch) => { ch.name = transposeName(ch.name, semis); });
+    }));
+    score.masterBars.forEach((mb) => { mb.keySignature = shiftKeySignature(mb.keySignature, semis); });
+    return { octaveMoved };
+  }
+
+  SM.analysis = { transposeScore, shiftKeySignature, songMeta, estimateKey, barTokens, tokenSim, fileChords, lyricCue, analyse, runs, summarise, suggestSections, SIMILAR, RIFF_MATCH };
 })(typeof window !== 'undefined' ? window : globalThis);

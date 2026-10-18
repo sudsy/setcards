@@ -20,7 +20,10 @@
     bandBtn: $('bandBtn'), bandDlg: $('bandDlg'), driveBox: $('driveBox'), modeBox: $('modeBox'),
     welcome: $('welcome'), chooseBand: $('chooseBand'), chooseSolo: $('chooseSolo'), bandBox: $('bandBox'), songListWrap: $('songListWrap'),
     fileInput: $('fileInput'), shareUpload: $('shareUpload'), shareUploadWrap: $('shareUploadWrap'),
-    keyInput: $('keyInput'), tempoInput: $('tempoInput'), statusSel: $('statusSel'), noTab: $('noTab'),
+    originalKeyInput: $('originalKeyInput'), bandKeyInput: $('bandKeyInput'), tabKeyInput: $('tabKeyInput'), keyInfo: $('keyInfo'),
+    bandTrDown: $('bandTrDown'), bandTrUp: $('bandTrUp'), bandTrOut: $('bandTrOut'), matchKeyBtn: $('matchKeyBtn'),
+    myTrDown: $('myTrDown'), myTrUp: $('myTrUp'), myTrOut: $('myTrOut'), myTrReset: $('myTrReset'),
+    tempoInput: $('tempoInput'), statusSel: $('statusSel'), noTab: $('noTab'),
     addSongBtn: $('addSongBtn'), addDlg: $('addDlg'), addForm: $('addForm'), addTitle: $('addTitle'), addArtist: $('addArtist'),
     addYt: $('addYt'), addStatus: $('addStatus'),
     noteDlg: $('noteDlg'), noteTitle: $('noteTitle'), noteHint: $('noteHint'), noteForm: $('noteForm'), noteText: $('noteText'), noteClear: $('noteClear'),
@@ -47,8 +50,9 @@
   ];
 
   /* ---------------- per-device preferences ---------------- */
-  const prefs = Object.assign({ role: 'bass', view: 'cards', zoom: 1, stave: 'tab', last: null, tracks: {}, cardsTab: {}, chords: {} }, readJson('setcards:prefs'));
+  const prefs = Object.assign({ role: 'bass', view: 'cards', zoom: 1, stave: 'tab', last: null, tracks: {}, cardsTab: {}, chords: {}, transpose: {} }, readJson('setcards:prefs'));
   prefs.chords = prefs.chords || {};
+  prefs.transpose = prefs.transpose || {};
   function readJson(k) { try { return JSON.parse(localStorage.getItem(k)) || {}; } catch (e) { return {}; } }
   function savePrefs() { try { localStorage.setItem('setcards:prefs', JSON.stringify(prefs)); } catch (e) { /* storage unavailable */ } }
   const role = () => ROLES.find((r) => r.id === prefs.role) || ROLES[0];
@@ -189,7 +193,9 @@
     const key = state.song.key;
     const place = key.startsWith('drive:') ? 'Band' : (key.startsWith('local:') && prefs.mode === 'band' ? 'Draft, only on this device' : '');
     const m = (state.notes && state.notes.meta) || {};
-    const k = (state.notes && state.notes.key) || (m.key ? m.key + (m.keyGuessed ? '?' : '') : '');
+    const keys = keysOf(state.notes);
+    const tr = state.song.hasTab !== false ? transposeSemis() : 0;
+    const k = [keys.band || (m.key ? m.key + (m.keyGuessed ? '?' : '') : ''), tr ? `tab ${signed(tr)}` : ''].filter(Boolean).join(', ');
     const t = (state.notes && state.notes.tempo) || m.tempo;
     const st = state.notes && STATUS_LABELS[state.notes.status] && state.notes.status !== 'ready' ? STATUS_LABELS[state.notes.status] : '';
     els.songMeta.textContent = [place, st, state.song.artist, k, t ? `${t} bpm` : ''].filter(Boolean).join(' · ') || state.song.fileName || '';
@@ -207,9 +213,45 @@
 
   /* ---------------- chords ---------------- */
   // User chords override what the file says, bar by bar. "-" means no chord in that bar.
+  /* ---------------- keys and transposing ---------------- */
+  // Three keys per song, shared with the band: the recording's, the one the band plays in, and the tab's.
+  const keysOf = (notes) => {
+    const n = notes || {};
+    const m = n.meta || {};
+    return {
+      original: n.originalKey || '',
+      band: n.bandKey || n.key || '',
+      tab: n.tabKey || m.key || '',
+      tabGuessed: !n.tabKey && !!m.keyGuessed
+    };
+  };
+  // How far the tab is moved: this device's choice if set, otherwise the band's.
+  const bandTranspose = () => (state.notes && Number(state.notes.transpose)) || 0;
+  const myTranspose = () => (state.song ? prefs.transpose[state.song.key] : undefined);
+  const transposeSemis = () => (myTranspose() ?? bandTranspose());
+  const signed = (n) => (n > 0 ? `+${n}` : String(n));
+
+  // Plain words about the keys: how the band's key compares with the recording and the tab.
+  function keyInfoText() {
+    const k = keysOf(state.notes);
+    const t = transposeSemis();
+    const lines = [];
+    const vsOriginal = SM.chords.semitonesBetween(k.original, k.band);
+    if (vsOriginal) lines.push(`The band plays this ${Math.abs(vsOriginal)} semitone${Math.abs(vsOriginal) === 1 ? '' : 's'} ${vsOriginal < 0 ? 'lower' : 'higher'} than the recording.`);
+    else if (vsOriginal === 0) lines.push('The band plays this in the original key.');
+    if (state.song && state.song.hasTab && k.tab) {
+      const shown = SM.chords.transposeName(k.tab, t);
+      lines.push(t ? `The tab is in ${k.tab}${k.tabGuessed ? ' (estimated)' : ''}, shown ${signed(t)} in ${shown}.` : `The tab is in ${k.tab}${k.tabGuessed ? ' (estimated)' : ''}.`);
+      const toBand = SM.chords.semitonesBetween(shown, k.band);
+      if (k.band && toBand) lines.push(`That is ${Math.abs(toBand)} semitone${Math.abs(toBand) === 1 ? '' : 's'} ${toBand < 0 ? 'above' : 'below'} the band key. Match band key fixes it.`);
+    }
+    return lines.join(' ');
+  }
+
+  // Chords are stored in the tab's own key and shown in the key the tab is transposed to.
   function chordsAt(bar) {
     const own = state.notes && state.notes.chords && state.notes.chords[bar];
-    if (own != null) return own === '-' ? [] : SM.chords.split(own);
+    if (own != null) return own === '-' ? [] : SM.chords.split(own).map((c) => SM.chords.transposeName(c, transposeSemis()));
     return (state.fileChords[bar] || []).map((c) => c.name);
   }
   function songChordNames() {
@@ -785,6 +827,10 @@
     state.score = score;
     original.text.clear();
     original.chord.clear();
+    // details are read from the tab as written, then it is moved to the key chosen for the band or this device
+    state.tabMeta = SM.analysis.songMeta(score);
+    const moved = SM.analysis.transposeScore(score, transposeSemis(), SM.chords.transposeName);
+    if (moved.octaveMoved) toast(`${plural(moved.octaveMoved, 'note')} would be below the lowest string, so they were moved up an octave`);
     state.fileMarkers = markersFromScore(score);
     state.fileChords = SM.analysis.fileChords(score);
     state.trackIndex = pickTrack(score);
@@ -801,7 +847,7 @@
     deriveParts();
     applyAnnotations();
     // key, tempo and length are kept with the song so the song list can show them without opening it
-    const meta = SM.analysis.songMeta(score);
+    const meta = state.tabMeta;
     if (state.song.canShare && JSON.stringify(meta) !== JSON.stringify(state.notes.meta)) {
       state.notes.meta = meta;
       saveNotes();
@@ -972,9 +1018,33 @@
     }
     // All tracks are loaded; the one for this person's role is chosen once the file is read.
     const settingsTrack = prefs.tracks[key] && prefs.tracks[key][prefs.role];
-    if (song.tex) api.tex(song.tex, [settingsTrack || 0]);
-    else api.load(song.bytes, [settingsTrack || 0]);
+    state.source = { bytes: song.bytes, tex: song.tex };
+    loadSource();
     return true;
+  }
+
+  // Reads the tab again from the copy already downloaded, for example after a change of transposition.
+  function loadSource() {
+    const key = state.song.key;
+    const track = (prefs.tracks[key] && prefs.tracks[key][prefs.role]) || 0;
+    if (state.source.tex) api.tex(state.source.tex, [track]);
+    else api.load(state.source.bytes, [track]);
+  }
+
+  function setTranspose(band, mine) {
+    const before = transposeSemis();
+    if (band !== undefined) { state.notes.transpose = band || undefined; if (!band) delete state.notes.transpose; saveNotes(); }
+    if (mine !== undefined) {
+      if (mine === null) delete prefs.transpose[state.song.key]; else prefs.transpose[state.song.key] = mine;
+      savePrefs();
+    }
+    fillKeySettings();
+    updateSongMeta();
+    if (transposeSemis() !== before && state.song.hasTab) {
+      flushSave();
+      loadSource();
+      toast(transposeSemis() ? `Tab shown ${signed(transposeSemis())}` : 'Tab shown as written');
+    }
   }
 
   function searchLinks() {
@@ -1237,7 +1307,8 @@
   function setChords(bar, text, everywhere) {
     const rf = riffForBar(bar);
     const bars = everywhere && rf ? riffBars(rf.riff, rf.offset) : [bar];
-    const value = text.trim();
+    // entered in the key shown; stored in the tab's own key
+    const value = SM.chords.transposeText(text.trim(), -transposeSemis());
     bars.forEach((b) => {
       if (value) state.notes.chords[b] = value;
       else if (state.fileChords[b]) state.notes.chords[b] = '-';
@@ -1529,7 +1600,9 @@
   // "Dm · 120 bpm · 4:14 · 12 sections", from the song's saved details
   function detailsLine(notes) {
     const m = (notes && notes.meta) || {};
-    const key = (notes && notes.key) || (m.key ? m.key + (m.keyGuessed ? '?' : '') : '');
+    const keys = keysOf(notes);
+    const band = keys.band || (m.key ? m.key + (m.keyGuessed ? '?' : '') : '');
+    const key = keys.original && keys.band && SM.chords.semitonesBetween(keys.original, keys.band) ? `${band} (orig. ${keys.original})` : band;
     const tempo = (notes && notes.tempo) || m.tempo;
     const bits = [];
     if (key) bits.push(key);
@@ -1898,8 +1971,7 @@
     els.ytInput.value = state.notes.youtubeUrl || '';
     const m = state.notes.meta || {};
     els.statusSel.value = songStatus(state.notes, state.song.hasTab);
-    els.keyInput.value = state.notes.key || '';
-    els.keyInput.placeholder = m.key ? `${m.key}${m.keyGuessed ? ' (estimated)' : ''}` : 'e.g. Dm';
+    fillKeySettings();
     els.tempoInput.value = state.notes.tempo || '';
     els.tempoInput.placeholder = m.tempo ? String(m.tempo) : '120';
     els.showTabCards.checked = showTabInCards();
@@ -1957,12 +2029,40 @@
     setStatus(els.statusSel.value);
     if (!state.song.hasTab) renderNoTab();
   });
-  els.keyInput.addEventListener('change', () => {
-    const v = els.keyInput.value.trim();
-    if (v) state.notes.key = v; else delete state.notes.key;
+  function fillKeySettings() {
+    const k = keysOf(state.notes);
+    const m = state.notes.meta || {};
+    els.originalKeyInput.value = state.notes.originalKey || '';
+    els.bandKeyInput.value = state.notes.bandKey || state.notes.key || '';
+    els.tabKeyInput.value = state.notes.tabKey || '';
+    els.tabKeyInput.placeholder = m.key ? `${m.key}${m.keyGuessed ? ' (estimated)' : ''}` : 'e.g. E';
+    els.bandTrOut.textContent = signed(bandTranspose());
+    els.myTrOut.textContent = myTranspose() === undefined ? 'same' : signed(myTranspose());
+    els.myTrReset.disabled = myTranspose() === undefined;
+    const toBand = SM.chords.semitonesBetween(k.tab, k.band);
+    els.matchKeyBtn.disabled = toBand === null || toBand === bandTranspose();
+    els.keyInfo.textContent = keyInfoText();
+  }
+  const keyField = (input, field) => input.addEventListener('change', () => {
+    const v = input.value.trim();
+    if (v) state.notes[field] = v; else delete state.notes[field];
+    if (field === 'bandKey') delete state.notes.key;   // older songs kept the band key as "key"
     saveNotes();
+    fillKeySettings();
     updateSongMeta();
   });
+  keyField(els.originalKeyInput, 'originalKey');
+  keyField(els.bandKeyInput, 'bandKey');
+  keyField(els.tabKeyInput, 'tabKey');
+  els.bandTrDown.addEventListener('click', () => setTranspose(bandTranspose() - 1));
+  els.bandTrUp.addEventListener('click', () => setTranspose(bandTranspose() + 1));
+  els.matchKeyBtn.addEventListener('click', () => {
+    const k = keysOf(state.notes);
+    setTranspose(SM.chords.semitonesBetween(k.tab, k.band) || 0, null);
+  });
+  els.myTrDown.addEventListener('click', () => setTranspose(undefined, transposeSemis() - 1));
+  els.myTrUp.addEventListener('click', () => setTranspose(undefined, transposeSemis() + 1));
+  els.myTrReset.addEventListener('click', () => setTranspose(undefined, null));
   els.tempoInput.addEventListener('change', () => {
     const v = Math.round(Number(els.tempoInput.value));
     if (v > 0) state.notes.tempo = v; else delete state.notes.tempo;

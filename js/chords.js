@@ -129,5 +129,50 @@
     return String(text || '').split(/[\s|,]+/).map((t) => t.trim()).filter((t) => t && t !== '|');
   }
 
-  SM.chords = { parse, shape, diagram, split };
+  /* ---------- transposing ---------- */
+  const SHARP_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  const FLAT_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
+  // Spells a pitch class the way it is usually written: flats for Db Eb Ab Bb, F# rather than Gb.
+  const COMMON = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+  function noteName(pc, like) {
+    if (like && /b/.test(like.slice(1, 2))) return FLAT_NAMES[pc];
+    if (like && /#/.test(like.slice(1, 2))) return SHARP_NAMES[pc];
+    return COMMON[pc];
+  }
+  const pcOf = (letter) => {
+    const m = /^([A-Ga-g])([#♯b♭]?)/.exec(letter || '');
+    if (!m) return null;
+    let v = NOTES[m[1].toUpperCase()];
+    if (m[2] === '#' || m[2] === '♯') v++;
+    if (m[2] === 'b' || m[2] === '♭') v--;
+    return (v + 12) % 12;
+  };
+
+  // "Dm7/A" up 2 → "Em7/B". Works for key names too ("F#m" → "G#m"). Unreadable names are left alone.
+  function transposeName(name, semis) {
+    if (!semis || !name) return name;
+    const m = /^\s*([A-Ga-g][#♯b♭]?)([^/\s]*)(?:\/([A-Ga-g][#♯b♭]?))?\s*$/.exec(name);
+    if (!m) return name;
+    const shift = (n) => noteName((pcOf(n) + semis + 120) % 12);
+    return shift(m[1]) + m[2] + (m[3] ? '/' + shift(m[3]) : '');
+  }
+  const transposeText = (text, semis) => split(text).map((c) => transposeName(c, semis)).join(' ');
+
+  // The smallest move from one key to another, in semitones (-5 to +6); null if either can't be read.
+  // A major key and its relative minor share their notes (G and Em), so when one key is major and the other
+  // minor, the major one is compared as its relative minor.
+  const isMinor = (key) => /^[A-Ga-g][#♯b♭]?m(?!aj)/.test((key || '').trim());
+  function semitonesBetween(fromKey, toKey) {
+    let a = pcOf(fromKey);
+    let b = pcOf(toKey);
+    if (a === null || b === null) return null;
+    if (isMinor(fromKey) !== isMinor(toKey)) {
+      if (!isMinor(fromKey)) a = (a + 9) % 12; else b = (b + 9) % 12;
+    }
+    let d = (b - a + 12) % 12;
+    if (d > 6) d -= 12;
+    return d;
+  }
+
+  SM.chords = { parse, shape, diagram, split, transposeName, transposeText, semitonesBetween };
 })(typeof window !== 'undefined' ? window : globalThis);

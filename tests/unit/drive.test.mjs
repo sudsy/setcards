@@ -151,9 +151,9 @@ test('a Song list sheet is kept in the folder, and only rewritten when what it s
   const sheet = [...store.values()].find((f) => f.name === 'Song list');
   assert.equal(sheet.mimeType, 'application/vnd.google-apps.spreadsheet');
   assert.deepEqual(sheet.content.trim().split('\r\n'), [
-    'Title,Artist,Status,Key,Tempo (bpm),Length,YouTube,Tab file',
-    'Smooth Operator,Sade,Ready,Dm (estimated),120,4m 14s,,smooth.gp',
-    '"New, Idea",Us,Proposed,,,,https://youtu.be/x,'
+    'Title,Artist,Status,Band key,Original key,Tempo (bpm),Length,YouTube,Tab file',
+    'Smooth Operator,Sade,Ready,Dm (estimated),,120,4m 14s,,smooth.gp',
+    '"New, Idea",Us,Proposed,,,,,https://youtu.be/x,'
   ]);
 
   // a fresh start with nothing changed reads the sheet and leaves it alone

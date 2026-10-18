@@ -176,18 +176,19 @@ test('instrument notes are kept with the song and shown only in that instrument�
   await expect(page.locator('.card[data-group="verse"] .role-note-text')).toHaveText('Walk up into the chorus');
 });
 
-test('key and tempo can be corrected and show in the song list', async ({ page }) => {
+test('the band key, original key and tempo are recorded and shown in the song list', async ({ page }) => {
   await openDemo(page);
   await page.click('#settingsBtn');
-  await page.fill('#keyInput', 'Em');
+  await page.fill('#originalKeyInput', 'E');
+  await page.fill('#bandKeyInput', 'D');
   await page.fill('#tempoInput', '100');
   await page.locator('#tempoInput').blur();
+  await expect(page.locator('#keyInfo')).toContainText('The band plays this 2 semitones lower than the recording.');
   await page.locator('#settingsDlg [data-close]').click();
-  await expect(page.locator('#songMeta')).toContainText('Em · 100 bpm');
+  await expect(page.locator('#songMeta')).toContainText('D · 100 bpm');
   await page.click('#backBtn');
-  await expect(page.locator('.song-row .details').first()).toContainText('Em · 100 bpm');
+  await expect(page.locator('.song-row .details').first()).toContainText('D (orig. E) · 100 bpm');
 });
-
 test('in Edit, tapping a bar starts a new section there', async ({ page }) => {
   await openDemo(page);
   await page.click('#editBtn');
@@ -375,4 +376,56 @@ test('the bass view hides chords unless they are turned on', async ({ page }) =>
   await expect(page.locator('#tab text', { hasText: /^Em$/ }).first()).toBeVisible();
   await page.click('#viewCards');
   await expect(page.locator('.card[data-group="intro"] .chord-cell').first()).toHaveText('Em');
+});
+
+test('the tab can be transposed for the band or just on this device', async ({ page }) => {
+  await openDemo(page);
+  await chooseRole(page, 'Guitar');
+  // a chord in the tab's own key
+  await page.locator('.card[data-group="intro"] .chord-cell').first().click();
+  await page.fill('#chordInput', 'Em');
+  await page.click('#chordForm button[type=submit]');
+  await page.click('#viewTab');
+  const firstFrets = () => page.evaluate(() => [...document.querySelectorAll('#tab text')].map((t) => t.textContent).filter((t) => /^\d+$/.test(t)).slice(1, 4).join(' '));
+  await expect(page.locator('#tab .at-surface svg').first()).toBeVisible();
+  const before = await firstFrets();
+
+  // for the band: up 2
+  await page.click('#settingsBtn');
+  await page.click('#bandTrUp');
+  await page.click('#bandTrUp');
+  await expect(page.locator('#bandTrOut')).toHaveText('+2');
+  await page.locator('#settingsDlg [data-close]').click();
+  await expect(page.locator('#songMeta')).toContainText('tab +2');
+  await expect(page.locator('#tab text', { hasText: /^F#m$/ }).first()).toBeVisible();
+  expect(await firstFrets()).not.toEqual(before);
+
+  // just for me: back to as written, without changing the band's setting
+  await page.click('#settingsBtn');
+  await page.click('#myTrDown');
+  await page.click('#myTrDown');
+  await expect(page.locator('#myTrOut')).toHaveText('0');
+  await expect(page.locator('#bandTrOut')).toHaveText('+2');
+  await page.locator('#settingsDlg [data-close]').click();
+  await expect(page.locator('#tab text', { hasText: /^Em$/ }).first()).toBeVisible();
+  expect(await firstFrets()).toEqual(before);
+
+  // back to the band's setting
+  await page.click('#settingsBtn');
+  await page.click('#myTrReset');
+  await expect(page.locator('#myTrOut')).toHaveText('same');
+  await page.locator('#settingsDlg [data-close]').click();
+  await expect(page.locator('#songMeta')).toContainText('tab +2');
+});
+
+test('match band key works out the transposition from the tab key', async ({ page }) => {
+  await openDemo(page);
+  await page.click('#settingsBtn');
+  await page.fill('#tabKeyInput', 'Em');
+  await page.fill('#bandKeyInput', 'Dm');
+  await page.locator('#bandKeyInput').blur();
+  await expect(page.locator('#keyInfo')).toContainText('The tab is in Em.');
+  await page.click('#matchKeyBtn');
+  await expect(page.locator('#bandTrOut')).toHaveText('-2');
+  await expect(page.locator('#keyInfo')).toContainText('shown -2 in Dm');
 });

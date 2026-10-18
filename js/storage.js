@@ -365,14 +365,14 @@
       const n = s.notes || {};
       const m = n.meta || {};
       const status = STATUS[n.status] ? n.status : (s.tab ? 'learning' : 'proposed');
-      const key = n.key || (m.key ? `${m.key}${m.keyGuessed ? ' (estimated)' : ''}` : '');
+      const key = n.bandKey || n.key || (m.key ? `${m.key}${m.keyGuessed ? ' (estimated)' : ''}` : '');
       const seconds = m.seconds;
       return {
         title: n.title || (s.tab ? s.tab.name.replace(SONG_EXT, '') : 'Untitled'),
         artist: n.artist || '',
         status,
         cells: [
-          n.title || (s.tab ? s.tab.name.replace(SONG_EXT, '') : 'Untitled'), n.artist || '', STATUS[status], key,
+          n.title || (s.tab ? s.tab.name.replace(SONG_EXT, '') : 'Untitled'), n.artist || '', STATUS[status], key, n.originalKey || '',
           n.tempo || m.tempo || '', seconds ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : '',
           n.youtubeUrl || '', s.tab ? s.tab.name : ''
         ]
@@ -389,7 +389,7 @@
     function songListCsv(songs) {
       const order = { ready: 0, learning: 1, proposed: 2 };
       const rows = songs.map(rowFor).sort((a, b) => order[a.status] - order[b.status] || a.title.localeCompare(b.title));
-      const head = ['Title', 'Artist', 'Status', 'Key', 'Tempo (bpm)', 'Length', 'YouTube', 'Tab file'];
+      const head = ['Title', 'Artist', 'Status', 'Band key', 'Original key', 'Tempo (bpm)', 'Length', 'YouTube', 'Tab file'];
       return [head, ...rows.map((r) => r.cells)].map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
     }
 

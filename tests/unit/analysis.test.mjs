@@ -119,3 +119,34 @@ test('song details: key from the file when set, estimated otherwise, plus tempo 
   assert.ok(demo.key, 'an estimated key is given');
   assert.equal(demo.tempo, 104);
 });
+
+test('transposing the tab moves frets, keeps hand position, and moves chords and key', () => {
+  const score = bassSong(['3.4.4 5.4.4 2.3.4 0.4.4']);   // G A B E on a 4-string bass
+  const pitches = () => score.tracks[0].staves[0].bars[0].voices[0].beats.map((b) => b.notes[0].realValue);
+  const before = pitches();
+
+  const up = A.transposeScore(score, 2, SM.chords.transposeName);
+  assert.deepEqual(pitches(), before.map((p) => p + 2));
+  assert.equal(up.octaveMoved, 0);
+
+  // two down from the original: the open E would be below the lowest string, so it moves up an octave
+  const down = A.transposeScore(score, -4, SM.chords.transposeName);
+  assert.deepEqual(pitches().slice(0, 3), before.slice(0, 3).map((p) => p - 2));
+  assert.equal(pitches()[3], before[3] - 2 + 12);
+  assert.equal(down.octaveMoved, 1);
+  const frets = score.tracks[0].staves[0].bars[0].voices[0].beats.map((b) => b.notes[0].fret);
+  assert.ok(frets.every((f) => f >= 0 && f <= 24));
+});
+
+test('key signatures and chord names follow the transposition', () => {
+  assert.equal(A.shiftKeySignature(0, 2), 2);     // C to D: two sharps
+  assert.equal(A.shiftKeySignature(0, -2), -2);   // C to Bb: two flats
+  assert.equal(A.shiftKeySignature(4, 1), -1);    // E to F: one flat
+  assert.equal(SM.chords.transposeText('Dm Am7 Gm7', -2), 'Cm Gm7 Fm7');
+  assert.equal(SM.chords.semitonesBetween('E', 'D'), -2);
+  // a major key and its relative minor count as the same key
+  assert.equal(SM.chords.semitonesBetween('G', 'Em'), 0);
+  assert.equal(SM.chords.semitonesBetween('Ab', 'Em'), -1);
+  assert.equal(SM.chords.semitonesBetween('Em', 'C'), 5);   // C major sits with A minor: Em up to Am
+  assert.equal(SM.chords.semitonesBetween('Cmaj7', 'C'), 0);
+});

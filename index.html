@@ -205,16 +205,37 @@
       <span>Status</span>
       <select id="statusSel"><option value="proposed">Proposed</option><option value="learning">Learning</option><option value="ready">Ready</option></select>
     </label>
-    <div class="field-row">
-      <label class="field">
-        <span>Key</span>
-        <input id="keyInput" placeholder="e.g. Dm" autocomplete="off" autocapitalize="off">
-      </label>
-      <label class="field">
-        <span>Tempo (bpm)</span>
-        <input id="tempoInput" inputmode="numeric" placeholder="120" autocomplete="off">
-      </label>
-    </div>
+    <fieldset class="field keys-field">
+      <legend>Keys</legend>
+      <div class="field-row three">
+        <label class="field"><span>Original</span><input id="originalKeyInput" placeholder="e.g. E" autocomplete="off" autocapitalize="off" aria-label="Original key of the recording"></label>
+        <label class="field"><span>Band plays in</span><input id="bandKeyInput" placeholder="e.g. D" autocomplete="off" autocapitalize="off" aria-label="Key the band plays in"></label>
+        <label class="field tab-only"><span>Tab is in</span><input id="tabKeyInput" autocomplete="off" autocapitalize="off" aria-label="Key the tab is written in"></label>
+      </div>
+      <p id="keyInfo" class="fine key-info"></p>
+    </fieldset>
+    <fieldset class="field transpose-field tab-only">
+      <legend>Transpose the tab</legend>
+      <div class="transpose-row">
+        <span class="tr-label">For the band</span>
+        <button type="button" class="tr-btn" id="bandTrDown" aria-label="Band transpose down a semitone">−</button>
+        <output id="bandTrOut" class="tr-out">0</output>
+        <button type="button" class="tr-btn" id="bandTrUp" aria-label="Band transpose up a semitone">+</button>
+        <button type="button" class="text-btn" id="matchKeyBtn">Match band key</button>
+      </div>
+      <div class="transpose-row">
+        <span class="tr-label">Just for me</span>
+        <button type="button" class="tr-btn" id="myTrDown" aria-label="Your transpose down a semitone">−</button>
+        <output id="myTrOut" class="tr-out">–</output>
+        <button type="button" class="tr-btn" id="myTrUp" aria-label="Your transpose up a semitone">+</button>
+        <button type="button" class="text-btn" id="myTrReset">Use band’s</button>
+      </div>
+      <p class="fine">The band setting is shared and changes the tab for everyone. Just for me is kept on this device only. The Guitar Pro file itself is never changed.</p>
+    </fieldset>
+    <label class="field">
+      <span>Tempo (bpm)</span>
+      <input id="tempoInput" inputmode="numeric" placeholder="120" autocomplete="off">
+    </label>
     <label class="field" id="trackField">
       <span>Track you follow in this song</span>
       <select id="trackSel"></select>
