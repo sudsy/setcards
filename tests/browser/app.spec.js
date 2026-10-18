@@ -179,8 +179,8 @@ test('instrument notes are kept with the song and shown only in that instrumentâ
 test('the band key, original key and tempo are recorded and shown in the song list', async ({ page }) => {
   await openDemo(page);
   await page.click('#settingsBtn');
-  await page.fill('#originalKeyInput', 'E');
-  await page.fill('#bandKeyInput', 'D');
+  await page.selectOption('#originalKeyInput', 'E');
+  await page.selectOption('#bandKeyInput', 'D');
   await page.fill('#tempoInput', '100');
   await page.locator('#tempoInput').blur();
   await expect(page.locator('#keyInfo')).toContainText('The band plays this 2 semitones lower than the recording.');
@@ -421,13 +421,18 @@ test('the tab can be transposed for the band or just on this device', async ({ p
 test('match band key works out the transposition from the tab key', async ({ page }) => {
   await openDemo(page);
   await page.click('#settingsBtn');
-  await page.fill('#tabKeyInput', 'Em');
-  await page.fill('#bandKeyInput', 'Dm');
-  await page.locator('#bandKeyInput').blur();
-  await expect(page.locator('#keyInfo')).toContainText('The tab is in Em.');
+  await page.selectOption('#tabKeyInput', 'Em');
+  await page.selectOption('#bandKeyInput', 'Dm');
+  await expect(page.locator('#keyInfo')).toContainText('The tab is in E minor.');
   await page.click('#matchKeyBtn');
   await expect(page.locator('#bandTrOut')).toHaveText('-2');
-  await expect(page.locator('#keyInfo')).toContainText('shown -2 in Dm');
+  await expect(page.locator('#keyInfo')).toContainText('shown -2 in D minor');
+  // the whole song shows the keys in words, with the scale
+  await page.locator('#settingsDlg [data-close]').click();
+  const keys = page.locator('.song-keys');
+  await expect(keys).toContainText('Band key');
+  await expect(keys).toContainText('D minor');
+  await expect(keys).toContainText('-2 from E minor');
 });
 
 test('a tab without a bass part says so in the bass view', async ({ page }) => {
@@ -443,7 +448,6 @@ test('a tab without a bass part says so in the bass view', async ({ page }) => {
   const bytes = new alphaTab.exporter.Gp7Exporter().export(imp.readScore(), new alphaTab.Settings());
   await page.locator('#attachInput').setInputFiles({ name: 'guitar-only.gp', mimeType: 'application/octet-stream', buffer: Buffer.from(bytes) });
   await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
-  await expect(page.locator('#banner')).toContainText('no bass part');
-  await expect(page.locator('#banner')).toContainText('Nylon');
+  await expect(page.locator('#banner')).toHaveText('This tab only has the guitar part, with no bass part, so that is whatâ€™s shown here.');
   expect(errors).toEqual([]);
 });

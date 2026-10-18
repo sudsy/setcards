@@ -38,3 +38,12 @@ test('diagrams are SVG named after the chord, and unknown names say so', () => {
   assert.match(svg, />Am</);
   assert.match(C.diagram('Xyz'), /no shape/);
 });
+
+test('keys are read with their scale and named in words', () => {
+  const C = SM.chords;
+  assert.equal(C.keyName('Am'), 'A minor');
+  assert.equal(C.keyName('F#'), 'F# major');
+  assert.equal(C.keyOf('bb minor').short, 'Bbm');
+  assert.equal(C.keyOf('C major').minor, false);
+  assert.equal(C.keyOf('Cmaj7'), null);
+});

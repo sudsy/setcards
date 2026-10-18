@@ -174,5 +174,22 @@
     return d;
   }
 
-  SM.chords = { parse, shape, diagram, split, transposeName, transposeText, semitonesBetween };
+  // Keys are stored short ("Am", "F#") and shown in words ("A minor"). The scale (major or minor) is kept so
+  // that scales for soloing can be suggested later.
+  const KEY_NAMES = {
+    major: ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'],
+    minor: ['Cm', 'C#m', 'Dm', 'Ebm', 'Em', 'Fm', 'F#m', 'Gm', 'G#m', 'Am', 'Bbm', 'Bm']
+  };
+  // Reads "Am", "A minor", "a min", "F# major" or "Bb"; null if it isn't a key.
+  function keyOf(text) {
+    const m = /^\s*([A-Ga-g][#♯b♭]?)\s*(m|min|minor|maj|major|M)?\s*$/.exec(text || '');
+    if (!m) return null;
+    const root = pcOf(m[1]);
+    const minor = !!m[2] && /^(m|min|minor)$/.test(m[2]);
+    const letter = m[1].charAt(0).toUpperCase() + m[1].slice(1).replace('♯', '#').replace('♭', 'b');
+    return { root, minor, short: letter + (minor ? 'm' : ''), name: `${letter} ${minor ? 'minor' : 'major'}` };
+  }
+  const keyName = (text) => { const k = keyOf(text); return k ? k.name : (text || ''); };
+
+  SM.chords = { parse, shape, diagram, split, transposeName, transposeText, semitonesBetween, isMinor, keyOf, keyName, KEY_NAMES };
 })(typeof window !== 'undefined' ? window : globalThis);

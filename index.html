@@ -207,10 +207,10 @@
     </label>
     <fieldset class="field keys-field">
       <legend>Keys</legend>
-      <div class="field-row three">
-        <label class="field"><span>Original</span><input id="originalKeyInput" placeholder="e.g. E" autocomplete="off" autocapitalize="off" aria-label="Original key of the recording"></label>
-        <label class="field"><span>Band plays in</span><input id="bandKeyInput" placeholder="e.g. D" autocomplete="off" autocapitalize="off" aria-label="Key the band plays in"></label>
-        <label class="field tab-only"><span>Tab is in</span><input id="tabKeyInput" autocomplete="off" autocapitalize="off" aria-label="Key the tab is written in"></label>
+      <div class="key-rows">
+        <label class="key-row"><span>Original recording</span><select id="originalKeyInput" aria-label="Original key of the recording"></select></label>
+        <label class="key-row"><span>Band plays in</span><select id="bandKeyInput" aria-label="Key the band plays in"></select></label>
+        <label class="key-row tab-only"><span>Tab is written in</span><select id="tabKeyInput" aria-label="Key the tab is written in"></select></label>
       </div>
       <p id="keyInfo" class="fine key-info"></p>
     </fieldset>

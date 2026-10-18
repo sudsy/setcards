@@ -699,7 +699,15 @@ body.no-tab #exportBtn, body.no-tab #exportBtn + .fine { display: none !importan
 .field-row.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .keys-field .field { margin: 0; }
 .keys-field .field span { font-weight: 500; font-size: 0.78rem; color: var(--muted); }
-.keys-field input { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+.key-rows { display: grid; gap: 8px; }
+.key-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.key-row span { font-size: 0.9rem; white-space: nowrap; }
+#settingsDlg .key-row select { flex: 0 1 11em; width: 11em; min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--ink); }
+.song-keys { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0 0 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.song-keys div { display: flex; flex-direction: column; }
+.song-keys .k-label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.song-keys .k-value { font-weight: 600; }
+.song-keys .k-note { font-weight: 400; color: var(--muted); font-size: 0.85rem; }
 .key-info { margin: 8px 0 0; min-height: 1em; }
 .transpose-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
 .tr-label { min-width: 7.5em; font-size: 0.9rem; }

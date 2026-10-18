@@ -214,10 +214,12 @@
     const tracks = state.score.tracks;
     const t = tracks[state.trackIndex];
     const what = role().label.toLowerCase();
-    const name = t && t.name ? `“${t.name.trim()}”` : 'the first part';
+    // say what kind of part it is; a track is often named after the song, which says nothing
+    const kind = ['guitar', 'keys', 'vocals', 'drums'].find((r) => t && trackMatches(t, r));
+    const part = kind ? `the ${ROLES.find((r) => r.id === kind).label.toLowerCase()} part` : 'another part';
     return tracks.length > 1
-      ? `This tab file has no ${what} part, so it shows ${name}. You can choose another part in Settings.`
-      : `This tab file has no ${what} part. It only has ${name}, which is shown instead.`;
+      ? `No ${what} part in this tab, so it shows ${part}. You can pick a different part in Settings.`
+      : `This tab only has ${part}, with no ${what} part, so that is what’s shown here.`;
   }
 
   /* ---------------- chords ---------------- */
@@ -246,15 +248,61 @@
     const t = transposeSemis();
     const lines = [];
     const vsOriginal = SM.chords.semitonesBetween(k.original, k.band);
+    const kn = SM.chords.keyName;
     if (vsOriginal) lines.push(`The band plays this ${Math.abs(vsOriginal)} semitone${Math.abs(vsOriginal) === 1 ? '' : 's'} ${vsOriginal < 0 ? 'lower' : 'higher'} than the recording.`);
     else if (vsOriginal === 0) lines.push('The band plays this in the original key.');
     if (state.song && state.song.hasTab && k.tab) {
       const shown = SM.chords.transposeName(k.tab, t);
-      lines.push(t ? `The tab is in ${k.tab}${k.tabGuessed ? ' (estimated)' : ''}, shown ${signed(t)} in ${shown}.` : `The tab is in ${k.tab}${k.tabGuessed ? ' (estimated)' : ''}.`);
+      lines.push(t ? `The tab is in ${kn(k.tab)}${k.tabGuessed ? ' (estimated)' : ''}, shown ${signed(t)} in ${kn(shown)}.` : `The tab is in ${kn(k.tab)}${k.tabGuessed ? ' (estimated)' : ''}.`);
       const toBand = SM.chords.semitonesBetween(shown, k.band);
       if (k.band && toBand) lines.push(`That is ${Math.abs(toBand)} semitone${Math.abs(toBand) === 1 ? '' : 's'} ${toBand < 0 ? 'above' : 'below'} the band key. Match band key fixes it.`);
     }
     return lines.join(' ');
+  }
+
+  // The keys at the top of the whole song: what the band plays in, the recording, and the key the tab is shown in.
+  function songKeys() {
+    const k = keysOf(state.notes);
+    const kn = SM.chords.keyName;
+    const out = [];
+    const t = state.song && state.song.hasTab !== false ? transposeSemis() : 0;
+    if (k.band) out.push({ label: 'Band key', value: kn(k.band) });
+    if (k.original) {
+      const d = k.band ? SM.chords.semitonesBetween(k.original, k.band) : 0;
+      out.push({ label: 'Original', value: kn(k.original), note: d ? `band ${signed(d)}` : '' });
+    }
+    if (state.score && k.tab) {
+      const shown = SM.chords.transposeName(k.tab, t);
+      if (t) out.push({ label: 'Tab shown in', value: kn(shown), note: `${signed(t)} from ${kn(k.tab)}` });
+      else if (!k.band || SM.chords.semitonesBetween(k.tab, k.band) !== 0 || k.tabGuessed) out.push({ label: 'Tab in', value: kn(k.tab), note: k.tabGuessed ? 'estimated' : '' });
+    }
+    return out;
+  }
+  function songKeysBlock() {
+    const keys = songKeys();
+    const el = document.createElement('section');
+    el.className = 'song-keys';
+    el.hidden = !keys.length;
+    keys.forEach((k) => {
+      const d = document.createElement('div');
+      d.innerHTML = '<span class="k-label"></span><span class="k-value"></span>';
+      d.querySelector('.k-label').textContent = k.label;
+      d.querySelector('.k-value').textContent = k.value;
+      if (k.note) {
+        const n = document.createElement('span');
+        n.className = 'k-note';
+        n.textContent = k.note;
+        d.appendChild(n);
+      }
+      el.appendChild(d);
+    });
+    return el;
+  }
+  // The key being played, in words, for the section heading of the whole song.
+  function playingKeyName() {
+    const k = keysOf(state.notes);
+    if (state.score && k.tab) return SM.chords.keyName(SM.chords.transposeName(k.tab, transposeSemis())) + (k.tabGuessed && !k.band ? '?' : '');
+    return k.band ? SM.chords.keyName(k.band) : '';
   }
 
   // Chords are stored in the tab's own key and shown in the key the tab is transposed to.
@@ -463,7 +511,7 @@
     const n = state.score.masterBars.length;
     if (state.view === -1) {
       els.sectionName.textContent = 'Whole song';
-      els.sectionBars.textContent = `${n} bars · ${plural(state.parts.length, 'section')}`;
+      els.sectionBars.textContent = [`${n} bars`, plural(state.parts.length, 'section'), playingKeyName()].filter(Boolean).join(' · ');
     } else {
       const p = state.parts[state.view];
       const bits = [];
@@ -551,6 +599,7 @@
     const r = role();
     const frag = document.createDocumentFragment();
 
+    frag.appendChild(songKeysBlock());
     frag.appendChild(noteBlock(null));
 
     if (r.cues) {
@@ -2077,16 +2126,38 @@
   function fillKeySettings() {
     const k = keysOf(state.notes);
     const m = state.notes.meta || {};
-    els.originalKeyInput.value = state.notes.originalKey || '';
-    els.bandKeyInput.value = state.notes.bandKey || state.notes.key || '';
-    els.tabKeyInput.value = state.notes.tabKey || '';
-    els.tabKeyInput.placeholder = m.key ? `${m.key}${m.keyGuessed ? ' (estimated)' : ''}` : 'e.g. E';
+    fillKeySelect(els.originalKeyInput, state.notes.originalKey, 'Not set');
+    fillKeySelect(els.bandKeyInput, state.notes.bandKey || state.notes.key, 'Not set');
+    fillKeySelect(els.tabKeyInput, state.notes.tabKey, m.key ? `${SM.chords.keyName(m.key)}${m.keyGuessed ? ' (estimated)' : ''}` : 'Not set');
     els.bandTrOut.textContent = signed(bandTranspose());
     els.myTrOut.textContent = myTranspose() === undefined ? 'same' : signed(myTranspose());
     els.myTrReset.disabled = myTranspose() === undefined;
     const toBand = SM.chords.semitonesBetween(k.tab, k.band);
     els.matchKeyBtn.disabled = toBand === null || toBand === bandTranspose();
     els.keyInfo.textContent = keyInfoText();
+  }
+  // Every key is a note and a scale (major or minor), so a choice of 24; a key typed in an older version is kept as it was.
+  function fillKeySelect(sel, value, emptyText) {
+    const C = SM.chords;
+    const k = C.keyOf(value);
+    const groups = [['Major', C.KEY_NAMES.major], ['Minor', C.KEY_NAMES.minor]];
+    sel.innerHTML = '';
+    sel.add(new Option(emptyText, ''));
+    let found = !value;
+    groups.forEach(([label, names]) => {
+      const g = document.createElement('optgroup');
+      g.label = label;
+      names.forEach((n) => {
+        const nk = C.keyOf(n);
+        // the stored spelling wins (Gb rather than F#)
+        const same = k && nk.root === k.root && nk.minor === k.minor;
+        const o = new Option(same ? k.name : nk.name, same ? value : n);
+        if (same) { o.selected = true; found = true; }
+        g.appendChild(o);
+      });
+      sel.appendChild(g);
+    });
+    if (!found) { const o = new Option(value, value); o.selected = true; sel.add(o, 1); }
   }
   const keyField = (input, field) => input.addEventListener('change', () => {
     const v = input.value.trim();
@@ -2095,7 +2166,13 @@
     saveNotes();
     fillKeySettings();
     updateSongMeta();
+    refreshSongKeys();
   });
+  function refreshSongKeys() {
+    const old = els.cards.querySelector('.song-keys');
+    if (old) old.replaceWith(songKeysBlock());
+    if (state.score) updateHeader();
+  }
   keyField(els.originalKeyInput, 'originalKey');
   keyField(els.bandKeyInput, 'bandKey');
   keyField(els.tabKeyInput, 'tabKey');
