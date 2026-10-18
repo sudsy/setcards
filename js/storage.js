@@ -70,7 +70,7 @@
         const all = await tx('readonly', (s) => s.getAll());
         return all.map((r) => {
           const n = notesOf(r);
-          return { id: r.id, title: n.title || r.title, artist: n.artist || r.artist, fileName: r.fileName, updatedAt: r.updatedAt || 0, isDemo: !!r.isDemo, notes: n, canShare: !r.tex, hasTab: !!(r.data || r.tex) };
+          return { id: r.id, title: n.title || r.title, artist: n.artist || r.artist, fileName: r.fileName, updatedAt: r.updatedAt || 0, addedAt: r.addedAt || r.updatedAt || 0, isDemo: !!r.isDemo, notes: n, canShare: !r.tex, hasTab: !!(r.data || r.tex) };
         });
       },
       async open(id) {
@@ -310,7 +310,7 @@
         const q = encodeURIComponent(`(${parentIds.slice(i, i + 40).map((id) => `'${id}' in parents`).join(' or ')}) and trashed = false`);
         let page = '';
         do {
-          const r = await call(`${API}/files?q=${q}&fields=nextPageToken,files(id,name,mimeType,modifiedTime,size,parents)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true${page ? '&pageToken=' + page : ''}`);
+          const r = await call(`${API}/files?q=${q}&fields=nextPageToken,files(id,name,mimeType,modifiedTime,createdTime,size,parents)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true${page ? '&pageToken=' + page : ''}`);
           const j = await r.json();
           out.push(...(j.files || []));
           page = j.nextPageToken || '';
@@ -374,6 +374,9 @@
       songs.forEach((sg) => {
         const pid = parentOf(sg.notesFile || sg.tab);
         sg.folder = files.find((x) => isFolder(x) && x.id === pid && tabsFolder && parentOf(x) === tabsFolder.id) || null;
+        // when the song was added: the earliest of its folder, notes and tab (moving a file keeps its created time)
+        const times = [sg.folder, sg.notesFile, sg.tab].filter(Boolean).map((x) => Date.parse(x.createdTime || x.modifiedTime)).filter((t) => t > 0);
+        sg.addedAt = times.length ? Math.min(...times) : 0;
       });
       return songs;
     }
@@ -506,8 +509,8 @@
     };
 
     function songListCsv(songs) {
-      const order = { ready: 0, learning: 1, proposed: 2 };
-      const rows = songs.map(rowFor).sort((a, b) => order[a.status] - order[b.status] || a.title.localeCompare(b.title));
+      // in the order songs were added, so new songs go at the bottom
+      const rows = songs.slice().sort((a, b) => (a.addedAt || 0) - (b.addedAt || 0)).map(rowFor);
       const head = ['Title', 'Artist', 'Status', 'Band key', 'Original key', 'Tempo (bpm)', 'Length', 'YouTube', 'Tab file'];
       return [head, ...rows.map((r) => r.cells)].map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
     }
@@ -631,6 +634,7 @@
           hasTab: !!s.tab,
           tabVersion: s.tab ? s.tab.modifiedTime : null,
           updatedAt: Date.parse(s.modified) || 0,
+          addedAt: s.addedAt,
           notes: s.notes
         }));
       },

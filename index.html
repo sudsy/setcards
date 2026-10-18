@@ -28,6 +28,7 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
       </button>
     </header>
+    <div id="syncLine" class="sync-line" role="status" aria-live="polite" hidden><span class="spinner" aria-hidden="true"></span><span class="sync-text"></span></div>
     <main id="homeMain" class="scroller home-main">
       <section id="welcome" class="welcome" hidden>
         <h1>Your band's songs, as short cards for every player</h1>
@@ -111,7 +112,7 @@
     <main id="scroller" class="scroller">
       <div id="drop" class="drop-hint" hidden>Drop a Guitar Pro file to open it</div>
       <div id="loading" class="loading">Loading…</div>
-      <section id="noTab" class="no-tab" hidden></section>
+      <section id="noTab" class="no-tab-page" hidden></section>
       <div id="cards" class="cards"></div>
       <div id="tab" hidden></div>
     </main>

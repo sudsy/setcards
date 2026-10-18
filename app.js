@@ -13,7 +13,7 @@
     prevBtn: $('prevBtn'), nextBtn: $('nextBtn'),
     editBtn: $('editBtn'), editPanel: $('editPanel'), sectionList: $('sectionList'),
     findRepeatsBtn: $('findRepeatsBtn'), suggestBtn: $('suggestBtn'), useMarkersBtn: $('useMarkersBtn'), doneEditBtn: $('doneEditBtn'),
-    scroller: $('scroller'), tab: $('tab'), cards: $('cards'), loading: $('loading'), drop: $('drop'), banner: $('banner'),
+    syncLine: $('syncLine'), scroller: $('scroller'), tab: $('tab'), cards: $('cards'), loading: $('loading'), drop: $('drop'), banner: $('banner'),
     playBtn: $('playBtn'), loopBtn: $('loopBtn'), speedSel: $('speedSel'),
     videoBtn: $('videoBtn'), videoPanel: $('videoPanel'), playerStatus: $('playerStatus'),
     homeView: $('homeView'), songView: $('songView'), backBtn: $('backBtn'), bandName: $('bandName'), homeRoleBtn: $('homeRoleBtn'),
@@ -1657,6 +1657,7 @@
     if (state.editing) setEditing(false);
     els.songView.hidden = true;
     els.homeView.hidden = false;
+    document.body.classList.remove('no-tab');
     document.title = 'Setcards';
     await flushSave();   // so the list shows what was just changed
     renderHome();
@@ -1705,10 +1706,47 @@
     return bits.join(' · ');
   }
 
+  // Songs are listed in the order they were added (as in the band's Song list sheet), or by title or artist.
+  const SORTS = [['added', 'Added'], ['title', 'Title'], ['artist', 'Artist']];
+  const byText = (a, b) => String(a || '').localeCompare(String(b || ''), undefined, { sensitivity: 'base' });
+  function compareSongs(a, b) {
+    if (prefs.sort === 'title') return byText(a.title, b.title) || byText(a.artist, b.artist);
+    // songs with no artist go after the rest
+    if (prefs.sort === 'artist') return (!a.artist - !b.artist) || byText(a.artist, b.artist) || byText(a.title, b.title);
+    return (a.addedAt || 0) - (b.addedAt || 0) || byText(a.title, b.title);
+  }
+  const sortSongs = (list) => list.sort(compareSongs);
+  function addSortBar() {
+    const rows = els.songListWrap.querySelectorAll('.song-row');
+    if (rows.length < 2) return;
+    const bar = document.createElement('div');
+    bar.className = 'sort-bar';
+    bar.innerHTML = '<span class="fine">Order</span><div class="seg-toggle" role="group" aria-label="Order songs by"></div>';
+    SORTS.forEach(([id, label]) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = label;
+      b.setAttribute('aria-pressed', String((prefs.sort || 'added') === id));
+      b.addEventListener('click', () => {
+        prefs.sort = id;
+        savePrefs();
+        bar.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+        // re-sorts the rows already shown, so nothing is fetched again
+        els.songListWrap.querySelectorAll('.song-list').forEach((ul) => {
+          const lis = [...ul.querySelectorAll(':scope > .song-row')];
+          lis.sort((x, y) => compareSongs(x.song, y.song)).forEach((li) => ul.appendChild(li));
+        });
+      });
+      bar.querySelector('.seg-toggle').appendChild(b);
+    });
+    els.songListWrap.prepend(bar);
+  }
+
   function songRow(src, s, extra) {
     const key = SM.library.key(src.id, s.id);
     const li = document.createElement('li');
     li.className = 'song-row' + (state.song && key === state.song.key ? ' current' : '');
+    li.song = { title: s.title, artist: s.artist, addedAt: s.addedAt };
     const open = document.createElement('button');
     open.className = 'song-open';
     open.innerHTML = '<strong></strong><span class="who"></span><span class="details"></span>';
@@ -1756,6 +1794,33 @@
   }
 
   async function renderHome() {
+    await buildHome();
+    addSortBar();
+  }
+
+  // A line under the top bar while something is being fetched (the band's songs, a new version of the app),
+  // so you can wait for it if you're expecting a change.
+  const syncTasks = new Map();
+  let syncTimer = null;
+  function drawSync(doneText) {
+    clearTimeout(syncTimer);
+    const line = els.syncLine;
+    const busy = [...syncTasks.values()];
+    line.classList.toggle('busy', busy.length > 0);
+    if (busy.length) {
+      line.hidden = false;
+      line.querySelector('.sync-text').textContent = busy[busy.length - 1];
+    } else if (doneText) {
+      line.hidden = false;
+      line.querySelector('.sync-text').textContent = doneText;
+      syncTimer = setTimeout(() => { line.hidden = true; }, 4000);
+    } else {
+      line.hidden = true;
+    }
+  }
+  function syncStart(id, text) { syncTasks.set(id, text); drawSync(); }
+  function syncEnd(id, doneText) { syncTasks.delete(id); drawSync(doneText); }
+  async function buildHome() {
     els.homeRoleBtn.textContent = role().label;
     const wrap = els.songListWrap;
     els.welcome.hidden = !!prefs.mode;
@@ -1782,26 +1847,33 @@
         // the copy kept on this phone, so songs are there even before signing in or without a connection
         const saved = await drive.listSaved().catch(() => null);
         if (saved && saved.length) {
-          saved.sort((a, b) => String(a.title).localeCompare(b.title));
+          sortSongs(saved);
           songSections(wrap, drive, saved, drive.folder().name, `Saved on this phone ${savedWhen(saved[0].savedAt)}. Sign in to see the latest.`, () => null);
         }
       } else {
+        // the copy kept on this phone shows straight away, while the latest is fetched
+        const saved = await drive.listSaved().catch(() => null);
         const loading = document.createElement('p');
         loading.className = 'fine';
-        loading.textContent = 'Loading songs…';
-        wrap.appendChild(loading);
+        if (saved && saved.length) songSections(wrap, drive, sortSongs(saved), drive.folder().name, '', () => null);
+        else { loading.textContent = 'Loading songs…'; wrap.appendChild(loading); }
+        syncStart('songs', 'Checking Google Drive for changes…');
         let sec;
         try {
           const songs = await drive.list();
-          loading.remove();
-          songs.sort((a, b) => String(a.title).localeCompare(b.title));
+          wrap.innerHTML = '';
+          syncEnd('songs', songs.length && songs[0].offline ? 'Couldn’t reach Google Drive, so this is the copy on this phone' : 'Songs up to date');
+          sortSongs(songs);
           const isOffline = songs.length && songs[0].offline;
           const note = isOffline ? `Offline: showing the copy saved on this phone ${savedWhen(songs[0].savedAt)}.` : '';
           sec = songSections(wrap, drive, songs, drive.folder().name, note, (s) => (isOffline ? null : deleteButton(drive, s, 'Delete for the band?')));
           if (!isOffline) sendKeptChanges(songs);
           if (!songs.length) sec.querySelector('ul').innerHTML = '<li class="fine">No songs visible yet. Add one below, or if the folder already has songs, give Setcards access to them.</li>';
         } catch (e) {
+          syncEnd('songs', '');
+          wrap.innerHTML = '';
           loading.textContent = e.message;
+          wrap.appendChild(loading);
           sec = listSection(drive.folder().name);
           wrap.appendChild(sec);
         }
@@ -1821,7 +1893,7 @@
     try { mine = await local.list(); } catch (e) { mine = []; }
     if (inBand()) mine = mine.filter((s) => !s.isDemo);
     if (inBand() && !mine.length) return;
-    mine.sort((a, b) => (inBand() ? (b.updatedAt || 0) - (a.updatedAt || 0) : String(a.title).localeCompare(b.title)));
+    sortSongs(mine);
     const actionsFor = (s) => {
       const actions = document.createElement('div');
       actions.className = 'row-actions';
@@ -2290,7 +2362,20 @@
     });
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('sw.js').then((reg) => {
-        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+        // a new version downloading: say so until it takes over (and the page refreshes)
+        reg.addEventListener('updatefound', () => {
+          const sw = reg.installing;
+          if (!hadController || !sw) return;
+          syncStart('app', 'Updating Setcards…');
+          sw.addEventListener('statechange', () => { if (sw.state === 'redundant') syncEnd('app', ''); });
+        });
+        const check = () => {
+          if (!hadController) return;
+          syncStart('check', 'Checking for a new version of Setcards…');
+          reg.update().catch(() => {}).finally(() => syncEnd('check', ''));
+        };
+        check();
+        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
       }).catch(() => {});
     });
   }

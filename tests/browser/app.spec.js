@@ -41,7 +41,8 @@ async function fakeDrive(page, { folder = { id: 'f1', name: 'The Band (Setcards)
             const d = lib.sources.drive;
             d.configured = () => true;
             d.signedIn = () => signedIn;
-            d.list = async () => window.fakeBandSongs.map((s) => ({ ...s }));
+            d.list = async () => { if (window.fakeListWait) await window.fakeListWait; return window.fakeBandSongs.map((s) => ({ ...s })); };
+            d.listSaved = async () => window.fakeSavedSongs || null;
             d.open = async (id) => {
               const song = window.fakeBandSongs.find((x) => x.id === id);
               return { bytes: null, notes: song.notes, title: song.title, artist: song.artist, fileName: song.fileName };
@@ -450,4 +451,60 @@ test('a tab without a bass part says so in the bass view', async ({ page }) => {
   await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
   await expect(page.locator('#banner')).toHaveText('This tab only has the guitar part, with no bass part, so that is what’s shown here.');
   expect(errors).toEqual([]);
+});
+
+test('band songs show the saved copy at once and say when the latest has been checked', async ({ page }) => {
+  await fakeDrive(page);
+  await page.addInitScript(() => {
+    window.fakeSavedSongs = [{ id: 'b1', title: 'Old Title', artist: 'Band', notes: { title: 'Old Title' }, hasTab: true, addedAt: 1 }];
+    window.fakeBandSongs = [{ id: 'b1', title: 'New Title', artist: 'Band', notes: { title: 'New Title' }, hasTab: true, addedAt: 1 }];
+    window.fakeListWait = new Promise((resolve) => { window.finishList = resolve; });
+  });
+  await page.goto('/');
+  await expect(page.locator('.song-row strong')).toHaveText('Old Title');
+  await expect(page.locator('#syncLine')).toContainText('Checking Google Drive for changes');
+  await page.evaluate(() => window.finishList());
+  await expect(page.locator('.song-row strong')).toHaveText('New Title');
+  await expect(page.locator('#syncLine')).toContainText('Songs up to date');
+});
+
+test('songs are listed in the order they were added, and can be sorted by title or artist', async ({ page }) => {
+  await page.addInitScript(() => { if (!localStorage.getItem('setcards:prefs')) localStorage.setItem('setcards:prefs', JSON.stringify({ mode: 'solo' })); });
+  await page.goto('/');
+  for (const [title, artist] of [['Bravo', 'Zed'], ['Alpha', 'Yolo'], ['Charlie', '']]) {
+    await page.click('#addSongBtn');
+    await page.fill('#addTitle', title);
+    await page.fill('#addArtist', artist);
+    await page.click('#addForm button[type=submit]');
+    await page.click('#backBtn');
+  }
+  const titles = page.locator('.song-row strong');
+  await expect(titles).toHaveText(['Bravo', 'Alpha', 'Charlie']);
+  await page.locator('.sort-bar button', { hasText: 'Title' }).click();
+  await expect(titles).toHaveText(['Alpha', 'Bravo', 'Charlie']);
+  await page.locator('.sort-bar button', { hasText: 'Artist' }).click();
+  await expect(titles).toHaveText(['Alpha', 'Bravo', 'Charlie']);
+  await page.reload();
+  await expect(titles).toHaveText(['Alpha', 'Bravo', 'Charlie']);
+  await page.locator('.sort-bar button', { hasText: 'Added' }).click();
+  await expect(titles).toHaveText(['Bravo', 'Alpha', 'Charlie']);
+});
+
+test.describe('on a desktop browser', () => {
+  test.use({ viewport: { width: 1280, height: 700 }, isMobile: false, hasTouch: false });
+  test('a long song list scrolls, also after opening a song without tab', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('setcards:prefs', JSON.stringify({ mode: 'solo' })));
+    await page.goto('/');
+    for (let i = 0; i < 12; i++) {
+      await page.click('#addSongBtn');
+      await page.fill('#addTitle', 'Song ' + i);
+      await page.click('#addForm button[type=submit]');
+      await page.click('#backBtn');
+    }
+    const main = page.locator('#homeMain');
+    await expect.poll(() => main.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+    await page.mouse.move(640, 400);
+    await page.mouse.wheel(0, 600);
+    await expect.poll(() => main.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+  });
 });

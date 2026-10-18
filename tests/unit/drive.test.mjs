@@ -14,11 +14,11 @@ function memoryStorage(initial = {}) {
 // A pretend Drive folder: files by id, with contents, answering the few API calls the source makes.
 function fakeDrive(files) {
   let next = 100;
-  const store = new Map(files.map((f) => [f.id, { parents: ['folder'], ...f }]));
+  const store = new Map(files.map((f, i) => [f.id, { parents: ['folder'], createdTime: new Date(Date.UTC(2024, 0, 1 + i)).toISOString(), ...f }]));
   const json = (body) => ({ ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body), arrayBuffer: async () => new ArrayBuffer(0) });
   const add = (meta, content) => {
     const id = 'id' + next++;
-    store.set(id, { id, name: meta.name, mimeType: meta.mimeType, parents: meta.parents || ['folder'], content, modifiedTime: new Date().toISOString() });
+    store.set(id, { id, name: meta.name, mimeType: meta.mimeType, parents: meta.parents || ['folder'], content, modifiedTime: new Date().toISOString(), createdTime: new Date(Date.now() + store.size).toISOString() });
     return { id, name: meta.name, mimeType: meta.mimeType, parents: meta.parents };
   };
   globalThis.fetch = async (url, opts = {}) => {
@@ -27,7 +27,7 @@ function fakeDrive(files) {
     if (method === 'GET' && u.pathname.endsWith('/files') && u.searchParams.get('q')) {
       const ids = [...u.searchParams.get('q').matchAll(/'([^']+)' in parents/g)].map((m) => m[1]);
       return json({ files: [...store.values()].filter((f) => !f.trashed && f.parents.some((p) => ids.includes(p)))
-        .map(({ id, name, mimeType, modifiedTime, parents }) => ({ id, name, mimeType, modifiedTime, parents })) });
+        .map(({ id, name, mimeType, modifiedTime, createdTime, parents }) => ({ id, name, mimeType, modifiedTime, createdTime, parents })) });
     }
     const exportMatch = u.pathname.match(/\/files\/([^/]+)\/export$/);
     if (method === 'GET' && exportMatch) {

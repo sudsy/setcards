@@ -669,7 +669,7 @@ body.no-tab #songView #tab,
 body.no-tab #trackField,
 body.no-tab #settingsDlg .check, body.no-tab #settingsDlg fieldset,
 body.no-tab #exportBtn, body.no-tab #exportBtn + .fine { display: none !important; }
-.no-tab { display: grid; gap: 14px; max-width: 760px; margin: 0 auto; padding-bottom: 20px; }
+.no-tab-page { display: grid; gap: 14px; max-width: 760px; margin: 0 auto; padding-bottom: 20px; }
 .no-tab-main {
   display: grid; gap: 10px;
   background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px;
@@ -677,7 +677,7 @@ body.no-tab #exportBtn, body.no-tab #exportBtn + .fine { display: none !importan
 .no-tab-main h2 { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: 1.5rem; }
 .no-tab-main p { margin: 0; }
 .no-tab-main a { color: var(--accent); }
-.no-tab .field select, .no-tab .field input { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+.no-tab-page .field select, .no-tab-page .field input { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
 .status-field { max-width: 220px; }
 
 /* ---------- status labels ---------- */
@@ -717,3 +717,11 @@ body.no-tab #exportBtn, body.no-tab #exportBtn + .fine { display: none !importan
 .transpose-row .text-btn:disabled { opacity: 0.45; cursor: default; }
 body.no-tab .tab-only { display: none !important; }
 #tempoInput, #ytInput { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+.sort-bar { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin: 0 0 6px; }
+.sort-bar .seg-toggle { margin: 0; }
+.sync-line { display: flex; align-items: center; gap: 8px; padding: 6px var(--gutter-r) 6px var(--gutter-l); font-size: 0.82rem; color: var(--muted); border-bottom: 1px solid var(--line); background: var(--surface); }
+.sync-line .spinner { width: 14px; height: 14px; flex: none; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent-fill); display: none; }
+.sync-line.busy .spinner { display: inline-block; animation: spin 0.8s linear infinite; }
+.sync-line:not(.busy) .sync-text::before { content: "✓ "; color: var(--accent); }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .sync-line.busy .spinner { animation-duration: 2.4s; } }
