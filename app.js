@@ -25,7 +25,7 @@
     addYt: $('addYt'), addStatus: $('addStatus'),
     noteDlg: $('noteDlg'), noteTitle: $('noteTitle'), noteHint: $('noteHint'), noteForm: $('noteForm'), noteText: $('noteText'), noteClear: $('noteClear'),
     settingsBtn: $('settingsBtn'), settingsDlg: $('settingsDlg'), trackSel: $('trackSel'),
-    zoomRange: $('zoomRange'), zoomOut: $('zoomOut'), ytInput: $('ytInput'), exportBtn: $('exportBtn'), showTabCards: $('showTabCards'),
+    zoomRange: $('zoomRange'), zoomOut: $('zoomOut'), ytInput: $('ytInput'), exportBtn: $('exportBtn'), showTabCards: $('showTabCards'), showChords: $('showChords'),
     barDlg: $('barDlg'), barDlgTitle: $('barDlgTitle'), barDlgText: $('barDlgText'),
     presetRow: $('presetRow'), barForm: $('barForm'), barName: $('barName'), barSubmit: $('barSubmit'), barRemove: $('barRemove'),
     barChords: $('barChords'), barChordsAll: $('barChordsAll'), barChordsAllLabel: $('barChordsAllLabel'),
@@ -39,7 +39,7 @@
   const PRESETS = ['Intro', 'Verse', 'Pre-chorus', 'Chorus', 'Bridge', 'Solo', 'Outro'];
   const STAVES = { tab: AT.StaveProfile.Tab, scoretab: AT.StaveProfile.ScoreTab, score: AT.StaveProfile.Score };
   const ROLES = [
-    { id: 'bass', label: 'Bass', cardsTab: true },
+    { id: 'bass', label: 'Bass', cardsTab: true, chords: false },
     { id: 'guitar', label: 'Guitar', cardsTab: false, diagrams: true },
     { id: 'keys', label: 'Keys', cardsTab: false },
     { id: 'vocals', label: 'Vocals', cardsTab: false, cues: true },
@@ -47,11 +47,14 @@
   ];
 
   /* ---------------- per-device preferences ---------------- */
-  const prefs = Object.assign({ role: 'bass', view: 'cards', zoom: 1, stave: 'tab', last: null, tracks: {}, cardsTab: {} }, readJson('setcards:prefs'));
+  const prefs = Object.assign({ role: 'bass', view: 'cards', zoom: 1, stave: 'tab', last: null, tracks: {}, cardsTab: {}, chords: {} }, readJson('setcards:prefs'));
+  prefs.chords = prefs.chords || {};
   function readJson(k) { try { return JSON.parse(localStorage.getItem(k)) || {}; } catch (e) { return {}; } }
   function savePrefs() { try { localStorage.setItem('setcards:prefs', JSON.stringify(prefs)); } catch (e) { /* storage unavailable */ } }
   const role = () => ROLES.find((r) => r.id === prefs.role) || ROLES[0];
   const showTabInCards = () => (prefs.cardsTab[prefs.role] ?? role().cardsTab);
+  // Chord names are hidden for bass unless turned on; everyone else sees them.
+  const showChords = () => (prefs.chords[prefs.role] ?? (role().chords !== false));
 
   const state = {
     song: null,         // { key, title, artist, fileName, canShare, localOnly }
@@ -506,7 +509,7 @@
       return;
     }
 
-    if (r.diagrams) {
+    if (r.diagrams && showChords()) {
       const names = songChordNames();
       if (names.length) {
         const strip = document.createElement('section');
@@ -582,7 +585,7 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5l12 7-12 7z"/></svg>
         </button>
       </div>
-      <div class="chord-row">${chordCells.join('<span class="bar-sep">|</span>')}</div>
+      ${showChords() ? `<div class="chord-row">${chordCells.join('<span class="bar-sep">|</span>')}</div>` : ''}
       ${seenBefore ? `<p class="seen-note">Same riff as in ${esc(firstPart ? firstPart.label : 'an earlier section')}.</p>` : ''}`;
     div.querySelectorAll('.chord-cell').forEach((b) => b.addEventListener('click', () => openChordDialog(Number(b.dataset.bar), b.dataset.riff, Number(b.dataset.offset))));
     div.querySelector('.riff-play').addEventListener('click', () => playRange(riff.start, riff.start + riff.len - 1));
@@ -609,7 +612,7 @@
       li.innerHTML = `
         <div class="cue-head"><span class="cue-name">${esc(p.label)}</span><span class="cue-bars">${plural(p.bars, 'bar')}</span></div>
         ${cue ? `<p class="cue-words">“${esc(cue)}…”</p>` : '<p class="cue-words none">No singing</p>'}
-        ${chordsAt(p.start).length ? `<p class="cue-chords">${esc(chordsAt(p.start).join(' '))}</p>` : ''}`;
+        ${showChords() && chordsAt(p.start).length ? `<p class="cue-chords">${esc(chordsAt(p.start).join(' '))}</p>` : ''}`;
       if (getNote(p.group.key) || p.occNo === 1) li.appendChild(noteBlock(p.group.key, p.group.name));
       li.addEventListener('click', () => { setView('tab'); selectView(i); });
       list.appendChild(li);
@@ -896,6 +899,8 @@
     if (i !== state.trackIndex) useTrack(i);
     else if (prefs.view === 'cards') renderCards();
     els.showTabCards.checked = showTabInCards();
+    els.showChords.checked = showChords();
+    if (applyChordVisibility() && prefs.view === 'tab') api.render();
   }
 
   const openRoles = () => {
@@ -1898,6 +1903,7 @@
     els.tempoInput.value = state.notes.tempo || '';
     els.tempoInput.placeholder = m.tempo ? String(m.tempo) : '120';
     els.showTabCards.checked = showTabInCards();
+    els.showChords.checked = showChords();
     document.querySelectorAll('input[name="stave"]').forEach((r) => { r.checked = r.value === prefs.stave; });
     els.settingsDlg.showModal();
   });
@@ -1906,6 +1912,21 @@
     prefs.tracks[state.song.key] = Object.assign({}, prefs.tracks[state.song.key], { [prefs.role]: i });
     savePrefs();
     useTrack(i);
+  });
+  // The full tab shows chord names above the bars only when this instrument shows chords.
+  function applyChordVisibility() {
+    const show = showChords();
+    const els2 = api.settings.notation.elements;
+    if (els2.get(AT.NotationElement.EffectChordNames) === show) return false;
+    els2.set(AT.NotationElement.EffectChordNames, show);
+    api.updateSettings();
+    return true;
+  }
+  els.showChords.addEventListener('change', () => {
+    prefs.chords[prefs.role] = els.showChords.checked;
+    savePrefs();
+    applyChordVisibility();
+    if (prefs.view === 'tab') api.render(); else renderCards();
   });
   els.showTabCards.addEventListener('change', () => {
     prefs.cardsTab[prefs.role] = els.showTabCards.checked;
@@ -1992,6 +2013,7 @@
   // The app always opens on the band's song list.
   els.roleBtn.textContent = role().label;
   applyViewChrome();
+  applyChordVisibility();
   showHome();
   checkInvite();
 

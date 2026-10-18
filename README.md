@@ -18,7 +18,7 @@ Most songs are built from a few short patterns played many times. Setcards finds
 - **Cards:** one card per part of the song. Each card shows how the part breaks into riffs, for example "D ×8" or "D ×4 · I ×3 · J". Each riff's tab and chords appear once, the first time the riff is used.
 - **Full tab:** the normal Guitar Pro view, with section names, riff letters and chord names written above the bars.
 - **One structure, a part for each player.** Pick what you play:
-  - **Bass:** riff tab and chord names
+  - **Bass:** riff tab (chord names are hidden; **Show chords** in song settings turns them on)
   - **Guitar:** chord diagrams for the song, plus chords for each riff
   - **Vocals:** the song order, with how long each section is and the first words sung in it
   - **Keys and drums:** the riffs from their own track

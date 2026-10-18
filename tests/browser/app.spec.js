@@ -120,8 +120,15 @@ test('the full tab shows one section at a time, or the whole song', async ({ pag
   await expect(page.locator('#sectionName')).toHaveText('Whole song');
 });
 
+async function chooseRole(page, label) {
+  await page.click('#roleBtn');
+  await page.click(`.role-opt:has-text("${label}")`);
+  await expect(page.locator('#roleBtn')).toHaveText(label);
+}
+
 test('chords entered on a riff apply to every repeat and survive a reload', async ({ page }) => {
   await openDemo(page);
+  await chooseRole(page, 'Guitar');
   const verseCard = page.locator('.card[data-group="verse"]');
   await verseCard.locator('.chord-cell').first().click();
   await expect(page.locator('#chordAllLabel')).toContainText('Every time riff');
@@ -137,13 +144,10 @@ test('chords entered on a riff apply to every repeat and survive a reload', asyn
 
 test('guitar shows chord diagrams and vocals shows the cue list', async ({ page }) => {
   await openDemo(page);
+  await chooseRole(page, 'Guitar');
   await page.locator('.card[data-group="verse"] .chord-cell').first().click();
   await page.fill('#chordInput', 'Em C');
   await page.click('#chordForm button[type=submit]');
-
-  await page.click('#roleBtn');
-  await page.click('.role-opt:has-text("Guitar")');
-  await expect(page.locator('#roleBtn')).toHaveText('Guitar');
   await expect(page.locator('.diagram-strip .chord-svg')).toHaveCount(2);
 
   await page.click('#roleBtn');
@@ -347,4 +351,28 @@ test('band settings show which version of Setcards is running', async ({ page })
   await page.goto('/');
   await page.click('#bandBtn');
   await expect(page.locator('#modeBox .version')).toHaveText('Setcards version in development');
+});
+
+test('the bass view hides chords unless they are turned on', async ({ page }) => {
+  await openDemo(page);
+  await chooseRole(page, 'Guitar');
+  // bar 1 (the intro), so it is in the part of the full tab that is drawn first
+  await page.locator('.card[data-group="intro"] .chord-cell').first().click();
+  await page.fill('#chordInput', 'Em');
+  await page.click('#chordForm button[type=submit]');
+
+  await chooseRole(page, 'Bass');
+  await expect(page.locator('.chord-row')).toHaveCount(0);
+  await page.click('#viewTab');
+  await expect(page.locator('#tab .at-surface svg').first()).toBeVisible();
+  await expect(page.locator('#tab text', { hasText: 'Intro' }).first()).toBeVisible();
+  await expect(page.locator('#tab text', { hasText: /^Em$/ })).toHaveCount(0);
+
+  await page.click('#settingsBtn');
+  await expect(page.locator('#showChords')).not.toBeChecked();
+  await page.check('#showChords');
+  await page.locator('#settingsDlg [data-close]').click();
+  await expect(page.locator('#tab text', { hasText: /^Em$/ }).first()).toBeVisible();
+  await page.click('#viewCards');
+  await expect(page.locator('.card[data-group="intro"] .chord-cell').first()).toHaveText('Em');
 });
