@@ -1,5 +1,7 @@
 lib/
 node_modules/
+test-results/
+playwright-report/
 *.zip
 # local test copies, not published
 songs/landslide.gp

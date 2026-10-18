@@ -218,8 +218,9 @@
       return r;
     }
 
-    // Opens Google's own file picker inside the band folder. mode 'folder' picks the folder itself.
-    async function pick(mode) {
+    // Opens Google's own file picker. mode 'folder' picks the band folder itself (only `onlyId` when joining
+    // from an invite link); mode 'files' picks songs inside the band folder.
+    async function pick(mode, onlyId) {
       const t = await signIn(true);
       const c = cfg();
       await ready();
@@ -227,11 +228,14 @@
       return new Promise((resolve) => {
         const views = [];
         if (mode === 'folder') {
-          // A bandmate's folder is usually under "Shared with me" or in a shared drive, so those come first.
           const folders = () => new P.DocsView(P.ViewId.FOLDERS).setIncludeFolders(true).setSelectFolderEnabled(true).setMimeTypes('application/vnd.google-apps.folder');
-          views.push(folders().setOwnedByMe(false).setLabel('Shared with me'));
-          views.push(folders().setEnableDrives(true).setLabel('Shared drives'));
-          views.push(folders().setOwnedByMe(true).setLabel('My Drive'));
+          if (onlyId && typeof P.DocsView.prototype.setFileIds === 'function') {
+            views.push(folders().setFileIds(onlyId).setLabel('Band folder'));
+          } else {
+            views.push(folders().setOwnedByMe(true).setLabel('My Drive'));
+            views.push(folders().setOwnedByMe(false).setLabel('Shared with me'));
+            views.push(folders().setEnableDrives(true).setLabel('Shared drives'));
+          }
         } else {
           const view = new P.DocsView(P.ViewId.DOCS).setIncludeFolders(false);
           const f = folder();
@@ -244,8 +248,8 @@
             if (data.action === P.Action.PICKED) resolve(data.docs.map((d) => ({ id: d.id, name: d.name })));
             else if (data.action === P.Action.CANCEL) resolve([]);
           });
-        if (mode !== 'folder') builder.enableFeature(P.Feature.MULTISELECT_ENABLED).setTitle('Pick the songs to open in Setcards');
-        else builder.setTitle('Pick your band folder');
+        if (mode !== 'folder') builder.enableFeature(P.Feature.MULTISELECT_ENABLED).setTitle('Select the songs to open in Setcards');
+        else builder.setTitle(onlyId ? 'Tap the band folder, then Select' : 'Pick your band folder');
         views.forEach((v) => builder.addView(v));
         if (c.apiKey) builder.setDeveloperKey(c.apiKey);
         if (c.appId) builder.setAppId(c.appId);
@@ -295,8 +299,8 @@
       folder,
       available: () => !!cfg().clientId && !!folder(),
       setClient(c) { ls.set('setcards:google', c); },
-      async connect() {
-        const picked = await pick('folder');
+      async connect(onlyId) {
+        const picked = await pick('folder', onlyId);
         if (!picked.length) return null;
         ls.set('setcards:driveFolder', picked[0]);
         filesCache = null;
@@ -319,6 +323,17 @@
         try { sessionStorage.removeItem('setcards:gtoken'); } catch (e) { /* storage unavailable */ }
       },
       folderUrl: () => (folder() ? `https://drive.google.com/drive/folders/${folder().id}` : null),
+      // A link that opens Setcards ready to join this band folder.
+      inviteLink() {
+        const f = folder();
+        if (!f) return null;
+        const u = new URL(location.href);
+        u.search = '';
+        u.hash = '';
+        u.searchParams.set('band', f.id);
+        u.searchParams.set('name', f.name);
+        return u.toString();
+      },
       // Lets the person grant access to songs other bandmates dropped into the folder.
       async grantAccess() { const picked = await pick('files'); filesCache = null; return picked.length; },
       async list() {
@@ -379,7 +394,7 @@
       if (!source) throw new Error('Unknown song source');
       const song = await source.open(id);
       const ov = overlay.get(key);
-      if (ov && (!song.notes || (ov.updatedAt || 0) >= (song.notes.updatedAt || 0))) { song.notes = ov; song.localOnly = !source.canWrite; }
+      if (ov && (!song.notes || (ov.updatedAt || 0) >= (song.notes.updatedAt || 0))) { song.notes = ov; song.localOnly = !source.canWrite; song.fromOverlay = true; }
       song.notes = Object.assign(emptyNotes(song), song.notes || {});
       song.key = key;
       song.canShare = source.canWrite;

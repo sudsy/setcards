@@ -1,10 +1,11 @@
-# Builds the site and publishes it to GitHub Pages on every push to main.
-# alphaTab, its music font and soundfont come from npm here, so the repository holds only the app's own files.
-name: Deploy to GitHub Pages
+# Tests the app, then publishes it to GitHub Pages, on every push to main.
+# alphaTab, its music font and soundfont come from npm, so the repository holds only the app's own files.
+name: Test and deploy
 
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -13,11 +14,38 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Add alphaTab
+        run: npm run lib
+      - name: Unit tests
+        run: npm test
+      - name: Install the browser for the browser tests
+        run: npx playwright install --with-deps chromium
+      - name: Browser tests
+        run: npm run test:browser
+      - name: Keep the test report if something failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results/
+          retention-days: 7
+
   deploy:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -29,6 +57,8 @@ jobs:
           node-version: 20
       - name: Add alphaTab
         run: sh scripts/get-lib.sh
+      - name: Leave out files the site doesn't need
+        run: rm -rf tests node_modules package.json package-lock.json playwright.config.js .github
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

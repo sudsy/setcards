@@ -83,6 +83,8 @@
       };
       const own = syllables(startBar, endBar);
       if (!own.length) continue;
+      const ownCount = own.length;
+      own.push(...syllables(endBar + 1, endBar + 1));   // lets the last word finish in the next bar
       const before = syllables(startBar - 2, startBar - 1);
       let k = 0;
       if (before.length && before[before.length - 1].endsWith('-')) {
@@ -91,7 +93,7 @@
       }
       const words = [];
       let open = false;
-      for (; k < own.length && (words.length < maxWords || open); k++) {
+      for (; k < own.length && (words.length < maxWords || open) && (k < ownCount || open); k++) {
         let syl = own[k];
         const cont = syl.endsWith('-');
         syl = syl.replace(/-+$/, '');

@@ -32,6 +32,8 @@ Setcards has no server. Songs come from one of these sources, and more can be ad
 
 Notes (sections, chords, video times) are saved as a small `.setcards.json` file next to each Guitar Pro file, so the band shares one breakdown per song.
 
+Once a band folder is connected, **Share invite link** in Songs gives a link that opens Setcards ready to join that folder: the bandmate signs in to Google and taps the folder.
+
 To use Google Drive, the person hosting this copy of the app sets it up once. See [SETUP-GOOGLE.md](SETUP-GOOGLE.md). It costs nothing: each band's files live in their own Google Drive.
 
 ## Running it
@@ -60,6 +62,19 @@ On GitHub, open the `songs` folder, choose **Add file**, then **Upload files**, 
 { "file": "my-song.gp", "title": "My Song", "artist": "The Band" }
 ```
 
+## Tests
+
+```
+npm install
+npm run lib            # alphaTab, needed by the tests and the site
+npm test               # unit tests: riff finding, section suggestions, lyric cues, chord shapes
+npm run test:browser   # browser tests on a phone-sized screen, using the demo song
+```
+
+Every push to `main` runs both before publishing (`.github/workflows/pages.yml`). If a test fails, the site is not updated and the failure shows in the repository's **Actions** tab. Pull requests run the tests without publishing.
+
+The browser tests stand in for Google sign-in and the Drive picker, since tests cannot sign in to Google, so those two steps still need a check by hand after changes to them.
+
 ## Files
 
 - `index.html`, `styles.css`, `app.js`: the app
@@ -71,6 +86,7 @@ On GitHub, open the `songs` folder, choose **Add file**, then **Upload files**, 
 - `lib/` (downloaded by `scripts/get-lib.sh`): [alphaTab](https://alphatab.net) 1.8.4 (MPL-2.0), which reads and draws Guitar Pro files, plus the Bravura music font (OFL) and the Sonivox soundfont
 - `.github/workflows/pages.yml`: publishes the site to GitHub Pages
 - `sw.js`, `manifest.webmanifest`, `icon.svg`: offline support and home screen icon
+- `tests/unit`, `tests/browser`, `playwright.config.js`, `package.json`: the tests
 
 ## Ideas for later
 
