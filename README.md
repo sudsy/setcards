@@ -62,6 +62,10 @@ python3 -m http.server 8000
 
 Anything in `songs/` is public on a public repository. Use the Google Drive folder for songs you do not want to publish.
 
+### Updates on phones
+
+Each deploy stamps a version (the commit) into `sw.js` and `version.js`. An app added to the home screen checks for a new version whenever it is brought to the front, and refreshes onto it: straight away on the song list, or when going back to the list if a song is open. Band settings show the version that is running.
+
 ### Adding songs to the `songs/` folder
 
 On GitHub, open the `songs` folder, choose **Add file**, then **Upload files**, and drop in the Guitar Pro file. Then edit `songs/index.json` and add a line for it:

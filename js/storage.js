@@ -331,7 +331,12 @@
       const f = folder();
       const json = JSON.stringify(notes, null, 1);
       if (song && song.notesFile) {
-        await call(`${UPLOAD}/files/${song.notesFile.id}?uploadType=media&supportsAllDrives=true`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: json });
+        // Drive drops old versions after 30 days; the first save each day is kept for good.
+        const today = new Date().toISOString().slice(0, 10);
+        const keptKey = 'setcards:kept:' + song.notesFile.id;
+        const keep = ls.get(keptKey) !== today;
+        await call(`${UPLOAD}/files/${song.notesFile.id}?uploadType=media&supportsAllDrives=true${keep ? '&keepRevisionForever=true' : ''}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: json });
+        if (keep) ls.set(keptKey, today);
         return song.notesFile;
       }
       const m = multipart({ name: nameIfNew + NOTES_SUFFIX, parents: [f.id], mimeType: 'application/json' }, json, 'application/json');

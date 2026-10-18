@@ -341,3 +341,10 @@ test('a proposed song can be added for the band', async ({ page }) => {
   await page.click('#backBtn');
   await expect(page.locator('.list-section', { hasText: 'Proposed' }).locator('.song-row')).toHaveText(/New Idea/);
 });
+
+test('band settings show which version of Setcards is running', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('setcards:prefs', JSON.stringify({ mode: 'solo' })));
+  await page.goto('/');
+  await page.click('#bandBtn');
+  await expect(page.locator('#modeBox .version')).toHaveText('Setcards version in development');
+});

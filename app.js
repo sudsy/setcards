@@ -74,6 +74,7 @@
     chordEdit: null
   };
 
+  let updateWaiting = false;   // a new version of the app is ready and will load at the next good moment
   let ytPlayer = null;
   let ytReady = false;
   let ytApi = null;
@@ -163,7 +164,10 @@
     pendingSave = run;
     pendingSave.key = key;
     pendingSave.notes = notes;
-    saveTimer = setTimeout(() => pendingSave && pendingSave(), 400);
+    // Each save to Drive becomes a version of the file, and Drive keeps only the last 100, so edits are
+    // gathered for a few seconds there; leaving the song or the page saves straight away.
+    const delay = key.startsWith('drive:') ? 4000 : 400;
+    saveTimer = setTimeout(() => pendingSave && pendingSave(), delay);
   }
   // Returns a promise that settles once the save has been written.
   function flushSave(leaving) {
@@ -1478,6 +1482,7 @@
   const inBand = () => prefs.mode === 'band';
 
   async function showHome() {
+    if (updateWaiting) { refreshForUpdate(); return; }
     if (state.playing) api.stop();
     destroyMinis();
     if (state.editing) setEditing(false);
@@ -1789,7 +1794,11 @@
       btn.textContent = 'Use with my band';
       btn.addEventListener('click', () => setMode('band'));
     }
-    modeBox.append(p, btn);
+    const v = String(window.SETCARDS_VERSION || '');
+    const ver = document.createElement('p');
+    ver.className = 'fine version';
+    ver.textContent = `Setcards version ${v.startsWith('__') ? 'in development' : v}`;
+    modeBox.append(p, btn, ver);
   }
 
   els.bandBtn.addEventListener('click', () => { renderBandDialog(); els.bandDlg.showModal(); });
@@ -1978,7 +1987,25 @@
   showHome();
   checkInvite();
 
+  // Updates: an installed app is often resumed rather than reloaded, so check for a new version whenever
+  // it comes to the front. When one takes over, refresh onto it: straight away on the song list, or
+  // when going back to the list if a song is open.
+  function refreshForUpdate() {
+    flushSave(true);
+    location.reload();
+  }
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || updateWaiting) return;
+      updateWaiting = true;
+      if (!els.homeView.hidden) refreshForUpdate();
+      else toast('Setcards has been updated. It will refresh when you go back to the song list.');
+    });
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').then((reg) => {
+        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+      }).catch(() => {});
+    });
   }
 })();

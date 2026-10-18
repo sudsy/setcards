@@ -37,6 +37,7 @@ function fakeDrive(files) {
     }
     if (method === 'PATCH' && u.pathname.includes('/upload/') && idMatch) {
       store.get(idMatch[1]).content = opts.body;
+      (store.get(idMatch[1]).saves = store.get(idMatch[1]).saves || []).push({ keepForever: u.searchParams.get('keepRevisionForever') === 'true' });
       return json({ id: idMatch[1] });
     }
     if (method === 'PATCH' && idMatch) {
@@ -120,4 +121,16 @@ test('removing a song moves its tab and notes to the bin', async () => {
   assert.equal(store.get('a').trashed, true);
   assert.equal(store.get('an').trashed, true);
   assert.equal((await drive.list()).length, 0);
+});
+
+test('the first save of the day is kept as a permanent version, later saves are not', async () => {
+  const store = fakeDrive([
+    { id: 'a', name: 'smooth.gp', content: 'gp' },
+    { id: 'an', name: 'smooth.gp.setcards.json', content: notes({ title: 'Smooth Operator' }) }
+  ]);
+  const drive = loadDrive();
+  await drive.saveNotes('a', { title: 'Smooth Operator', status: 'learning' });
+  await drive.saveNotes('a', { title: 'Smooth Operator', status: 'ready' });
+  assert.deepEqual(store.get('an').saves, [{ keepForever: true }, { keepForever: false }]);
+  assert.equal(JSON.parse(store.get('an').content).status, 'ready');
 });
