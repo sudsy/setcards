@@ -8,6 +8,7 @@ Most songs are built from a few short patterns played many times. Setcards finds
 
 - **First open:** choose **With my band** (songs in a shared Google Drive folder) or **Just me, on this device**. It's asked once, and Settings can change it.
 - **Home is the song list:** title, artist, key, tempo, length and number of sections for each song. Key and tempo come from the Guitar Pro file; when the file doesn't set a key it is estimated and shown with a "?", and anyone can correct it in the song's settings.
+- **Songs before tab:** a song can be added with just a title, artist and YouTube link. Each song has a status: **Proposed**, **Learning** or **Ready**; proposed songs are listed separately. A song without tab opens on a short page with its video, notes and status, links to look for tab on Songsterr and Ultimate Guitar, and **Add the Guitar Pro file**, which keeps everything already noted.
 - **Drafts:** in a band, a song you add can go straight to the band or stay on your device as a draft while you get it right. Drafts are listed separately, marked as only on this device, with **Share with band**.
 - **Instrument notes:** notes are kept with the song, so they follow you to every device, and each instrument has its own: one for the whole song and one per part. The bass player's notes show in the bass view, the guitarist's in the guitar view.
 
@@ -37,7 +38,7 @@ Setcards has no server. Songs come from one of these sources, and more can be ad
 | **Band folder (Google Drive)** | Everyone you share the Drive folder with | Yes, into the folder |
 | **Shared with the app** (`songs/` folder in this repository) | Anyone who opens the app | Changes stay in each person's browser |
 
-Notes (sections, chords, video times) are saved as a small `.setcards.json` file next to each Guitar Pro file, so the band shares one breakdown per song.
+Notes (status, sections, chords, instrument notes, video) are saved as a small `.setcards.json` file per song, so the band shares one breakdown per song. A song without tab is just its notes file; once a Guitar Pro file is added, the notes name it (`tabFile`).
 
 Once a band folder is connected, **Share invite link** in Songs gives a link that opens Setcards ready to join that folder: the bandmate signs in to Google and taps the folder.
 

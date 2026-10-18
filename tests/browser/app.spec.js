@@ -42,9 +42,14 @@ async function fakeDrive(page, { folder = { id: 'f1', name: 'The Band (Setcards)
             d.configured = () => true;
             d.signedIn = () => signedIn;
             d.list = async () => window.fakeBandSongs.map((s) => ({ ...s }));
+            d.open = async (id) => {
+              const song = window.fakeBandSongs.find((x) => x.id === id);
+              return { bytes: null, notes: song.notes, title: song.title, artist: song.artist, fileName: song.fileName };
+            };
+            d.saveNotes = async (id, notes) => { window.fakeBandSongs.find((x) => x.id === id).notes = notes; };
             d.add = async (fileName, bytes, notes) => {
               const id = 'b' + (window.fakeBandSongs.length + 1);
-              window.fakeBandSongs.push({ id, title: notes.title, artist: notes.artist, fileName, notes, bytes: bytes.length });
+              window.fakeBandSongs.push({ id, title: notes.title, artist: notes.artist, fileName, notes, hasTab: !!bytes, bytes: bytes ? bytes.length : 0 });
               return id;
             };
           }
@@ -271,4 +276,68 @@ test('band settings share an invite link for the connected folder', async ({ pag
   const u = new URL(await page.evaluate(() => navigator.clipboard.readText()));
   expect(u.searchParams.get('band')).toBe('f9');
   expect(u.searchParams.get('name')).toBe('Our Band');
+});
+
+// A Guitar Pro file made from the demo song, for tests that upload one.
+async function demoGpFile() {
+  const alphaTab = await import('@coderline/alphatab');
+  globalThis.window = globalThis;
+  require('../../demo.js');
+  const imp = new alphaTab.importer.AlphaTexImporter();
+  imp.initFromString(globalThis.DEMO_SONG.tex, new alphaTab.Settings());
+  const bytes = new alphaTab.exporter.Gp7Exporter().export(imp.readScore(), new alphaTab.Settings());
+  return { name: 'low-road.gp', mimeType: 'application/octet-stream', buffer: Buffer.from(bytes) };
+}
+
+test('a song can be added with just a name, then given its tab later', async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.addInitScript(() => localStorage.setItem('setcards:prefs', JSON.stringify({ mode: 'solo' })));
+  await page.goto('/');
+  await page.click('#addSongBtn');
+  await page.fill('#addTitle', 'Low Road');
+  await page.fill('#addArtist', 'The Demos');
+  await page.fill('#addYt', 'https://youtu.be/dQw4w9WgXcQ');
+  await page.click('#addForm button[type=submit]');
+
+  // it opens on the no-tab page, keeping what was entered
+  await expect(page.locator('#noTab h2')).toHaveText('No tab yet');
+  await expect(page.locator('#songMeta')).toContainText('Proposed · The Demos');
+  await expect(page.locator('#noTabYt')).toHaveValue('https://youtu.be/dQw4w9WgXcQ');
+  await expect(page.locator('#noTab a', { hasText: 'Songsterr' })).toHaveAttribute('href', /pattern=Low%20Road%20The%20Demos/);
+  await page.locator('#noTab .add-note').click();
+  await page.fill('#noteText', 'Check the key with the singer');
+  await page.click('#noteForm button[type=submit]');
+  await expect(page.locator('#noTab .role-note-text')).toHaveText('Check the key with the singer');
+
+  // listed under Proposed, marked as having no tab
+  await page.click('#backBtn');
+  const proposed = page.locator('.list-section', { hasText: 'Proposed' });
+  await expect(proposed.locator('.song-row')).toHaveCount(1);
+  await expect(proposed.locator('.details')).toHaveText('No tab yet');
+
+  // attach the tab: sections and riffs appear, and the note is still there
+  await proposed.locator('.song-open').click();
+  await page.locator('#attachInput').setInputFiles(await demoGpFile());
+  await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
+  await expect(page.locator('#songMeta')).toContainText('Learning');
+  await expect(page.locator('.cards > .role-note .role-note-text')).toHaveText('Check the key with the singer');
+  await page.click('#backBtn');
+  await expect(page.locator('.list-section', { hasText: 'Proposed' })).toHaveCount(0);
+  await expect(page.locator('.song-row .details').first()).toContainText('104 bpm');
+  expect(errors).toEqual([]);
+});
+
+test('a proposed song can be added for the band', async ({ page }) => {
+  await fakeDrive(page);
+  await page.goto('/');
+  await page.click('#addSongBtn');
+  await expect(page.locator('#shareUploadWrap')).toBeVisible();
+  await page.fill('#addTitle', 'New Idea');
+  await page.click('#addForm button[type=submit]');
+  await expect(page.locator('#toast')).toContainText('Added “New Idea” for the band');
+  const added = await page.evaluate(() => window.fakeBandSongs[0]);
+  expect(added.hasTab).toBe(false);
+  expect(added.notes.status).toBe('proposed');
+  await page.click('#backBtn');
+  await expect(page.locator('.list-section', { hasText: 'Proposed' }).locator('.song-row')).toHaveText(/New Idea/);
 });

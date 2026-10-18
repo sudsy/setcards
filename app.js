@@ -20,7 +20,9 @@
     bandBtn: $('bandBtn'), bandDlg: $('bandDlg'), driveBox: $('driveBox'), modeBox: $('modeBox'),
     welcome: $('welcome'), chooseBand: $('chooseBand'), chooseSolo: $('chooseSolo'), bandBox: $('bandBox'), songListWrap: $('songListWrap'),
     fileInput: $('fileInput'), shareUpload: $('shareUpload'), shareUploadWrap: $('shareUploadWrap'),
-    keyInput: $('keyInput'), tempoInput: $('tempoInput'),
+    keyInput: $('keyInput'), tempoInput: $('tempoInput'), statusSel: $('statusSel'), noTab: $('noTab'),
+    addSongBtn: $('addSongBtn'), addDlg: $('addDlg'), addForm: $('addForm'), addTitle: $('addTitle'), addArtist: $('addArtist'),
+    addYt: $('addYt'), addStatus: $('addStatus'),
     noteDlg: $('noteDlg'), noteTitle: $('noteTitle'), noteHint: $('noteHint'), noteForm: $('noteForm'), noteText: $('noteText'), noteClear: $('noteClear'),
     settingsBtn: $('settingsBtn'), settingsDlg: $('settingsDlg'), trackSel: $('trackSel'),
     zoomRange: $('zoomRange'), zoomOut: $('zoomOut'), ytInput: $('ytInput'), exportBtn: $('exportBtn'), showTabCards: $('showTabCards'),
@@ -182,7 +184,8 @@
     const m = (state.notes && state.notes.meta) || {};
     const k = (state.notes && state.notes.key) || (m.key ? m.key + (m.keyGuessed ? '?' : '') : '');
     const t = (state.notes && state.notes.tempo) || m.tempo;
-    els.songMeta.textContent = [place, state.song.artist, k, t ? `${t} bpm` : ''].filter(Boolean).join(' · ') || state.song.fileName || '';
+    const st = state.notes && STATUS_LABELS[state.notes.status] && state.notes.status !== 'ready' ? STATUS_LABELS[state.notes.status] : '';
+    els.songMeta.textContent = [place, st, state.song.artist, k, t ? `${t} bpm` : ''].filter(Boolean).join(' · ') || state.song.fileName || '';
   }
 
   function updateBanner() {
@@ -479,7 +482,7 @@
     e.preventDefault();
     setNote(state.noteEdit, els.noteText.value.trim());
     closeDialog(els.noteDlg);
-    renderCards();
+    if (state.song && !state.song.hasTab) renderNoTab(); else renderCards();
   });
   els.noteClear.addEventListener('click', () => { els.noteText.value = ''; });
 
@@ -945,12 +948,88 @@
     updateBanner();
     resetDisplay();
     if (state.editing) setEditing(false);
+    setupVideo();
+    const hasTab = !!(song.bytes || song.tex);
+    state.song.hasTab = hasTab;
+    document.body.classList.toggle('no-tab', !hasTab);
+    els.noTab.hidden = hasTab;
+    if (!hasTab) {
+      // A song added before anyone found its tab: show what is known, and a way to attach the file.
+      state.parts = [];
+      state.groups = [];
+      els.loading.hidden = true;
+      renderNoTab();
+      return true;
+    }
     // All tracks are loaded; the one for this person's role is chosen once the file is read.
     const settingsTrack = prefs.tracks[key] && prefs.tracks[key][prefs.role];
     if (song.tex) api.tex(song.tex, [settingsTrack || 0]);
     else api.load(song.bytes, [settingsTrack || 0]);
-    setupVideo();
     return true;
+  }
+
+  function searchLinks() {
+    const q = [state.song.title, state.song.artist].filter(Boolean).join(' ');
+    return {
+      songsterr: `https://www.songsterr.com/?pattern=${encodeURIComponent(q)}`,
+      ug: `https://www.ultimate-guitar.com/search.php?search_type=title&value=${encodeURIComponent(q)}`
+    };
+  }
+
+  function renderNoTab() {
+    const box = els.noTab;
+    const links = searchLinks();
+    const status = songStatus(state.notes, false);
+    box.innerHTML = `
+      <label class="field status-field"><span>Status</span>
+        <select id="noTabStatus">${Object.keys(STATUS_LABELS).map((k) => `<option value="${k}"${k === status ? ' selected' : ''}>${STATUS_LABELS[k]}</option>`).join('')}</select>
+      </label>
+      <div class="no-tab-main">
+        <h2>No tab yet</h2>
+        <p class="fine">When someone finds a Guitar Pro file for this song, add it here. Everything already noted for the song is kept.</p>
+        <label class="file-btn"><input id="attachInput" type="file"> Add the Guitar Pro file</label>
+        <p class="fine">Look for one on <a href="${links.songsterr}" target="_blank" rel="noopener">Songsterr</a> or <a href="${links.ug}" target="_blank" rel="noopener">Ultimate Guitar</a>.</p>
+      </div>
+      <label class="field"><span>YouTube link</span><input id="noTabYt" type="url" inputmode="url" placeholder="https://www.youtube.com/watch?v=…"></label>`;
+    box.querySelector('#noTabYt').value = state.notes.youtubeUrl || '';
+    box.querySelector('#noTabStatus').addEventListener('change', (e) => { setStatus(e.target.value); });
+    box.querySelector('#noTabYt').addEventListener('change', (e) => {
+      const v = e.target.value.trim();
+      if (v && !youtubeId(v)) { toast('That does not look like a YouTube link'); return; }
+      state.notes.youtubeUrl = v;
+      state.videoOn = true;
+      saveNotes();
+      setupVideo();
+    });
+    box.querySelector('#attachInput').addEventListener('change', (e) => attachTab(e.target.files[0]));
+    box.appendChild(noteBlock(null));
+  }
+
+  function setStatus(value) {
+    state.notes.status = value;
+    saveNotes();
+    updateSongMeta();
+  }
+
+  // Attaches a Guitar Pro file to a song that didn't have one, keeping its notes, status and video.
+  async function attachTab(file) {
+    if (!file) return;
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const score = AT.importer.ScoreLoader.loadScoreFromBytes(bytes, api.settings);
+      const { source, sourceId, id } = SM.library.parse(state.song.key);
+      await flushSave();
+      const notes = Object.assign({}, state.notes, { meta: SM.analysis.songMeta(score), updatedAt: Date.now() });
+      if (!notes.artist && score.artist) notes.artist = score.artist;
+      if (notes.status === 'proposed') notes.status = 'learning';
+      toast('Adding the tab…');
+      const newId = await source.attachTab(id, file.name, bytes, notes);
+      await openSong(SM.library.key(sourceId, newId));
+      toast('Tab added. Setcards has worked out its sections.');
+    } catch (e) {
+      console.error(e);
+      toast(e.message && /Google|Drive/.test(e.message) ? e.message : 'That file could not be read. Setcards opens Guitar Pro 3 to 8 files and MusicXML.');
+    }
   }
 
   // alphaTab renders the track passed to load(); switch to the role's track once the score is known.
@@ -968,6 +1047,8 @@
       const meta = { title: score.title || file.name.replace(/\.[^.]+$/, ''), artist: score.artist || '' };
       const notes = SM.library.emptyNotes(meta);
       notes.meta = SM.analysis.songMeta(score);
+      notes.status = 'learning';
+      closeDialog(els.addDlg);
       const toBand = inBand() && drive.connected() && drive.signedIn() && els.shareUpload.checked;
       const source = toBand ? drive : SM.library.sources.local;
       toast(toBand ? 'Adding to the band folder…' : (inBand() ? 'Adding to your drafts…' : 'Adding to this device…'));
@@ -1418,6 +1499,23 @@
     if (!ok) showHome();
   }
 
+  const STATUS_LABELS = { proposed: 'Proposed', learning: 'Learning', ready: 'Ready' };
+  // Songs added without tab start as proposed; songs from a tab file start as learning.
+  const songStatus = (notes, hasTab) => (notes && STATUS_LABELS[notes.status] ? notes.status : (hasTab === false ? 'proposed' : 'learning'));
+
+  // Fills a list section with songs, putting proposed songs in a section of their own after it.
+  function songSections(wrap, src, songs, title, note, actionsFor) {
+    const main = listSection(title, note);
+    const proposed = listSection('Proposed', 'Songs suggested for the band, not learnt yet.');
+    songs.forEach((s) => {
+      const target = songStatus(s.notes, s.hasTab) === 'proposed' ? proposed : main;
+      target.querySelector('ul').appendChild(songRow(src, s, actionsFor(s)));
+    });
+    wrap.appendChild(main);
+    if (proposed.querySelector('li')) wrap.appendChild(proposed);
+    return main;
+  }
+
   // "Dm · 120 bpm · 4:14 · 12 sections", from the song's saved details
   function detailsLine(notes) {
     const m = (notes && notes.meta) || {};
@@ -1440,7 +1538,15 @@
     open.innerHTML = '<strong></strong><span class="who"></span><span class="details"></span>';
     open.querySelector('strong').textContent = s.title || 'Untitled';
     open.querySelector('.who').textContent = s.artist || '';
-    open.querySelector('.details').textContent = detailsLine(s.notes) || 'Open once to read its key and tempo';
+    const hasTab = s.hasTab !== false;
+    open.querySelector('.details').textContent = hasTab ? (detailsLine(s.notes) || 'Open once to read its key and tempo') : ['No tab yet', detailsLine(s.notes)].filter(Boolean).join(' · ');
+    const status = songStatus(s.notes, hasTab);
+    if (status !== 'ready') {
+      const chip = document.createElement('span');
+      chip.className = `status-chip status-${status}`;
+      chip.textContent = STATUS_LABELS[status];
+      open.querySelector('strong').after(chip);
+    }
     open.addEventListener('click', () => openFromList(key));
     li.appendChild(open);
     if (extra) li.appendChild(extra);
@@ -1498,21 +1604,21 @@
           try { await drive.signIn(); renderHome(); } catch (e) { toast(e.message); }
         });
       } else {
-        const sec = listSection(drive.folder().name);
-        const ul = sec.querySelector('ul');
-        ul.innerHTML = '<li class="fine">Loading songs…</li>';
-        wrap.appendChild(sec);
+        const loading = document.createElement('p');
+        loading.className = 'fine';
+        loading.textContent = 'Loading songs…';
+        wrap.appendChild(loading);
+        let sec;
         try {
           const songs = await drive.list();
-          ul.innerHTML = '';
-          songs.sort((a, b) => String(a.title).localeCompare(b.title)).forEach((s) => ul.appendChild(songRow(drive, s, deleteButton(drive, s, 'Delete for the band?'))));
-          if (!songs.length) ul.innerHTML = '<li class="fine">No songs visible yet. Add one below, or if the folder already has songs, give Setcards access to them.</li>';
+          loading.remove();
+          songs.sort((a, b) => String(a.title).localeCompare(b.title));
+          sec = songSections(wrap, drive, songs, drive.folder().name, '', (s) => deleteButton(drive, s, 'Delete for the band?'));
+          if (!songs.length) sec.querySelector('ul').innerHTML = '<li class="fine">No songs visible yet. Add one below, or if the folder already has songs, give Setcards access to them.</li>';
         } catch (e) {
-          ul.innerHTML = '';
-          const li = document.createElement('li');
-          li.className = 'fine';
-          li.textContent = e.message;
-          ul.appendChild(li);
+          loading.textContent = e.message;
+          sec = listSection(drive.folder().name);
+          wrap.appendChild(sec);
         }
         const more = document.createElement('button');
         more.className = 'text-btn';
@@ -1530,11 +1636,8 @@
     try { mine = await local.list(); } catch (e) { mine = []; }
     if (inBand()) mine = mine.filter((s) => !s.isDemo);
     if (inBand() && !mine.length) return;
-    const sec = inBand()
-      ? listSection('Drafts', 'Only on this device until you share them with the band.')
-      : listSection('Your songs');
-    const ul = sec.querySelector('ul');
-    mine.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).forEach((s) => {
+    mine.sort((a, b) => (inBand() ? (b.updatedAt || 0) - (a.updatedAt || 0) : String(a.title).localeCompare(b.title)));
+    const actionsFor = (s) => {
       const actions = document.createElement('div');
       actions.className = 'row-actions';
       if (inBand() && s.canShare && drive.connected()) {
@@ -1545,16 +1648,24 @@
         actions.appendChild(share);
       }
       actions.appendChild(deleteButton(local, s, 'Tap to confirm'));
-      ul.appendChild(songRow(local, s, actions));
-    });
+      return actions;
+    };
+    let sec;
+    if (inBand()) {
+      sec = listSection('Drafts', 'Only on this device until you share them with the band.');
+      mine.forEach((s) => sec.querySelector('ul').appendChild(songRow(local, s, actionsFor(s))));
+      wrap.appendChild(sec);
+    } else {
+      sec = songSections(wrap, local, mine, 'Your songs', '', actionsFor);
+    }
+    const ul = sec.querySelector('ul');
     if (!mine.length) {
       const li = document.createElement('li');
       li.className = 'fine';
-      li.innerHTML = 'No songs yet. Add a Guitar Pro file below, or <button class="link-btn" id="addDemoBtn" type="button">try the demo song</button>.';
+      li.innerHTML = 'No songs yet. Add one below, or <button class="link-btn" id="addDemoBtn" type="button">try the demo song</button>.';
       li.querySelector('#addDemoBtn').addEventListener('click', async () => { await addDemo(); renderHome(); });
       ul.appendChild(li);
     }
-    wrap.appendChild(sec);
   }
 
   // Moves a draft into the band folder, with its sections and chords.
@@ -1562,10 +1673,10 @@
     try {
       if (!drive.signedIn()) await drive.signIn();
       const song = await local.open(s.id);
-      if (!song.bytes) { toast('The demo song can’t be shared'); return; }
+      if (song.tex) { toast('The demo song can’t be shared'); return; }
       toast('Sharing with the band…');
       const notes = Object.assign({}, song.notes, { updatedAt: Date.now() });
-      await drive.add(song.fileName || `${s.title}.gp`, song.bytes, notes);
+      await drive.add(song.bytes ? (song.fileName || `${s.title}.gp`) : null, song.bytes, notes);
       await local.remove(s.id);
       toast(`“${s.title}” is now in the band folder`);
     } catch (e) {
@@ -1711,6 +1822,36 @@
     els.joinDlg.showModal();
   }
 
+  els.addSongBtn.addEventListener('click', () => {
+    els.addForm.reset();
+    els.addStatus.value = 'proposed';
+    els.shareUploadWrap.hidden = !(inBand() && drive.connected() && drive.signedIn());
+    els.addDlg.showModal();
+    setTimeout(() => els.addTitle.focus(), 50);
+  });
+  // A song with just a name, artist and maybe a video; its tab can be attached later.
+  els.addForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const title = els.addTitle.value.trim();
+    if (!title) { els.addTitle.focus(); return; }
+    const yt = els.addYt.value.trim();
+    if (yt && !youtubeId(yt)) { toast('That does not look like a YouTube link'); return; }
+    const meta = { title, artist: els.addArtist.value.trim() };
+    const notes = SM.library.emptyNotes(meta);
+    notes.status = els.addStatus.value;
+    notes.youtubeUrl = yt;
+    const toBand = inBand() && drive.connected() && drive.signedIn() && els.shareUpload.checked;
+    const source = toBand ? drive : local;
+    closeDialog(els.addDlg);
+    try {
+      const id = await source.add(null, null, notes, meta);
+      await openFromList(SM.library.key(source.id, id));
+      toast(toBand ? `Added “${title}” for the band` : (inBand() ? `Added “${title}” to your drafts` : `Added “${title}”`));
+    } catch (err) {
+      toast(err.message);
+    }
+  });
+
   els.fileInput.addEventListener('change', () => {
     importFile(els.fileInput.files[0]);
     els.fileInput.value = '';
@@ -1734,6 +1875,7 @@
     els.zoomOut.textContent = `${Math.round(prefs.zoom * 100)}%`;
     els.ytInput.value = state.notes.youtubeUrl || '';
     const m = state.notes.meta || {};
+    els.statusSel.value = songStatus(state.notes, state.song.hasTab);
     els.keyInput.value = state.notes.key || '';
     els.keyInput.placeholder = m.key ? `${m.key}${m.keyGuessed ? ' (estimated)' : ''}` : 'e.g. Dm';
     els.tempoInput.value = state.notes.tempo || '';
@@ -1773,6 +1915,10 @@
   els.zoomRange.addEventListener('change', () => setZoom(Number(els.zoomRange.value)));
   $('zoomOutBtn').addEventListener('click', () => setZoom(prefs.zoom - 0.1));
   $('zoomInBtn').addEventListener('click', () => setZoom(prefs.zoom + 0.1));
+  els.statusSel.addEventListener('change', () => {
+    setStatus(els.statusSel.value);
+    if (!state.song.hasTab) renderNoTab();
+  });
   els.keyInput.addEventListener('change', () => {
     const v = els.keyInput.value.trim();
     if (v) state.notes.key = v; else delete state.notes.key;

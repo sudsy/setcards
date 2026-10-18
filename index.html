@@ -47,11 +47,7 @@
       <div id="songListWrap" class="song-list-wrap"></div>
     </main>
     <footer class="playerbar home-foot">
-      <label class="file-btn">
-        <input id="fileInput" type="file">
-        Add a song
-      </label>
-      <label id="shareUploadWrap" class="check" hidden><input id="shareUpload" type="checkbox" checked> Share with the band now</label>
+      <button id="addSongBtn" class="file-btn" type="button">Add a song</button>
     </footer>
   </div>
 
@@ -115,6 +111,7 @@
     <main id="scroller" class="scroller">
       <div id="drop" class="drop-hint" hidden>Drop a Guitar Pro file to open it</div>
       <div id="loading" class="loading">Loading…</div>
+      <section id="noTab" class="no-tab" hidden></section>
       <div id="cards" class="cards"></div>
       <div id="tab" hidden></div>
     </main>
@@ -155,6 +152,31 @@
     <div id="modeBox" class="mode-box"></div>
   </dialog>
 
+  <dialog id="addDlg" class="sheet small">
+    <div class="sheet-head">
+      <h2>Add a song</h2>
+      <button class="icon-btn" data-close aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <form id="addForm" class="bar-form">
+      <label class="field"><span>Title</span><input id="addTitle" required autocomplete="off"></label>
+      <label class="field"><span>Artist</span><input id="addArtist" autocomplete="off"></label>
+      <label class="field"><span>YouTube link (optional)</span><input id="addYt" type="url" inputmode="url" placeholder="https://www.youtube.com/watch?v=…"></label>
+      <label class="field"><span>Status</span>
+        <select id="addStatus"><option value="proposed">Proposed</option><option value="learning">Learning</option><option value="ready">Ready</option></select>
+      </label>
+      <label id="shareUploadWrap" class="check" hidden><input id="shareUpload" type="checkbox" checked> Share with the band now</label>
+      <div class="row-btns"><button class="text-btn primary" type="submit">Add song</button></div>
+    </form>
+    <div class="or-line"><span>or start from a tab file</span></div>
+    <label class="file-btn">
+      <input id="fileInput" type="file">
+      Add from a Guitar Pro file
+    </label>
+    <p class="fine">Title and artist are read from the file. Reads .gp, .gpx, .gp5, .gp4, .gp3 and MusicXML.</p>
+  </dialog>
+
   <dialog id="noteDlg" class="sheet small">
     <div class="sheet-head">
       <h2 id="noteTitle">Note</h2>
@@ -179,6 +201,10 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
     </div>
+    <label class="field">
+      <span>Status</span>
+      <select id="statusSel"><option value="proposed">Proposed</option><option value="learning">Learning</option><option value="ready">Ready</option></select>
+    </label>
     <div class="field-row">
       <label class="field">
         <span>Key</span>
@@ -189,7 +215,7 @@
         <input id="tempoInput" inputmode="numeric" placeholder="120" autocomplete="off">
       </label>
     </div>
-    <label class="field">
+    <label class="field" id="trackField">
       <span>Track you follow in this song</span>
       <select id="trackSel"></select>
     </label>

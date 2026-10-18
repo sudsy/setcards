@@ -70,7 +70,7 @@
         const all = await tx('readonly', (s) => s.getAll());
         return all.map((r) => {
           const n = notesOf(r);
-          return { id: r.id, title: n.title || r.title, artist: n.artist || r.artist, fileName: r.fileName, updatedAt: r.updatedAt || 0, isDemo: !!r.isDemo, notes: n, canShare: !r.tex };
+          return { id: r.id, title: n.title || r.title, artist: n.artist || r.artist, fileName: r.fileName, updatedAt: r.updatedAt || 0, isDemo: !!r.isDemo, notes: n, canShare: !r.tex, hasTab: !!(r.data || r.tex) };
         });
       },
       async open(id) {
@@ -94,6 +94,17 @@
           data: bytes ? bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) : null,
           tex: meta.tex || null, isDemo: !!meta.isDemo, notes, addedAt: Date.now(), updatedAt: Date.now()
         }));
+        return id;
+      },
+      // Gives a tab-less song its Guitar Pro file; the id stays the same.
+      async attachTab(id, fileName, bytes, notes) {
+        const r = await tx('readonly', (s) => s.get(id));
+        if (!r) throw new Error('Song not found on this device');
+        r.data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+        r.fileName = fileName;
+        r.notes = notes;
+        r.updatedAt = Date.now();
+        await tx('readwrite', (s) => s.put(r));
         return id;
       },
       remove: (id) => tx('readwrite', (s) => s.delete(id))
@@ -276,20 +287,68 @@
       return { body: new Blob([head, body, tail]), type: `multipart/related; boundary=${boundary}` };
     }
 
-    async function writeNotes(songName, notes) {
-      const f = folder();
-      const files = filesCache || await listFolder();
-      const name = songName + NOTES_SUFFIX;
-      const existing = files.find((x) => x.name === name);
-      const json = JSON.stringify(notes, null, 1);
-      if (existing) {
-        await call(`${UPLOAD}/files/${existing.id}?uploadType=media&supportsAllDrives=true`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: json });
-      } else {
-        const m = multipart({ name, parents: [f.id], mimeType: 'application/json' }, json, 'application/json');
-        const r = await call(`${UPLOAD}/files?uploadType=multipart&supportsAllDrives=true&fields=id,name`, { method: 'POST', headers: { 'Content-Type': m.type }, body: m.body });
-        files.push(await r.json());
-      }
+    // Songs in the folder. A song is its notes file, its Guitar Pro file, or both:
+    // a song added before it has tab is just "<name>.setcards.json"; once a tab file is attached the notes
+    // say which file it is (notes.tabFile). Older notes sit next to their tab as "<tab file>.setcards.json".
+    // A song's id is its tab file's id, or "n:<notes file id>" while it has no tab.
+    function noteEntries(files) {
+      return files.filter((x) => x.name.endsWith(NOTES_SUFFIX)).map((nf) => {
+        const base = nf.name.slice(0, -NOTES_SUFFIX.length);
+        return { notesFile: nf, tabName: SONG_EXT.test(base) ? base : null };
+      });
     }
+    async function readNotes(nf) {
+      try { return await (await call(`${API}/files/${nf.id}?alt=media&supportsAllDrives=true`)).json(); } catch (e) { return null; }
+    }
+    // Resolves every song in the folder, reading notes so tab-less songs can be matched to tab files named in them.
+    async function allSongs() {
+      const files = filesCache || await listFolder();
+      const entries = noteEntries(files);
+      const notesList = await Promise.all(entries.map((e) => readNotes(e.notesFile)));
+      const songs = [];
+      const tabTaken = new Set();
+      entries.forEach((e, i) => {
+        const notes = notesList[i];
+        const tabName = (notes && notes.tabFile) || e.tabName;
+        const tab = tabName ? files.find((x) => x.name === tabName && SONG_EXT.test(x.name)) : null;
+        if (tab) tabTaken.add(tab.id);
+        songs.push({ id: tab ? tab.id : 'n:' + e.notesFile.id, tab, notesFile: e.notesFile, notes, modified: (tab || e.notesFile).modifiedTime });
+      });
+      files.filter((x) => SONG_EXT.test(x.name) && !tabTaken.has(x.id)).forEach((tab) => {
+        songs.push({ id: tab.id, tab, notesFile: null, notes: null, modified: tab.modifiedTime });
+      });
+      return songs;
+    }
+    async function findSong(id) {
+      const songs = await allSongs();
+      const song = songs.find((x) => x.id === id);
+      if (!song) throw new Error('This song is no longer in the band folder');
+      return song;
+    }
+    const slug = (t) => (t || 'song').replace(/[\\/:*?"<>|]+/g, '').trim().slice(0, 80) || 'song';
+
+    async function writeNotesFile(song, notes, nameIfNew) {
+      const f = folder();
+      const json = JSON.stringify(notes, null, 1);
+      if (song && song.notesFile) {
+        await call(`${UPLOAD}/files/${song.notesFile.id}?uploadType=media&supportsAllDrives=true`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: json });
+        return song.notesFile;
+      }
+      const m = multipart({ name: nameIfNew + NOTES_SUFFIX, parents: [f.id], mimeType: 'application/json' }, json, 'application/json');
+      const r = await call(`${UPLOAD}/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,modifiedTime`, { method: 'POST', headers: { 'Content-Type': m.type }, body: m.body });
+      const created = await r.json();
+      (filesCache || (filesCache = [])).push(created);
+      return created;
+    }
+    async function uploadTab(fileName, bytes) {
+      const f = folder();
+      const m = multipart({ name: fileName, parents: [f.id] }, bytes, 'application/octet-stream');
+      const r = await call(`${UPLOAD}/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,modifiedTime`, { method: 'POST', headers: { 'Content-Type': m.type }, body: m.body });
+      const created = await r.json();
+      (filesCache || (filesCache = [])).push(created);
+      return created;
+    }
+    const trash = (id) => call(`${API}/files/${id}?supportsAllDrives=true`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) });
 
     return {
       id: 'drive',
@@ -340,53 +399,52 @@
       // Lets the person grant access to songs other bandmates dropped into the folder.
       async grantAccess() { const picked = await pick('files'); filesCache = null; return picked.length; },
       async list() {
-        const files = await listFolder();
-        const songs = files.filter((x) => SONG_EXT.test(x.name));
-        // each song's notes hold its title, key and tempo for the list; they are small, so read them together
-        return Promise.all(songs.map(async (x) => {
-          const nf = files.find((n) => n.name === x.name + NOTES_SUFFIX);
-          let notes = null;
-          if (nf) {
-            try { notes = await (await call(`${API}/files/${nf.id}?alt=media&supportsAllDrives=true`)).json(); } catch (e) { notes = null; }
-          }
-          return {
-            id: x.id, title: (notes && notes.title) || x.name.replace(SONG_EXT, '').replace(/[_-]+/g, ' '), artist: (notes && notes.artist) || '',
-            fileName: x.name, updatedAt: Date.parse(x.modifiedTime) || 0, notes
-          };
+        filesCache = null;
+        const songs = await allSongs();
+        return songs.map((s) => ({
+          id: s.id,
+          title: (s.notes && s.notes.title) || (s.tab ? s.tab.name.replace(SONG_EXT, '').replace(/[_-]+/g, ' ') : 'Untitled'),
+          artist: (s.notes && s.notes.artist) || '',
+          fileName: s.tab ? s.tab.name : null,
+          hasTab: !!s.tab,
+          updatedAt: Date.parse(s.modified) || 0,
+          notes: s.notes
         }));
       },
       async open(id) {
-        const files = filesCache || await listFolder();
-        const meta = files.find((x) => x.id === id) || (await (await call(`${API}/files/${id}?fields=id,name&supportsAllDrives=true`)).json());
-        const bytes = new Uint8Array(await (await call(`${API}/files/${id}?alt=media&supportsAllDrives=true`)).arrayBuffer());
-        let notes = null;
-        const nf = files.find((x) => x.name === meta.name + NOTES_SUFFIX);
-        if (nf) {
-          try { notes = await (await call(`${API}/files/${nf.id}?alt=media&supportsAllDrives=true`)).json(); } catch (e) { notes = null; }
-        }
-        return { bytes, notes, title: notes && notes.title, artist: notes && notes.artist, fileName: meta.name };
+        const song = await findSong(id);
+        const bytes = song.tab ? new Uint8Array(await (await call(`${API}/files/${song.tab.id}?alt=media&supportsAllDrives=true`)).arrayBuffer()) : null;
+        const notes = song.notes;
+        return { bytes, notes, title: notes && notes.title, artist: notes && notes.artist, fileName: song.tab ? song.tab.name : null };
       },
       async saveNotes(id, notes) {
-        const files = filesCache || await listFolder();
-        const meta = files.find((x) => x.id === id);
-        if (!meta) throw new Error('This song is no longer in the band folder');
-        await writeNotes(meta.name, notes);
+        const song = await findSong(id);
+        if (song.tab && !notes.tabFile) notes.tabFile = song.tab.name;
+        await writeNotesFile(song, notes, song.tab ? song.tab.name : slug(notes.title));
       },
+      // A song with tab (bytes) or without (bytes null: just the notes).
       async add(fileName, bytes, notes) {
-        const f = folder();
-        const m = multipart({ name: fileName, parents: [f.id] }, bytes, 'application/octet-stream');
-        const r = await call(`${UPLOAD}/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,modifiedTime`, { method: 'POST', headers: { 'Content-Type': m.type }, body: m.body });
-        const created = await r.json();
-        (filesCache || (filesCache = [])).push(created);
-        await writeNotes(fileName, notes);
-        return created.id;
+        if (!bytes) {
+          const nf = await writeNotesFile(null, notes, slug(`${notes.title}${notes.artist ? ' - ' + notes.artist : ''}`));
+          return 'n:' + nf.id;
+        }
+        const tab = await uploadTab(fileName, bytes);
+        notes.tabFile = fileName;
+        await writeNotesFile(null, notes, fileName);
+        return tab.id;
+      },
+      // Gives a tab-less song its Guitar Pro file. Returns the song's new id.
+      async attachTab(id, fileName, bytes, notes) {
+        const song = await findSong(id);
+        const tab = await uploadTab(fileName, bytes);
+        notes.tabFile = fileName;
+        await writeNotesFile(song, notes, fileName);
+        return tab.id;
       },
       async remove(id) {
-        const files = filesCache || await listFolder();
-        const meta = files.find((x) => x.id === id);
-        await call(`${API}/files/${id}?supportsAllDrives=true`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) });
-        const nf = meta && files.find((x) => x.name === meta.name + NOTES_SUFFIX);
-        if (nf) await call(`${API}/files/${nf.id}?supportsAllDrives=true`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) });
+        const song = await findSong(id);
+        if (song.tab) await trash(song.tab.id);
+        if (song.notesFile) await trash(song.notesFile.id);
         filesCache = null;
       }
     };

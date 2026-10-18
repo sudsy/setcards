@@ -658,3 +658,39 @@ dialog::backdrop { background: rgba(10, 12, 18, 0.55); }
 .cards > .add-note, .cards > .role-note { margin-bottom: -4px; }
 .cue .role-note, .cue .add-note { margin-top: 6px; }
 #noteText { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); font: inherit; resize: vertical; }
+
+/* ---------- songs without tab ---------- */
+body.no-tab #songView .map,
+body.no-tab #songView .section-head,
+body.no-tab #songView .playerbar,
+body.no-tab #songView #editBtn,
+body.no-tab #songView #cards,
+body.no-tab #songView #tab,
+body.no-tab #trackField,
+body.no-tab #settingsDlg .check, body.no-tab #settingsDlg fieldset,
+body.no-tab #exportBtn, body.no-tab #exportBtn + .fine { display: none !important; }
+.no-tab { display: grid; gap: 14px; max-width: 760px; margin: 0 auto; padding-bottom: 20px; }
+.no-tab-main {
+  display: grid; gap: 10px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px;
+}
+.no-tab-main h2 { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: 1.5rem; }
+.no-tab-main p { margin: 0; }
+.no-tab-main a { color: var(--accent); }
+.no-tab .field select, .no-tab .field input { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+.status-field { max-width: 220px; }
+
+/* ---------- status labels ---------- */
+.status-chip {
+  justify-self: start;
+  font-size: 0.68rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  border-radius: 999px; padding: 2px 8px;
+  background: color-mix(in srgb, var(--muted) 18%, transparent); color: var(--muted);
+}
+.status-proposed { background: color-mix(in srgb, var(--c-bridge) 22%, transparent); color: var(--ink); }
+.status-learning { background: color-mix(in srgb, var(--accent-fill) 22%, transparent); color: var(--ink); }
+
+/* ---------- add a song ---------- */
+.or-line { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 0.8rem; margin: 14px 0 10px; }
+.or-line::before, .or-line::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+#addForm .field input, #addForm .field select, #settingsDlg .field select { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
