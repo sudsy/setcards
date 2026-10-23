@@ -78,7 +78,7 @@ const paths = (store) => [...store.values()].filter((f) => !f.trashed && f.mimeT
 function loadDrive() {
   globalThis.window = globalThis;
   globalThis.localStorage = memoryStorage({ 'setcards:driveFolder': JSON.stringify({ id: 'folder', name: 'Band' }) });
-  globalThis.sessionStorage = memoryStorage({ 'setcards:gtoken': JSON.stringify({ token: 't', exp: Date.now() + 3600e3 }) });
+  globalThis.sessionStorage = memoryStorage({ 'setcards:gtoken2': JSON.stringify({ token: 't', exp: Date.now() + 3600e3 }) });
   globalThis.SETCARDS_CONFIG = { google: { clientId: 'x' } };
   delete require.cache[require.resolve('../../js/storage.js')];
   delete globalThis.SM;

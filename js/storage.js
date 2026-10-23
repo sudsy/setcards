@@ -156,7 +156,7 @@
   /* ---------------- Google Drive ---------------- */
   // Each person signs in with their own Google account and picks the band's shared folder.
   // Songs and notes live in that folder; nothing is stored on any server of ours.
-  // Uses the drive.file permission, which only covers files this app created or the person picked,
+  // Uses the full Drive permission, so the band folder and everything in it is visible,
   // so files added straight into Drive by someone else show up as "needs access" until picked once.
   /* ---------------- copies kept on this device ---------------- */
   // Band songs are copied here in the background, so they still open when the connection fails.
@@ -219,7 +219,7 @@
 
     // Asks Google for an access token. Must start from a tap the first time (Google shows a pop-up).
     // The access token lasts an hour; it is kept for this browser tab so a reload doesn't ask again.
-    const saved = (() => { try { return JSON.parse(sessionStorage.getItem('setcards:gtoken')); } catch (e) { return null; } })();
+    const saved = (() => { try { return JSON.parse(sessionStorage.getItem('setcards:gtoken2')); } catch (e) { return null; } })();
     if (saved && saved.exp > Date.now() + 60000) { token = saved.token; tokenExpiry = saved.exp; }
     const hasToken = () => !!token && Date.now() < tokenExpiry - 60000;
 
@@ -232,14 +232,14 @@
       return new Promise((resolve, reject) => {
         tokenClient = root.google.accounts.oauth2.initTokenClient({
           client_id: c.clientId,
-          scope: 'https://www.googleapis.com/auth/drive.file',
+          scope: 'https://www.googleapis.com/auth/drive',
           prompt: interactive ? '' : 'none',
           hint: ls.get('setcards:googleHint') || undefined,
           callback: (resp) => {
             if (resp.error) return reject(new Error(resp.error_description || resp.error));
             token = resp.access_token;
             tokenExpiry = Date.now() + (resp.expires_in || 3600) * 1000;
-            try { sessionStorage.setItem('setcards:gtoken', JSON.stringify({ token, exp: tokenExpiry })); } catch (e) { /* storage unavailable */ }
+            try { sessionStorage.setItem('setcards:gtoken2', JSON.stringify({ token, exp: tokenExpiry })); } catch (e) { /* storage unavailable */ }
             // remember which account was used, so the next sign-in can skip Google's account chooser
             fetch(`${API}/about?fields=user(emailAddress)`, { headers: { Authorization: 'Bearer ' + token } })
               .then((r) => (r.ok ? r.json() : null)).then((j) => { if (j && j.user) ls.set('setcards:googleHint', j.user.emailAddress); }).catch(() => {});
@@ -257,7 +257,7 @@
       const r = await fetch(url, Object.assign({}, opts, { headers: Object.assign({ Authorization: 'Bearer ' + t }, opts.headers || {}) }));
       if (r.status === 401) {
         token = null;
-        try { sessionStorage.removeItem('setcards:gtoken'); } catch (e) { /* storage unavailable */ }
+        try { sessionStorage.removeItem('setcards:gtoken2'); } catch (e) { /* storage unavailable */ }
         throw new Error('Your Google sign-in expired. Open Songs and tap Show band songs to sign in again.');
       }
       if (!r.ok) throw new Error(`Google Drive said ${r.status}: ${(await r.text()).slice(0, 160)}`);
@@ -329,14 +329,6 @@
       const f = folder();
       if (!f) return [];
       const top = await childrenOf([f.id]);
-      debug(`listing band folder ${f.id} (${f.name}): ${top.length} items: ${top.map(describe).join('; ') || 'none'}`);
-      if (!top.length) {
-        // TEMPORARY DEBUG: what Google says about the folder itself, when its contents come back empty
-        try {
-          const r = await call(`${API}/files/${f.id}?fields=id,name,mimeType,trashed,ownedByMe,capabilities(canListChildren,canAddChildren),shared&supportsAllDrives=true`);
-          debug(`folder details: ${(await r.text()).slice(0, 400)}`);
-        } catch (e) { debug(`folder details failed: ${e.message}`); }
-      }
       tabsFolder = top.find((x) => x.name === TABS_NAME && x.mimeType === FOLDER_TYPE) || null;
       const songFolders = tabsFolder ? (await childrenOf([tabsFolder.id])).filter((x) => x.mimeType === FOLDER_TYPE) : [];
       const inside = songFolders.length ? await childrenOf(songFolders.map((x) => x.id)) : [];
@@ -494,13 +486,6 @@
     const SHEET_TYPE = 'application/vnd.google-apps.spreadsheet';
     const STATUS = { proposed: 'Proposed', learning: 'Learning', ready: 'Ready' };
     let lastSheetCsv = null;
-    // TEMPORARY DEBUG: remove once the Song list problem is found
-    const debug = (msg) => {
-      const log = root.SETCARDS_DEBUG || (root.SETCARDS_DEBUG = []);
-      log.push(new Date().toTimeString().slice(0, 8) + ' ' + msg);
-      if (log.length > 300) log.shift();
-    };
-    const describe = (x) => `${x.name} [${(x.mimeType || '').split('.').pop()}] in ${(x.parents || []).join(',') || '-'}`;
     let sheetTimer = 0;
     const summaries = new Map();   // song id -> the fields the sheet shows, to spot changes that matter
 
@@ -594,7 +579,6 @@
       const songs = await allSongs();
       songs.forEach((s) => summaries.set(s.id, summaryOf(s)));
       const sheet = filesCache.find((x) => x.name === SHEET_NAME && x.mimeType === SHEET_TYPE);
-      debug(`sync: ${songs.length} songs; Song list ${sheet ? 'found ' + sheet.id : 'NOT found'}; files listed: ${filesCache.length}`);
       // read it fresh each time, so rows someone has just moved stay where they put them
       let current = '';
       if (sheet) { try { current = await readSheet(); } catch (e) { current = lastSheetCsv || ''; } }
@@ -603,7 +587,6 @@
       if (sheet) {
         await call(`${UPLOAD}/files/${sheet.id}?uploadType=media&supportsAllDrives=true`, { method: 'PATCH', headers: { 'Content-Type': 'text/csv' }, body: csv });
       } else {
-        debug(`creating a new Song list in ${folder().id}`);
         const m = multipart({ name: SHEET_NAME, parents: [folder().id], mimeType: SHEET_TYPE }, csv, 'text/csv');
         const r = await call(`${UPLOAD}/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,mimeType`, { method: 'POST', headers: { 'Content-Type': m.type }, body: m.body });
         filesCache.push(await r.json());
@@ -632,7 +615,6 @@
       setClient(c) { ls.set('setcards:google', c); },
       async connect(onlyId) {
         const picked = await pick('folder', onlyId);
-        debug(`picked folder ${picked.map((x) => x.id + ' (' + x.name + ')').join(', ') || 'nothing'}`);
         if (!picked.length) return null;
         ls.set('setcards:driveFolder', picked[0]);
         filesCache = null;
@@ -655,7 +637,7 @@
         tabsFolder = null;
         summaries.clear();
         token = null;
-        try { sessionStorage.removeItem('setcards:gtoken'); } catch (e) { /* storage unavailable */ }
+        try { sessionStorage.removeItem('setcards:gtoken2'); } catch (e) { /* storage unavailable */ }
       },
       folderUrl: () => (folder() ? `https://drive.google.com/drive/folders/${folder().id}` : null),
       // A link that opens Setcards ready to join this band folder.
