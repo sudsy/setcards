@@ -203,14 +203,19 @@
         document.head.appendChild(s);
       });
     }
+    let scriptsLoaded = false;
     function ready() {
       if (!scriptsReady) {
         scriptsReady = Promise.all([loadScript('https://accounts.google.com/gsi/client'), loadScript('https://apis.google.com/js/api.js')])
-          .then(() => new Promise((res) => root.gapi.load('picker', res)));
+          .then(() => new Promise((res) => root.gapi.load('picker', res)))
+          .then(() => { scriptsLoaded = true; });
         scriptsReady.catch(() => { scriptsReady = null; });
       }
       return scriptsReady;
     }
+    // Loads Google's scripts when the app starts, so a later tap can open the sign-in popup at once.
+    // Safari blocks a popup that opens after a wait, which is what happened when the scripts loaded on the first tap.
+    const preload = () => { if (cfg().clientId) ready().catch(() => {}); };
 
     // Asks Google for an access token. Must start from a tap the first time (Google shows a pop-up).
     // The access token lasts an hour; it is kept for this browser tab so a reload doesn't ask again.
@@ -222,7 +227,8 @@
       if (hasToken()) return token;
       const c = cfg();
       if (!c.clientId) throw new Error('Google Drive is not set up for this copy of Setcards yet');
-      await ready();
+      // no await before the sign-in request once the scripts are in, so the popup is opened by the tap
+      if (!scriptsLoaded) await ready();
       return new Promise((resolve, reject) => {
         tokenClient = root.google.accounts.oauth2.initTokenClient({
           client_id: c.clientId,
@@ -263,7 +269,7 @@
     async function pick(mode, onlyId) {
       const t = await signIn(true);
       const c = cfg();
-      await ready();
+      if (!scriptsLoaded) await ready();
       const P = root.google.picker;
       return new Promise((resolve) => {
         const views = [];
@@ -784,7 +790,8 @@
       songListUrl() {
         const sheet = (filesCache || []).find((x) => x.name === SHEET_NAME && x.mimeType === SHEET_TYPE);
         return sheet ? `https://docs.google.com/spreadsheets/d/${sheet.id}` : null;
-      }
+      },
+      preload,
     };
   })();
 

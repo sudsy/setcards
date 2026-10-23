@@ -2503,6 +2503,7 @@
   els.roleBtn.textContent = role().label;
   applyViewChrome();
   applyChordVisibility();
+  drive.preload();
   showHome();
   checkInvite();
 

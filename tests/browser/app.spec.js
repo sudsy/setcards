@@ -216,7 +216,8 @@ test('in Edit, tapping a bar starts a new section there', async ({ page }) => {
 
 test('in a band, the home screen waits for a tap before signing in to Google', async ({ page }) => {
   const signIns = [];
-  page.on('request', (r) => { if (/accounts\.google\.com|apis\.google\.com|googleapis\.com\/drive/.test(r.url())) signIns.push(r.url()); });
+  // Google's scripts load at start, so only sign-in and Drive requests count here
+  page.on('request', (r) => { if (/accounts\.google\.com\/o\/oauth2|googleapis\.com\/drive/.test(r.url())) signIns.push(r.url()); });
   await page.addInitScript(() => {
     localStorage.setItem('setcards:prefs', JSON.stringify({ mode: 'band' }));
     localStorage.setItem('setcards:driveFolder', JSON.stringify({ id: 'f1', name: 'The Band (Setcards)' }));
