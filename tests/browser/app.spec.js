@@ -577,3 +577,20 @@ test('a part the bass sits out has no card, and its chip says how many bars to w
   await expect(intro).toHaveClass(/rest/);
   await expect(intro).toHaveAttribute('data-bars', '4');
 });
+
+test('going back to the band list does not redraw it when nothing has changed', async ({ page }) => {
+  await fakeDrive(page);
+  await page.addInitScript(() => {
+    window.fakeBandSongs = [
+      { id: 'b1', title: 'Alpha', artist: 'Band', notes: { title: 'Alpha', artist: 'Band', status: 'ready' }, hasTab: false, addedAt: 1 },
+      { id: 'b2', title: 'Bravo', artist: 'Band', notes: { title: 'Bravo', artist: 'Band', status: 'ready' }, hasTab: false, addedAt: 2 }
+    ];
+  });
+  await page.goto('/');
+  await expect(page.locator('.song-row')).toHaveCount(2);
+  // a marker on the row: it survives only if the list is not redrawn
+  await page.locator('.song-row').first().evaluate((el) => { el.dataset.marker = 'kept'; });
+  await page.locator('.song-row .song-open', { hasText: 'Bravo' }).click();
+  await page.click('#backBtn');
+  await expect(page.locator('.song-row').first()).toHaveAttribute('data-marker', 'kept');
+});
