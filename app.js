@@ -938,7 +938,7 @@
   }
 
   function playRange(start, end) {
-    if (els.playBtn.disabled) { toast('Sounds are still loading'); return; }
+    if (els.playBtn.disabled) { toast(soundProblem || 'Sounds are still loading'); return; }
     const range = rangeFor(start, end);
     api.stop();
     api.playbackRange = range;
@@ -978,7 +978,7 @@
     r.barNumberColor = hexToColor(v('--muted'));
     r.barSeparatorColor = hexToColor(v('--muted'));
     const line = hexToColor(v('--muted'));
-    r.staffLineColor = new AT.model.Color(line.r, line.g, line.b, 150);
+    r.staffLineColor = new AT.model.Color(line.r, line.g, line.b, 70);   // lighter lines, so the numbers stand out
     r.tablatureFont = new AT.model.Font('Arial, Helvetica, sans-serif', 17, AT.model.FontStyle.Plain, AT.model.FontWeight.Bold);
     r.engravingSettings.tabLineSpacing = 18;
   }
@@ -1040,10 +1040,23 @@
     console.error(e);
     toast('That file could not be read. Try exporting it again from Guitar Pro.');
   });
+  // Why sound is not available is shown, so a missing synthesizer does not fail silently.
+  let soundProblem = (window.AudioContext || window.webkitAudioContext) ? null : 'This browser has no audio support, so there is no playback.';
+  const reportSound = (reason) => {
+    soundProblem = reason;
+    console.warn('Setcards sound:', reason);
+    els.playerStatus.textContent = reason;
+  };
+  if (soundProblem) reportSound(soundProblem);
   api.soundFontLoad.on((e) => {
     if (e.total) els.playerStatus.textContent = `Loading sounds ${Math.round((e.loaded / e.total) * 100)}%`;
   });
+  // alphaTab does not report a failed sound load to the page, so a long wait is named instead
+  let soundReady = false;
+  setTimeout(() => { if (!soundReady && !soundProblem) reportSound('The sounds have not loaded after 20 seconds, so playback may be off on this device.'); }, 20000);
   api.playerReady.on(() => {
+    soundReady = true;
+    soundProblem = null;
     els.playBtn.disabled = false;
     els.playerStatus.textContent = '';
   });
@@ -1673,6 +1686,7 @@
 
   /* ---------------- player controls ---------------- */
   els.playBtn.addEventListener('click', () => {
+    if (els.playBtn.disabled) { toast(soundProblem || 'Sounds are still loading'); return; }
     if (prefs.view === 'tab' || state.playing) { api.playPause(); return; }
     applyPlaybackRange();
     api.playPause();
@@ -1848,8 +1862,9 @@
     return (a.addedAt || 0) - (b.addedAt || 0) || byText(a.title, b.title);
   }
   const sortSongs = (list) => list.sort(compareSongs);
-  function addSortBar() {
-    const rows = els.songListWrap.querySelectorAll('.song-row');
+  function addSortBar(container = els.songListWrap) {
+    if (container.querySelector('.sort-bar')) return;
+    const rows = container.querySelectorAll('.song-row');
     if (rows.length < 2) return;
     const bar = document.createElement('div');
     bar.className = 'sort-bar';
@@ -1865,20 +1880,21 @@
         savePrefs();
         bar.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
         // re-sorts the rows already shown, so nothing is fetched again
-        els.songListWrap.querySelectorAll('.song-list').forEach((ul) => {
+        bar.parentNode.querySelectorAll('.song-list').forEach((ul) => {
           const lis = [...ul.querySelectorAll(':scope > .song-row')];
           lis.sort((x, y) => compareSongs(x.song, y.song)).forEach((li) => ul.appendChild(li));
         });
       });
       bar.querySelector('.seg-toggle').appendChild(b);
     });
-    els.songListWrap.prepend(bar);
+    container.prepend(bar);
   }
 
   function songRow(src, s, extra) {
     const key = SM.library.key(src.id, s.id);
     const li = document.createElement('li');
-    li.className = 'song-row' + (state.song && key === state.song.key ? ' current' : '');
+    li.className = 'song-row';
+    li.dataset.key = key;   // the open song is marked by markCurrent, so the list's HTML stays the same
     li.song = { title: s.title, artist: s.artist, addedAt: s.addedAt, order: s.order };
     const open = document.createElement('button');
     open.className = 'song-open';
@@ -1926,9 +1942,25 @@
     return sec;
   }
 
+  // The list is built off screen and only swapped in when it differs from what is shown, so a refresh that
+  // finds nothing new doesn't move anything on screen.
   async function renderHome() {
-    await buildHome();
-    addSortBar();
+    const fresh = document.createElement('div');
+    await buildHome(fresh);
+    addSortBar(fresh);
+    showList(fresh);
+  }
+  function showList(fresh) {
+    const live = els.songListWrap;
+    live.querySelectorAll('.song-row.current').forEach((r) => r.classList.remove('current'));
+    if (live.innerHTML !== fresh.innerHTML) {
+      live.textContent = '';
+      while (fresh.firstChild) live.appendChild(fresh.firstChild);
+    }
+    markCurrent(live);
+  }
+  function markCurrent(root) {
+    root.querySelectorAll('.song-row').forEach((r) => r.classList.toggle('current', !!state.song && r.dataset.key === state.song.key));
   }
 
   // A line under the top bar while something is being fetched (the band's songs, a new version of the app),
@@ -1953,14 +1985,12 @@
   }
   function syncStart(id, text) { syncTasks.set(id, text); drawSync(); }
   function syncEnd(id, doneText) { syncTasks.delete(id); drawSync(doneText); }
-  async function buildHome() {
+  async function buildHome(wrap) {
     els.homeRoleBtn.textContent = role().label;
-    const wrap = els.songListWrap;
     els.welcome.hidden = !!prefs.mode;
     els.homeRoleBtn.hidden = !prefs.mode;   // asked on the welcome screen first
     els.homeView.querySelector('.home-foot').hidden = !prefs.mode;
     els.bandBox.hidden = true;
-    wrap.innerHTML = '';
     els.shareUploadWrap.hidden = !(inBand() && drive.connected() && drive.signedIn());
     els.bandName.textContent = inBand() ? (drive.folder() ? drive.folder().name : 'No band folder yet') : (prefs.mode === 'solo' ? 'On this device' : '');
     if (!prefs.mode) return;
@@ -1991,6 +2021,8 @@
         loading.className = 'fine';
         if (saved && saved.length) songSections(wrap, drive, sortSongs(saved), drive.folder().name, '', () => null);
         else { loading.textContent = 'Loading songs…'; wrap.appendChild(loading); }
+        // with nothing on screen yet, the saved copy or the loading line shows now; otherwise the list stays until the latest arrives
+        if (!els.songListWrap.querySelector('.song-row')) { addSortBar(wrap); showList(wrap); }
         syncStart('songs', 'Checking Google Drive for changes…');
         let sec;
         try {
