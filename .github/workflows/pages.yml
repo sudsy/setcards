@@ -59,6 +59,8 @@ jobs:
         run: sh scripts/get-lib.sh
       - name: Stamp the version, so installed apps pick up this deploy
         run: sed -i "s/__SETCARDS_VERSION__/${GITHUB_SHA::7}/" sw.js version.js
+      - name: Build the copy for older iPads (Safari 12), published under /legacy/
+        run: npm ci && node scripts/build-legacy.mjs legacy
       - name: Leave out files the site doesn't need
         run: rm -rf tests node_modules package.json package-lock.json playwright.config.js .github
       - uses: actions/configure-pages@v5

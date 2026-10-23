@@ -6,3 +6,5 @@ playwright-report/
 # local test copies, not published
 songs/landslide.gp
 songs/smooth-operator.gp
+# built copies, made by scripts/build-legacy.mjs
+dist/
