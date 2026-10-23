@@ -13,7 +13,7 @@
     prevBtn: $('prevBtn'), nextBtn: $('nextBtn'),
     editBtn: $('editBtn'), editPanel: $('editPanel'), sectionList: $('sectionList'),
     findRepeatsBtn: $('findRepeatsBtn'), suggestBtn: $('suggestBtn'), useMarkersBtn: $('useMarkersBtn'), doneEditBtn: $('doneEditBtn'),
-    syncLine: $('syncLine'), scroller: $('scroller'), tab: $('tab'), cards: $('cards'), loading: $('loading'), drop: $('drop'), banner: $('banner'),
+    syncBtn: $('syncBtn'), scroller: $('scroller'), tab: $('tab'), cards: $('cards'), loading: $('loading'), drop: $('drop'), banner: $('banner'),
     playBtn: $('playBtn'), loopBtn: $('loopBtn'), speedSel: $('speedSel'),
     videoBtn: $('videoBtn'), videoPanel: $('videoPanel'), playerStatus: $('playerStatus'),
     homeView: $('homeView'), songView: $('songView'), backBtn: $('backBtn'), bandName: $('bandName'), homeRoleBtn: $('homeRoleBtn'),
@@ -977,8 +977,11 @@
     r.scoreInfoColor = hexToColor(v('--ink'));
     r.barNumberColor = hexToColor(v('--muted'));
     r.barSeparatorColor = hexToColor(v('--muted'));
+    // solid lines, a light blend of the muted colour into the surface: a translucent colour did not lighten them
     const line = hexToColor(v('--muted'));
-    r.staffLineColor = new AT.model.Color(line.r, line.g, line.b, 70);   // lighter lines, so the numbers stand out
+    const paper = hexToColor(v('--surface'));
+    const blend = (a, b) => Math.round(a + (b - a) * 0.6);
+    r.staffLineColor = new AT.model.Color(blend(line.r, paper.r), blend(line.g, paper.g), blend(line.b, paper.b), 255);
     r.tablatureFont = new AT.model.Font('Arial, Helvetica, sans-serif', 17, AT.model.FontStyle.Plain, AT.model.FontWeight.Bold);
     r.engravingSettings.tabLineSpacing = 18;
   }
@@ -1152,6 +1155,7 @@
   };
   els.roleBtn.addEventListener('click', openRoles);
   els.homeRoleBtn.addEventListener('click', openRoles);
+  els.syncBtn.addEventListener('click', () => { if (!syncTasks.has('songs')) renderHome(); });
 
   /* ---------------- loading songs ---------------- */
   function resetDisplay() {
@@ -1966,25 +1970,24 @@
   // A line under the top bar while something is being fetched (the band's songs, a new version of the app),
   // so you can wait for it if you're expecting a change.
   const syncTasks = new Map();
-  let syncTimer = null;
-  function drawSync(doneText) {
-    clearTimeout(syncTimer);
-    const line = els.syncLine;
+  // The refresh icon in the title bar shows what is being checked; a tap checks the band folder again.
+  let syncLast = 'Up to date';
+  let syncFailed = false;
+  function drawSync() {
+    const btn = els.syncBtn;
     const busy = [...syncTasks.values()];
-    line.classList.toggle('busy', busy.length > 0);
-    if (busy.length) {
-      line.hidden = false;
-      line.querySelector('.sync-text').textContent = busy[busy.length - 1];
-    } else if (doneText) {
-      line.hidden = false;
-      line.querySelector('.sync-text').textContent = doneText;
-      syncTimer = setTimeout(() => { line.hidden = true; }, 4000);
-    } else {
-      line.hidden = true;
-    }
+    btn.classList.toggle('busy', busy.length > 0);
+    btn.classList.toggle('warn', !busy.length && syncFailed);
+    const text = busy.length ? busy[busy.length - 1] : syncLast;
+    btn.title = text;
+    btn.setAttribute('aria-label', `Refresh. ${text}`);
   }
   function syncStart(id, text) { syncTasks.set(id, text); drawSync(); }
-  function syncEnd(id, doneText) { syncTasks.delete(id); drawSync(doneText); }
+  function syncEnd(id, doneText, failed) {
+    syncTasks.delete(id);
+    if (doneText) { syncLast = doneText; syncFailed = !!failed; }
+    drawSync();
+  }
   async function buildHome(wrap) {
     els.homeRoleBtn.textContent = role().label;
     els.welcome.hidden = !!prefs.mode;
@@ -2028,7 +2031,7 @@
         try {
           const songs = await drive.list();
           wrap.innerHTML = '';
-          syncEnd('songs', songs.length && songs[0].offline ? 'Couldn’t reach Google Drive, so this is the copy on this phone' : 'Songs up to date');
+          syncEnd('songs', songs.length && songs[0].offline ? 'Couldn’t reach Google Drive, so this is the copy on this phone' : 'Up to date', songs.length && songs[0].offline);
           sortSongs(songs);
           const isOffline = songs.length && songs[0].offline;
           const note = isOffline ? `Offline: showing the copy saved on this phone ${savedWhen(songs[0].savedAt)}.` : '';
@@ -2036,7 +2039,7 @@
           if (!isOffline) sendKeptChanges(songs);
           if (!songs.length) sec.querySelector('ul').innerHTML = '<li class="fine">No songs visible yet. Add one below, or if the folder already has songs, give Setcards access to them.</li>';
         } catch (e) {
-          syncEnd('songs', '');
+          syncEnd('songs', 'Could not check Google Drive: ' + e.message, true);
           wrap.innerHTML = '';
           loading.textContent = e.message;
           wrap.appendChild(loading);

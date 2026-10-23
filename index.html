@@ -23,12 +23,14 @@
         <div class="song-title">Setcards</div>
         <div id="bandName" class="song-meta"></div>
       </div>
+      <button id="syncBtn" class="icon-btn sync-btn" type="button" aria-label="Refresh" title="Up to date">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v5h-5"/></svg>
+      </button>
       <button id="homeRoleBtn" class="role-btn" title="What you play">Bass</button>
       <button id="bandBtn" class="icon-btn" aria-label="Band settings" title="Band settings">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
       </button>
     </header>
-    <div id="syncLine" class="sync-line" role="status" aria-live="polite" hidden><span class="spinner" aria-hidden="true"></span><span class="sync-text"></span></div>
     <main id="homeMain" class="scroller home-main">
       <section id="welcome" class="welcome" hidden>
         <h1>Your band's songs, as short cards for every player</h1>

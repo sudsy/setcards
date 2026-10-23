@@ -472,10 +472,12 @@ test('band songs show the saved copy at once and say when the latest has been ch
   });
   await page.goto('/');
   await expect(page.locator('.song-row strong')).toHaveText('Old Title');
-  await expect(page.locator('#syncLine')).toContainText('Checking Google Drive for changes');
+  await expect(page.locator('#syncBtn')).toHaveClass(/busy/);
+  await expect(page.locator('#syncBtn')).toHaveAttribute('title', /Checking Google Drive/);
   await page.evaluate(() => window.finishList());
   await expect(page.locator('.song-row strong')).toHaveText('New Title');
-  await expect(page.locator('#syncLine')).toContainText('Songs up to date');
+  await expect(page.locator('#syncBtn')).not.toHaveClass(/busy/);
+  await expect(page.locator('#syncBtn')).toHaveAttribute('title', 'Up to date');
 });
 
 test('songs are listed in the order they were added, and can be sorted by title or artist', async ({ page }) => {
