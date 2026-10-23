@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Setcards sign-in check</title>
+<style>
+  body { font-family: -apple-system, Helvetica, Arial, sans-serif; margin: 16px; color: #111; background: #fff; }
+  h1 { font-size: 20px; margin: 0 0 8px; }
+  p { font-size: 15px; line-height: 1.4; margin: 6px 0; }
+  button { font-size: 17px; padding: 12px 14px; margin: 6px 6px 6px 0; border-radius: 8px; border: 1px solid #888; background: #f3f3f3; }
+  pre { background: #f6f6f6; border: 1px solid #ccc; padding: 10px; font-size: 13px; white-space: pre-wrap; word-wrap: break-word; min-height: 120px; }
+</style>
+</head>
+<body>
+<h1>Setcards sign-in check</h1>
+<p>Tap the buttons in order and screenshot the result box. Nothing here saves anything.</p>
+<button id="b1" type="button">1. Sign in (tap first)</button>
+<button id="b2" type="button">2. Sign in (after loading Google)</button>
+<button id="b3" type="button">3. Check Drive</button>
+<button id="b4" type="button">4. Open Picker</button>
+<pre id="log">Starting…</pre>
+<div id="pickerHolder"></div>
+<script>
+// ES5 only, so the page runs on Safari 12. Mirrors the app's sign-in (js/storage.js).
+var CLIENT_ID = '928831480685-pk1n6r9h818mkind6eq6nbdqbk4qmbv0.apps.googleusercontent.com';
+var API_KEY = 'AIzaSyCRbn2aNQ6bBrmsQxIhNfO91bWvVUWKxyM';
+var APP_ID = '928831480685';
+var SCOPE = 'https://www.googleapis.com/auth/drive.file';
+var logEl = document.getElementById('log');
+var lines = [];
+function log(msg) { lines.push(new Date().toTimeString().slice(0, 8) + '  ' + msg); logEl.textContent = lines.join('\n'); }
+function describeError(e) { return e && (e.message || e.type || String(e)); }
+
+log('Browser: ' + navigator.userAgent);
+log('Promise: ' + (typeof Promise) + ', fetch: ' + (typeof fetch) + ', sessionStorage: ' + (function () { try { sessionStorage.setItem('x', '1'); sessionStorage.removeItem('x'); return 'ok'; } catch (e) { return 'blocked (' + e.message + ')'; } })());
+log('window.open: ' + (typeof window.open) + ', postMessage: ' + (typeof window.postMessage) + ', origin: ' + location.origin);
+
+var token = null;
+var gisReady = false, gapiReady = false;
+
+function loadScript(src, done) {
+  var s = document.createElement('script');
+  s.src = src;
+  s.onload = function () { done(null); };
+  s.onerror = function () { done(new Error('could not load ' + src)); };
+  document.head.appendChild(s);
+}
+loadScript('https://accounts.google.com/gsi/client', function (err) {
+  gisReady = !err;
+  log(err ? 'Google sign-in script: FAILED (' + describeError(err) + ')' : 'Google sign-in script: loaded');
+});
+loadScript('https://apis.google.com/js/api.js', function (err) {
+  if (err) { log('Google API script: FAILED (' + describeError(err) + ')'); return; }
+  log('Google API script: loaded');
+  window.gapi.load('picker', function () { gapiReady = true; log('Picker library: loaded'); });
+});
+
+function requestToken(label) {
+  if (!gisReady || !window.google || !window.google.accounts) { log(label + ': Google sign-in is not loaded yet, tap again in a moment'); return; }
+  log(label + ': asking Google for access…');
+  var client = google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID,
+    scope: SCOPE,
+    prompt: '',
+    callback: function (resp) {
+      if (resp.error) { log(label + ': Google said ' + resp.error + ' ' + (resp.error_description || '')); return; }
+      token = resp.access_token;
+      log(label + ': signed in, token received (expires in ' + resp.expires_in + ' s)');
+    },
+    error_callback: function (err) { log(label + ': sign-in did not finish (' + (err && err.type ? err.type : describeError(err)) + ')'); }
+  });
+  client.requestAccessToken();
+}
+
+// 1: asked straight from the tap, as the app does when it is signed out and the scripts are loaded
+document.getElementById('b1').onclick = function () { requestToken('Test 1'); };
+
+// 2: waits for Google's script before asking, the way the app does on a cold start
+document.getElementById('b2').onclick = function () {
+  var tries = 0;
+  (function wait() {
+    if (gisReady || tries > 40) { requestToken('Test 2'); return; }
+    tries++;
+    setTimeout(wait, 250);
+  })();
+};
+
+document.getElementById('b3').onclick = function () {
+  if (!token) { log('Check Drive: no token yet. Do test 1 or 2 first.'); return; }
+  log('Check Drive: asking Drive who is signed in…');
+  fetch('https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)', { headers: { Authorization: 'Bearer ' + token } })
+    .then(function (r) { return r.text().then(function (t) { return { status: r.status, body: t }; }); })
+    .then(function (r) {
+      var email = '';
+      try { email = JSON.parse(r.body).user.emailAddress; } catch (e) { /* not JSON */ }
+      log('Check Drive: HTTP ' + r.status + (email ? ' for ' + email : ' ' + r.body.slice(0, 120)));
+    })
+    .catch(function (e) { log('Check Drive: request failed (' + describeError(e) + ')'); });
+};
+
+document.getElementById('b4').onclick = function () {
+  if (!token || !gapiReady) { log('Open Picker: needs a token (tests 1 or 2) and the Picker library'); return; }
+  try {
+    var view = new google.picker.DocsView(google.picker.ViewId.FOLDERS).setSelectFolderEnabled(true).setIncludeFolders(true);
+    new google.picker.PickerBuilder()
+      .setAppId(APP_ID).setOAuthToken(token).setDeveloperKey(API_KEY)
+      .addView(view).setCallback(function (data) { log('Picker: ' + data.action); })
+      .build().setVisible(true);
+    log('Open Picker: opened (choose a folder, or close it)');
+  } catch (e) { log('Open Picker: failed (' + describeError(e) + ')'); }
+};
+</script>
+</body>
+</html>
