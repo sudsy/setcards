@@ -330,6 +330,13 @@
       if (!f) return [];
       const top = await childrenOf([f.id]);
       debug(`listing band folder ${f.id} (${f.name}): ${top.length} items: ${top.map(describe).join('; ') || 'none'}`);
+      if (!top.length) {
+        // TEMPORARY DEBUG: what Google says about the folder itself, when its contents come back empty
+        try {
+          const r = await call(`${API}/files/${f.id}?fields=id,name,mimeType,trashed,ownedByMe,capabilities(canListChildren,canAddChildren),shared&supportsAllDrives=true`);
+          debug(`folder details: ${(await r.text()).slice(0, 400)}`);
+        } catch (e) { debug(`folder details failed: ${e.message}`); }
+      }
       tabsFolder = top.find((x) => x.name === TABS_NAME && x.mimeType === FOLDER_TYPE) || null;
       const songFolders = tabsFolder ? (await childrenOf([tabsFolder.id])).filter((x) => x.mimeType === FOLDER_TYPE) : [];
       const inside = songFolders.length ? await childrenOf(songFolders.map((x) => x.id)) : [];
