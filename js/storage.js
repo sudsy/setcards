@@ -329,6 +329,7 @@
       const f = folder();
       if (!f) return [];
       const top = await childrenOf([f.id]);
+      debug(`listing band folder ${f.id} (${f.name}): ${top.length} items: ${top.map(describe).join('; ') || 'none'}`);
       tabsFolder = top.find((x) => x.name === TABS_NAME && x.mimeType === FOLDER_TYPE) || null;
       const songFolders = tabsFolder ? (await childrenOf([tabsFolder.id])).filter((x) => x.mimeType === FOLDER_TYPE) : [];
       const inside = songFolders.length ? await childrenOf(songFolders.map((x) => x.id)) : [];
@@ -486,6 +487,13 @@
     const SHEET_TYPE = 'application/vnd.google-apps.spreadsheet';
     const STATUS = { proposed: 'Proposed', learning: 'Learning', ready: 'Ready' };
     let lastSheetCsv = null;
+    // TEMPORARY DEBUG: remove once the Song list problem is found
+    const debug = (msg) => {
+      const log = root.SETCARDS_DEBUG || (root.SETCARDS_DEBUG = []);
+      log.push(new Date().toTimeString().slice(0, 8) + ' ' + msg);
+      if (log.length > 300) log.shift();
+    };
+    const describe = (x) => `${x.name} [${(x.mimeType || '').split('.').pop()}] in ${(x.parents || []).join(',') || '-'}`;
     let sheetTimer = 0;
     const summaries = new Map();   // song id -> the fields the sheet shows, to spot changes that matter
 
@@ -579,6 +587,7 @@
       const songs = await allSongs();
       songs.forEach((s) => summaries.set(s.id, summaryOf(s)));
       const sheet = filesCache.find((x) => x.name === SHEET_NAME && x.mimeType === SHEET_TYPE);
+      debug(`sync: ${songs.length} songs; Song list ${sheet ? 'found ' + sheet.id : 'NOT found'}; files listed: ${filesCache.length}`);
       // read it fresh each time, so rows someone has just moved stay where they put them
       let current = '';
       if (sheet) { try { current = await readSheet(); } catch (e) { current = lastSheetCsv || ''; } }
@@ -587,6 +596,7 @@
       if (sheet) {
         await call(`${UPLOAD}/files/${sheet.id}?uploadType=media&supportsAllDrives=true`, { method: 'PATCH', headers: { 'Content-Type': 'text/csv' }, body: csv });
       } else {
+        debug(`creating a new Song list in ${folder().id}`);
         const m = multipart({ name: SHEET_NAME, parents: [folder().id], mimeType: SHEET_TYPE }, csv, 'text/csv');
         const r = await call(`${UPLOAD}/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,mimeType`, { method: 'POST', headers: { 'Content-Type': m.type }, body: m.body });
         filesCache.push(await r.json());
@@ -615,6 +625,7 @@
       setClient(c) { ls.set('setcards:google', c); },
       async connect(onlyId) {
         const picked = await pick('folder', onlyId);
+        debug(`picked folder ${picked.map((x) => x.id + ' (' + x.name + ')').join(', ') || 'nothing'}`);
         if (!picked.length) return null;
         ls.set('setcards:driveFolder', picked[0]);
         filesCache = null;

@@ -2186,6 +2186,13 @@
     const modeBox = els.modeBox;
     box.innerHTML = '';
     modeBox.innerHTML = '';
+    // TEMPORARY DEBUG: shows what the band folder listing and the Song list sync saw
+    const dbg = document.createElement('button');
+    dbg.type = 'button';
+    dbg.className = 'text-btn';
+    dbg.textContent = 'Debug log';
+    dbg.addEventListener('click', () => alert((window.SETCARDS_DEBUG || []).join('\n') || 'No log yet. Reload the song list, then try again.'));
+    modeBox.appendChild(dbg);
     if (inBand() && drive.connected()) {
       const f = drive.folder();
       box.innerHTML = `<p>Band folder: <a href="${esc(drive.folderUrl())}" target="_blank" rel="noopener">${esc(f.name)}</a></p>
