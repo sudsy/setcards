@@ -721,6 +721,8 @@
         card.appendChild(riffBlock(riff, shown.has(id)));
         shown.add(id);
       });
+      // held upright, the card is only its colour and tab; a long press opens the rest
+      if (isCompact()) attachPartDetail(card, g, occ, layoutHtml, fills);
       frag.appendChild(card);
     });
 
@@ -730,6 +732,48 @@
     if (back) els.cards.scrollLeft = back.offsetLeft - els.cards.offsetLeft;
     startMinis();
     markInView();
+  }
+
+  // A long press on a part (held upright) opens its details, so the card itself stays as small as its tab.
+  function attachPartDetail(card, g, occ, layoutHtml, fills) {
+    let timer = null;
+    let fired = false;
+    const cancel = () => { clearTimeout(timer); timer = null; };
+    card.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('button, input, textarea, select, a')) return;
+      fired = false;
+      timer = setTimeout(() => { fired = true; openPartDetail(g, occ, layoutHtml, fills); }, 500);
+    });
+    ['pointerup', 'pointerleave', 'pointercancel', 'pointermove'].forEach((ev) => card.addEventListener(ev, cancel));
+    card.addEventListener('contextmenu', (e) => e.preventDefault());
+    card.addEventListener('click', (e) => { if (fired) { e.preventDefault(); e.stopPropagation(); fired = false; } }, true);
+    card.style.webkitTouchCallout = 'none';
+  }
+
+  function openPartDetail(g, occ, layoutHtml, fills) {
+    const dlg = document.createElement('dialog');
+    dlg.className = 'sheet small part-detail';
+    const times = g.occ.length > 1 ? `played ${g.occ.length} times` : 'played once';
+    dlg.innerHTML = `
+      <div class="sheet-head"><h2></h2><button class="icon-btn" data-close aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+      <p class="fine times"></p>
+      <div class="detail-layout">${layoutHtml}</div>
+      ${fills.length ? `<p class="fills">Small changes at bar${fills.length > 1 ? 's' : ''} ${fills.slice(0, 8).join(', ')}${fills.length > 8 ? '…' : ''}.</p>` : ''}
+      <div class="detail-actions"></div>`;
+    dlg.querySelector('h2').textContent = g.name;
+    dlg.querySelector('.times').textContent = times;
+    const actions = dlg.querySelector('.detail-actions');
+    const play = document.createElement('button');
+    play.type = 'button';
+    play.className = 'text-btn primary';
+    play.textContent = 'Play this part';
+    play.addEventListener('click', () => { dlg.close(); playRange(occ[0].start, occ[0].end); });
+    actions.appendChild(play);
+    actions.appendChild(noteBlock(g.key, g.name));
+    dlg.addEventListener('close', () => dlg.remove());
+    document.body.appendChild(dlg);
+    if (window.dialogPolyfill) window.dialogPolyfill.registerDialog(dlg);
+    dlg.showModal();
   }
 
   function riffBlock(riff, seenBefore) {

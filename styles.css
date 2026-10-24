@@ -831,3 +831,16 @@ body.upright #songView .topbar .seg-toggle button { padding: 5px 9px; font-size:
   body.upright #songView .song-title { font-size: 1.05rem; }
   body.upright #songView .song-meta { display: none; }
 }
+
+/* held upright, a part is its colour and its tab; the heading, layout and riff rows are in its long press details */
+body.compact .card > .card-head, body.compact .card > .layout, body.compact .card .riff-head, body.compact .card .head-play { display: none; }
+body.compact .card { padding: 4px 8px 2px; gap: 0; }
+body.compact .card .riff { gap: 0; padding-top: 0; }
+body.compact .card > .role-note { margin-top: 2px; }
+.part-detail { width: min(92vw, 420px); }
+.part-detail .times { margin: 0 0 8px; }
+.part-detail .detail-layout { display: grid; gap: 4px; margin-bottom: 8px; }
+.part-detail .detail-layout .layout { display: flex; align-items: baseline; gap: 10px; }
+.part-detail .detail-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
+.part-detail .detail-actions .role-note, .part-detail .detail-actions .add-note { margin: 0; }
+body.compact .card .riff { border-top: 0; }
