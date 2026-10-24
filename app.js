@@ -2074,7 +2074,11 @@
         syncStart('songs', 'Checking Google Drive for changes…');
         let sec;
         try {
-          const songs = await drive.list();
+          // a connection that stalls is reported, rather than the check spinning on
+          const songs = await Promise.race([
+            drive.list(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Google Drive is taking too long to answer. Tap the refresh icon to try again.')), 30000))
+          ]);
           wrap.innerHTML = '';
           syncEnd('songs', songs.length && songs[0].offline ? 'Couldn’t reach Google Drive, so this is the copy on this phone' : 'Up to date', songs.length && songs[0].offline);
           sortSongs(songs);
@@ -2609,7 +2613,11 @@
           const sw = reg.installing;
           if (!hadController || !sw) return;
           syncStart('app', 'Updating Setcards…');
-          sw.addEventListener('statechange', () => { if (sw.state === 'redundant') syncEnd('app', ''); });
+          // done once the new version is active (the page then reloads onto it), or if it is dropped;
+          // a safety stop so the icon can never spin forever
+          const done = () => syncEnd('app', '');
+          sw.addEventListener('statechange', () => { if (sw.state === 'activated' || sw.state === 'redundant') done(); });
+          setTimeout(done, 60000);
         });
         const check = () => {
           if (!hadController) return;
