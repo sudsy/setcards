@@ -126,7 +126,11 @@ test('the full tab shows one section at a time, or the whole song', async ({ pag
   await expect(page.locator('#sectionBars')).toContainText('1 of 3');
   await page.click('#nextBtn');
   await expect(page.locator('#sectionName')).toHaveText('Verse');
-  await page.locator('#structure .step.whole').click();
+  // the Whole song pill is hidden when the phone is held upright, so go back with Previous
+  for (let i = 0; i < 12; i++) {
+    if ((await page.locator('#sectionName').textContent()) === 'Whole song') break;
+    await page.click('#prevBtn');
+  }
   await expect(page.locator('#sectionName')).toHaveText('Whole song');
 });
 

@@ -802,6 +802,20 @@
   const portraitQuery = window.matchMedia('(orientation: portrait) and (min-width: 600px)');
   const isCompact = () => document.body.classList.contains('compact');
   const compactClass = () => { const on = portraitQuery.matches && !!state.score; if (on !== isCompact()) { document.body.classList.toggle('compact', on); return true; } return false; };
+  // Held upright, the Cards and Full tab switch moves up into the title bar, beside Edit and settings.
+  const uprightQuery = window.matchMedia('(orientation: portrait)');
+  function placeViewToggle() {
+    const seg = document.querySelector('#songView .seg-toggle');
+    const mapTop = document.querySelector('#songView .map-top');
+    const topbar = document.querySelector('#songView .topbar');
+    if (!seg || !mapTop || !topbar) return;
+    document.body.classList.toggle('upright', uprightQuery.matches);
+    if (uprightQuery.matches) topbar.insertBefore(seg, els.settingsBtn);
+    else mapTop.appendChild(seg);
+  }
+  // moved after the rotation settles, so a song open at that moment is not disturbed
+  if (uprightQuery.addEventListener) uprightQuery.addEventListener('change', () => setTimeout(placeViewToggle, 300));
+  placeViewToggle();
   if (portraitQuery.addEventListener) portraitQuery.addEventListener('change', () => { if (compactClass() && state.score && prefs.view === 'cards') renderCards(); });
   const landscapeQuery = window.matchMedia('(orientation: landscape) and (max-height: 540px)');
   const isPaged = () => document.body.classList.contains('paged');
