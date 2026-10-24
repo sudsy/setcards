@@ -836,13 +836,14 @@ body.compact .card-head .head-play { margin-left: auto; width: 34px; height: 34p
 
 /* held upright: the view switch lives in the title bar, and the song order is just the parts */
 body.upright #songView .map-top { display: none; }
+body:not(.upright) #songView .top-view { display: none; }
+body.upright #songView .top-view { margin: 0; align-self: center; flex: none; }
 body.upright #songView .step.whole { display: none; }
-body.upright #songView .topbar .seg-toggle { margin: 0; align-self: center; flex: none; }
-body.upright #songView .topbar .seg-toggle button { padding: 5px 9px; font-size: 0.85rem; }
+body.upright #songView .topbar .top-view button { padding: 5px 9px; font-size: 0.85rem; }
 /* a phone held upright: the title bar is tightened so the switch, Bass, Edit and settings still leave room for the title */
 @media (max-width: 520px) {
   body.upright #songView .topbar { gap: 4px; padding-left: 6px; padding-right: 6px; }
-  body.upright #songView .topbar .seg-toggle button { padding: 4px 6px; font-size: 0.75rem; }
+  body.upright #songView .topbar .top-view button { padding: 4px 6px; font-size: 0.75rem; }
   body.upright #songView .topbar .role-btn, body.upright #songView .topbar #editBtn { padding: 5px 8px; font-size: 0.8rem; }
   body.upright #songView .song-title { font-size: 1.05rem; }
   body.upright #songView .song-meta { display: none; }

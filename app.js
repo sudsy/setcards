@@ -8,7 +8,7 @@
   const els = {
     songTitle: $('songTitle'), songMeta: $('songMeta'),
     structure: $('structure'),
-    viewCards: $('viewCards'), viewTab: $('viewTab'), roleBtn: $('roleBtn'),
+    viewCards: $('viewCards'), viewTab: $('viewTab'), viewCardsTop: $('viewCardsTop'), viewTabTop: $('viewTabTop'), roleBtn: $('roleBtn'),
     sectionHead: $('sectionHead'), sectionName: $('sectionName'), sectionBars: $('sectionBars'),
     prevBtn: $('prevBtn'), nextBtn: $('nextBtn'),
     editBtn: $('editBtn'), editPanel: $('editPanel'), sectionList: $('sectionList'),
@@ -855,20 +855,10 @@
   const portraitQuery = window.matchMedia('(orientation: portrait) and (min-width: 600px)');
   const isCompact = () => document.body.classList.contains('compact');
   const compactClass = () => { const on = portraitQuery.matches && !!state.score; if (on !== isCompact()) { document.body.classList.toggle('compact', on); return true; } return false; };
-  // Held upright, the Cards and Full tab switch moves up into the title bar, beside Edit and settings.
   const uprightQuery = window.matchMedia('(orientation: portrait)');
-  function placeViewToggle() {
-    const seg = document.querySelector('#songView .seg-toggle');
-    const mapTop = document.querySelector('#songView .map-top');
-    const topbar = document.querySelector('#songView .topbar');
-    if (!seg || !mapTop || !topbar) return;
-    document.body.classList.toggle('upright', uprightQuery.matches);
-    if (uprightQuery.matches) topbar.insertBefore(seg, els.settingsBtn);
-    else mapTop.appendChild(seg);
-  }
-  // moved after the rotation settles, so a song open at that moment is not disturbed
-  if (uprightQuery.addEventListener) uprightQuery.addEventListener('change', () => setTimeout(placeViewToggle, 300));
-  placeViewToggle();
+  const syncUpright = () => document.body.classList.toggle('upright', uprightQuery.matches);
+  syncUpright();
+  if (uprightQuery.addEventListener) uprightQuery.addEventListener('change', syncUpright);
   if (portraitQuery.addEventListener) portraitQuery.addEventListener('change', () => { if (compactClass() && state.score && prefs.view === 'cards') renderCards(); });
   const landscapeQuery = window.matchMedia('(orientation: landscape) and (max-height: 540px)');
   const isPaged = () => document.body.classList.contains('paged');
@@ -975,8 +965,10 @@
   function applyViewChrome() {
     applyPaged();
     const cards = prefs.view === 'cards';
-    els.viewCards.setAttribute('aria-pressed', String(cards));
-    els.viewTab.setAttribute('aria-pressed', String(!cards));
+    [[els.viewCards, els.viewCardsTop, cards], [els.viewTab, els.viewTabTop, !cards]].forEach(([a, b, on]) => {
+      a.setAttribute('aria-pressed', String(on));
+      b.setAttribute('aria-pressed', String(on));
+    });
     els.cards.hidden = !cards;
     els.tab.hidden = cards;
     els.sectionHead.hidden = cards;
@@ -1821,6 +1813,8 @@
   els.nextBtn.addEventListener('click', () => selectView(state.view + 1));
   els.viewCards.addEventListener('click', () => setView('cards'));
   els.viewTab.addEventListener('click', () => setView('tab'));
+  els.viewCardsTop.addEventListener('click', () => setView('cards'));
+  els.viewTabTop.addEventListener('click', () => setView('tab'));
 
   document.addEventListener('keydown', (e) => {
     if (e.target.closest('input, select, textarea, dialog')) return;

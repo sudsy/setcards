@@ -119,7 +119,7 @@ test('tapping a section in the song order scrolls to its card', async ({ page })
 
 test('the full tab shows one section at a time, or the whole song', async ({ page }) => {
   await openDemo(page);
-  await page.click('#viewTab');
+  await page.click('#viewTab:visible, #viewTabTop:visible');
   await expect(page.locator('#tab .at-surface svg').first()).toBeVisible();
   await steps(page).nth(4).click();
   await expect(page.locator('#sectionName')).toHaveText('Chorus');
@@ -379,7 +379,7 @@ test('the bass view hides chords unless they are turned on', async ({ page }) =>
 
   await chooseRole(page, 'Bass');
   await expect(page.locator('.chord-row')).toHaveCount(0);
-  await page.click('#viewTab');
+  await page.click('#viewTab:visible, #viewTabTop:visible');
   await expect(page.locator('#tab .at-surface svg').first()).toBeVisible();
   await expect(page.locator('#tab text', { hasText: 'Intro' }).first()).toBeVisible();
   await expect(page.locator('#tab text', { hasText: /^Em$/ })).toHaveCount(0);
@@ -389,7 +389,7 @@ test('the bass view hides chords unless they are turned on', async ({ page }) =>
   await page.check('#showChords');
   await page.locator('#settingsDlg [data-close]').click();
   await expect(page.locator('#tab text', { hasText: /^Em$/ }).first()).toBeVisible();
-  await page.click('#viewCards');
+  await page.click('#viewCards:visible, #viewCardsTop:visible');
   await expect(page.locator('.card[data-group="intro"] .chord-cell').first()).toHaveText('Em');
 });
 
@@ -400,7 +400,7 @@ test('the tab can be transposed for the band or just on this device', async ({ p
   await page.locator('.card[data-group="intro"] .chord-cell').first().click();
   await page.fill('#chordInput', 'Em');
   await page.click('#chordForm button[type=submit]');
-  await page.click('#viewTab');
+  await page.click('#viewTab:visible, #viewTabTop:visible');
   const firstFrets = () => page.evaluate(() => [...document.querySelectorAll('#tab text')].map((t) => t.textContent).filter((t) => /^\d+$/.test(t)).slice(1, 4).join(' '));
   await expect(page.locator('#tab .at-surface svg').first()).toBeVisible();
   const before = await firstFrets();
