@@ -919,8 +919,9 @@
           scale: prefs.zoom * (isPaged() ? 0.72 : isCompact() ? 0.7 : 0.85), layoutMode: AT.LayoutMode.Page, staveProfile: STAVES[prefs.stave] ?? AT.StaveProfile.Tab,
           startBar: Number(el.dataset.start) + 1, barCount: Number(el.dataset.len),
           barsPerRow: barsPerRow(el.clientWidth || els.cards.clientWidth, Number(el.dataset.len)),
-          // a full last row is stretched across the card like the others; a short one keeps its natural width
-          justifyLastSystem: Number(el.dataset.len) % barsPerRow(el.clientWidth || els.cards.clientWidth, Number(el.dataset.len)) === 0
+          // a phrase of 8 or more bars that fills its rows is stretched across the card; a short riff keeps its natural width,
+          // so three bars are not stretched into the width of eight
+          justifyLastSystem: Number(el.dataset.len) >= 8 && Number(el.dataset.len) % barsPerRow(el.clientWidth || els.cards.clientWidth, Number(el.dataset.len)) === 0
         },
         notation: { rhythmMode: AT.TabRhythmMode.ShowWithBars },
         player: { playerMode: AT.PlayerMode.Disabled }
