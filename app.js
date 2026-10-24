@@ -966,6 +966,8 @@
     lastFit = barsPerRow(els.cards.clientWidth, 8, null);
     const holders = [...els.cards.querySelectorAll('.mini-tab')];
     if (!holders.length) return;
+    // A part's tab is drawn while it is near the screen and released when it scrolls away, so a long song never
+    // holds every drawing in memory (an older iPad runs out of memory and crashes with them all open).
     const draw = (el) => {
       if (el.dataset.drawn) return;
       el.dataset.drawn = '1';
@@ -990,6 +992,7 @@
       mini.updateSettings();
       // alphaTab adds a "rendered by alphaTab" line to every render; the full tab keeps it, snippets drop it.
       mini.renderFinished.on(() => {
+        el.style.minHeight = '';
         // the card is its full height now, which can move the parts after it on to the next screen;
         // a part just picked from the song order is kept in view
         const picked = pagedTarget && isPaged() && els.cards.querySelector(`.card[data-group="${CSS.escape(pagedTarget)}"]`);
@@ -999,10 +1002,24 @@
         el.querySelectorAll('svg').forEach((svg) => { if (svg.querySelectorAll('text').length === 1 && /alphaTab/.test(svg.textContent)) svg.parentElement.style.display = 'none'; });
       });
       mini.renderScore(state.score, [state.trackIndex]);
+      el._mini = mini;
       minis.push(mini);
     };
+    const release = (el) => {
+      if (!el.dataset.drawn) return;
+      // keep the height, so the card below does not jump when this one is released
+      if (el.offsetHeight) el.style.minHeight = `${el.offsetHeight}px`;
+      const mini = el._mini;
+      if (mini) {
+        try { mini.destroy(); } catch (e) { /* already gone */ }
+        minis = minis.filter((m) => m !== mini);
+      }
+      el._mini = null;
+      el.innerHTML = '';
+      delete el.dataset.drawn;
+    };
     if ('IntersectionObserver' in window) {
-      miniObserver = new IntersectionObserver((entries) => entries.forEach((en) => { if (en.isIntersecting) draw(en.target); }),
+      miniObserver = new IntersectionObserver((entries) => entries.forEach((en) => { if (en.isIntersecting) draw(en.target); else release(en.target); }),
         isPaged() ? { root: els.cards, rootMargin: '0px 100% 0px 100%' } : { root: els.scroller, rootMargin: '300px' });
       holders.forEach((h) => miniObserver.observe(h));
     } else {
