@@ -792,3 +792,23 @@ body.paged .card .mini-tab { margin-bottom: -14px; }
 @media (prefers-reduced-motion: reduce) { .sync-btn.busy svg { animation-duration: 2.4s; } }
 /* tab numbers: a box in the page colour sits under each number (see addNumberHalos in app.js) */
 .tab-halo { fill: var(--surface); stroke: none; }
+
+/* ---------- compact cards: a tablet held upright, where several parts should fit on one screen ---------- */
+body.compact #songView .song-keys { display: none; }
+body.compact .card .fills, body.compact .card .seen-note, body.compact .add-note { display: none; }
+body.compact .card { padding: 8px 10px 4px; gap: 4px; }
+body.compact .card-head h2 { font-size: 1.05rem; }
+body.compact .card .layout { font-size: 0.85rem; }
+body.compact .card .riff { padding-top: 4px; gap: 2px; }
+body.compact .card .riff-head { gap: 6px; }
+body.compact .card .riff-len { font-size: 0.75rem; }
+body.compact .cards { gap: 8px; }
+body.compact #songView .map { padding-top: 2px; padding-bottom: 6px; }
+/* a part with one riff: its letter and length are already on the layout line, so the riff row only keeps play */
+body.compact .card.single-riff .riff-id, body.compact .card.single-riff .riff-len { display: none; }
+body.compact .card.single-riff .riff-head { min-height: 0; justify-content: flex-end; margin-top: -30px; position: relative; z-index: 1; }
+body.compact .card.single-riff .riff-play { width: 34px; height: 34px; }
+body.compact .card .mini-tab { margin-bottom: -40px; }
+body.compact .structure { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; max-height: none; scrollbar-width: none; }
+body.compact .structure::-webkit-scrollbar { display: none; }
+body.compact .step { flex: none; }

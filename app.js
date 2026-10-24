@@ -635,6 +635,7 @@
   els.noteClear.addEventListener('click', () => { els.noteText.value = ''; });
 
   function renderCards() {
+    compactClass();
     // in performance mode a redraw keeps the part that was on screen
     const keep = isPaged() ? els.structure.querySelector('.step.in-view') : null;
     const keepGroup = keep && keep.dataset.group;
@@ -780,11 +781,16 @@
   // As many bars to a row as fit (about 140px a bar at normal size), keeping to 1, 2, 4 or 8 so phrases stay together:
   // 2 on a phone, 8 on a wide screen.
   function barsPerRow(width, len) {
-    const fit = Math.max(1, Math.floor(width / ((isPaged() ? 90 : 140) * prefs.zoom)));
+    const fit = Math.max(1, Math.floor(width / ((isPaged() ? 90 : isCompact() ? 82 : 140) * prefs.zoom)));
     const n = [8, 4, 2, 1].find((x) => x <= fit);
     return Math.min(len, n);
   }
   // A phone on its side: one screen per part (two when they fit), swiped or picked from the song order.
+  // A tablet held upright: the cards are trimmed so several parts fit on one screen without scrolling.
+  const portraitQuery = window.matchMedia('(orientation: portrait) and (min-width: 600px)');
+  const isCompact = () => document.body.classList.contains('compact');
+  const compactClass = () => { const on = portraitQuery.matches && !!state.score; if (on !== isCompact()) { document.body.classList.toggle('compact', on); return true; } return false; };
+  if (portraitQuery.addEventListener) portraitQuery.addEventListener('change', () => { if (compactClass() && state.score && prefs.view === 'cards') renderCards(); });
   const landscapeQuery = window.matchMedia('(orientation: landscape) and (max-height: 540px)');
   const isPaged = () => document.body.classList.contains('paged');
   function applyPaged() {
@@ -833,7 +839,7 @@
       const mini = new AT.AlphaTabApi(el, {
         core: { fontDirectory: 'lib/font/', engine: 'svg', logLevel: 'error', useWorkers: false, enableLazyLoading: false },
         display: {
-          scale: prefs.zoom * (isPaged() ? 0.72 : 0.85), layoutMode: AT.LayoutMode.Page, staveProfile: STAVES[prefs.stave] ?? AT.StaveProfile.Tab,
+          scale: prefs.zoom * (isPaged() ? 0.72 : isCompact() ? 0.7 : 0.85), layoutMode: AT.LayoutMode.Page, staveProfile: STAVES[prefs.stave] ?? AT.StaveProfile.Tab,
           startBar: Number(el.dataset.start) + 1, barCount: Number(el.dataset.len),
           barsPerRow: barsPerRow(el.clientWidth || els.cards.clientWidth, Number(el.dataset.len)),
           // a full last row is stretched across the card like the others; a short one keeps its natural width
