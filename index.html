@@ -320,6 +320,27 @@
     <button id="barRemove" class="text-btn danger" hidden>Remove this section break</button>
   </dialog>
 
+  <dialog id="tabNoteDlg" class="sheet small">
+    <div class="sheet-head">
+      <h2 id="tabNoteTitle">Note</h2>
+      <button class="icon-btn" data-close aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <p id="tabNoteText" class="fine"></p>
+    <div id="tabNotePositions" class="presets"></div>
+    <form id="tabNoteForm" class="bar-form">
+      <label class="field">
+        <span>Move to string and fret</span>
+        <span class="note-fields">
+          <select id="tabNoteString" aria-label="String"></select>
+          <input id="tabNoteFret" type="number" min="0" max="24" inputmode="numeric" aria-label="Fret">
+        </span>
+      </label>
+      <button class="text-btn primary" type="submit">Move here</button>
+    </form>
+  </dialog>
+
   <dialog id="chordDlg" class="sheet small">
     <div class="sheet-head">
       <h2 id="chordDlgTitle">Chords</h2>

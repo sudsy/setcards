@@ -107,6 +107,14 @@
         await tx('readwrite', (s) => s.put(r));
         return id;
       },
+      // Puts a changed Guitar Pro file in place of the song's file, for notes moved in the tab.
+      async replaceTab(id, bytes) {
+        const r = await tx('readonly', (s) => s.get(id));
+        if (!r) throw new Error('Song not found on this device');
+        r.data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+        r.updatedAt = Date.now();
+        await tx('readwrite', (s) => s.put(r));
+      },
       remove: (id) => tx('readwrite', (s) => s.delete(id))
     };
   })();
@@ -765,6 +773,16 @@
         return tab.id;
       },
       // Gives a tab-less song its Guitar Pro file. Returns the song's new id.
+      // Puts a changed Guitar Pro file in place of the song's file, for notes moved in the tab.
+      async replaceTab(id, bytes) {
+        const song = await findSong(id);
+        if (!song.tab) throw new Error('This song has no tab file');
+        const r = await call(`${UPLOAD}/files/${song.tab.id}?uploadType=media&supportsAllDrives=true&fields=id,modifiedTime`, { method: 'PATCH', headers: { 'Content-Type': 'application/octet-stream' }, body: bytes });
+        const updated = await r.json();
+        song.tab.modifiedTime = updated.modifiedTime;
+        scheduleSongList();
+        return updated;
+      },
       async attachTab(id, fileName, bytes, notes) {
         const song = await findSong(id);
         if (!song.folder) await moveLooseSongs([song]);

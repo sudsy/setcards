@@ -29,6 +29,8 @@
     noteDlg: $('noteDlg'), noteTitle: $('noteTitle'), noteHint: $('noteHint'), noteForm: $('noteForm'), noteText: $('noteText'), noteClear: $('noteClear'),
     settingsBtn: $('settingsBtn'), settingsDlg: $('settingsDlg'), trackSel: $('trackSel'),
     zoomRange: $('zoomRange'), zoomOut: $('zoomOut'), ytInput: $('ytInput'), exportBtn: $('exportBtn'), showTabCards: $('showTabCards'), showChords: $('showChords'),
+    tabNoteDlg: $('tabNoteDlg'), tabNoteTitle: $('tabNoteTitle'), tabNoteText: $('tabNoteText'), tabNotePositions: $('tabNotePositions'),
+    tabNoteForm: $('tabNoteForm'), tabNoteString: $('tabNoteString'), tabNoteFret: $('tabNoteFret'),
     barDlg: $('barDlg'), barDlgTitle: $('barDlgTitle'), barDlgText: $('barDlgText'),
     presetRow: $('presetRow'), barForm: $('barForm'), barName: $('barName'), barSubmit: $('barSubmit'), barRemove: $('barRemove'),
     barChords: $('barChords'), barChordsAll: $('barChordsAll'), barChordsAllLabel: $('barChordsAllLabel'),
@@ -444,6 +446,112 @@
   // and are included when the annotated file is downloaded. Original values are kept to restore later.
   const original = { text: new Map(), chord: new Map() };
   const addedChordIds = new Set();
+
+  /* ---------------- notes moved by hand ---------------- */
+  // A note is found by its place in the track (bar, voice, beat, and position in the beat), which is the same in the file and after reading it again.
+  const PITCH_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  const MAX_NOTE_FRET = 24;
+  const noteKey = (n) => `${n.beat.voice.bar.index}.${n.beat.voice.index}.${n.beat.index}.${n.beat.notes.indexOf(n)}`;
+  const noteStaff = () => state.score.tracks[state.trackIndex].staves[0];
+  const openPitch = (st, string) => st.tuning[st.tuning.length - string];   // string 1 is the lowest
+  const pitchName = (p) => `${PITCH_NAMES[((p % 12) + 12) % 12]}${Math.floor(p / 12) - 1}`;
+
+  function stringedNotes(track) {
+    const st = track.staves[0];
+    const out = [];
+    if (!st || st.isPercussion || !st.tuning || !st.tuning.length) return out;
+    st.bars.forEach((bar) => bar.voices.forEach((v) => v.beats.forEach((b) => b.notes.forEach((n) => { if (n.isStringed && !n.isDead) out.push(n); }))));
+    return out;
+  }
+
+  // Why notes cannot be moved here, or null when they can.
+  function noteEditBlock() {
+    if (!state.song || !state.source || state.source.tex || !state.source.bytes) return 'Notes can only be moved in a Guitar Pro file.';
+    if (/\.(xml|musicxml|mxl)$/i.test(state.song.fileName || '')) return 'Notes in MusicXML files cannot be moved yet.';
+    if (transposeSemis()) return 'Set the key back to the file’s key to move notes, so the saved file keeps its notes.';
+    if (!SM.library.parse(state.song.key).source.replaceTab) return 'This copy of the song is read-only here.';
+    return null;
+  }
+
+  // The file as it was read, with this one note moved. It is read back and checked before it is used, so only that note changes.
+  function fileWithNote(key, string, fret) {
+    const settings = api.settings;
+    const score = AT.importer.ScoreLoader.loadScoreFromBytes(state.source.bytes, settings);
+    const before = stringedNotes(score.tracks[state.trackIndex]);
+    const target = before.find((n) => noteKey(n) === key);
+    if (!target) return null;
+    target.string = string;
+    target.fret = fret;
+    const bytes = new Uint8Array(new AT.exporter.Gp7Exporter().export(score, settings));
+    const check = AT.importer.ScoreLoader.loadScoreFromBytes(bytes, settings);
+    const after = stringedNotes(check.tracks[state.trackIndex]);
+    const same = check.masterBars.length === score.masterBars.length &&
+      after.length === before.length &&
+      before.every((n, i) => {
+        const c = after[i];
+        const s = n === target ? string : n.string;
+        const f = n === target ? fret : n.fret;
+        return noteKey(c) === noteKey(n) && c.string === s && c.fret === f;
+      });
+    return same ? bytes : null;
+  }
+
+  // Moves a note in the Guitar Pro file itself, then reads the song again so the tab, cards and analysis follow.
+  async function moveNote(note, string, fret) {
+    const st = noteStaff();
+    if (!note || !Number.isInteger(string) || !Number.isInteger(fret) || string < 1 || string > st.tuning.length || fret < 0 || fret > MAX_NOTE_FRET) {
+      toast(`Fret must be 0 to ${MAX_NOTE_FRET}`);
+      return false;
+    }
+    const blocked = noteEditBlock();
+    if (blocked) { toast(blocked); return false; }
+    const bytes = fileWithNote(noteKey(note), string, fret);
+    if (!bytes) { toast('That note could not be moved in the file, so nothing was changed'); return false; }
+    const { source, id } = SM.library.parse(state.song.key);
+    try {
+      await source.replaceTab(id, bytes);
+    } catch (e) {
+      console.error(e);
+      toast('The file could not be saved. Check the connection and try again.');
+      return false;
+    }
+    state.source = { bytes, tex: null, hash: fingerprint(bytes) };
+    loadSource();
+    toast('Note moved in the file');
+    return true;
+  }
+
+  let tabNoteTarget = null;
+  function openTabNoteDialog(note) {
+    const blocked = noteEditBlock();
+    if (blocked) { toast(blocked); return; }
+    tabNoteTarget = note;
+    const st = noteStaff();
+    const pitch = openPitch(st, note.string) + note.fret;
+    const bar = note.beat.voice.bar.index + 1;
+    els.tabNoteTitle.textContent = `Bar ${bar}`;
+    els.tabNoteText.textContent = `${pitchName(pitch)}, string ${note.string}, fret ${note.fret}. Tap a position to move the note there.`;
+    els.tabNotePositions.innerHTML = '';
+    for (let s = 1; s <= st.tuning.length; s++) {
+      const f = pitch - openPitch(st, s);
+      if (f < 0 || f > MAX_NOTE_FRET) continue;
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = `String ${s}, fret ${f}`;
+      if (s === note.string) b.setAttribute('aria-current', 'true');
+      b.addEventListener('click', () => { closeDialog(els.tabNoteDlg); moveNote(note, s, f); });
+      els.tabNotePositions.appendChild(b);
+    }
+    els.tabNoteString.innerHTML = '';
+    for (let s = 1; s <= st.tuning.length; s++) els.tabNoteString.appendChild(new Option(`String ${s}`, String(s), false, s === note.string));
+    els.tabNoteFret.value = String(note.fret);
+    els.tabNoteDlg.showModal();
+  }
+  els.tabNoteForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    closeDialog(els.tabNoteDlg);
+    moveNote(tabNoteTarget, Number(els.tabNoteString.value), Number(els.tabNoteFret.value));
+  });
 
   function applyAnnotations() {
     const score = state.score;
@@ -1243,7 +1351,7 @@
 
   /* ---------------- alphaTab ---------------- */
   const api = new AT.AlphaTabApi(els.tab, {
-    core: { fontDirectory: 'lib/font/', engine: renderEngine, logLevel: 'warning' },
+    core: { fontDirectory: 'lib/font/', engine: renderEngine, logLevel: 'warning', includeNoteBounds: true },
     display: { scale: prefs.zoom, layoutMode: AT.LayoutMode.Page, staveProfile: STAVES[prefs.stave] ?? AT.StaveProfile.Tab },
     notation: { rhythmMode: AT.TabRhythmMode.ShowWithBars },
     player: {
@@ -1411,7 +1519,13 @@
     const surface = els.tab.querySelector('.at-surface');
     if (!surface) return;
     const r = surface.getBoundingClientRect();
-    const beat = api.boundsLookup.getBeatAtPos(e.clientX - r.left, e.clientY - r.top);
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    // a fingertip is bigger than a fret number, so the points around the tap are tried too
+    const note = [[0, 0], [5, 0], [-5, 0], [0, 5], [0, -5], [9, 0], [-9, 0], [0, 9], [0, -9]]
+      .map(([dx, dy]) => api.boundsLookup.getNoteAtPos(x + dx, y + dy)).find(Boolean);
+    if (note) { openTabNoteDialog(note); return; }
+    const beat = api.boundsLookup.getBeatAtPos(x, y);
     if (beat) openBarDialog(beat.voice.bar.index);
   });
 
