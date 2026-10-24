@@ -108,10 +108,11 @@
         return id;
       },
       // Puts a changed Guitar Pro file in place of the song's file, for notes moved in the tab.
-      async replaceTab(id, bytes) {
+      async replaceTab(id, bytes, fileName) {
         const r = await tx('readonly', (s) => s.get(id));
         if (!r) throw new Error('Song not found on this device');
         r.data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+        if (fileName) r.fileName = fileName;
         r.updatedAt = Date.now();
         await tx('readwrite', (s) => s.put(r));
       },
@@ -774,11 +775,15 @@
       },
       // Gives a tab-less song its Guitar Pro file. Returns the song's new id.
       // Puts a changed Guitar Pro file in place of the song's file, for notes moved in the tab.
-      async replaceTab(id, bytes) {
+      async replaceTab(id, bytes, fileName) {
         const song = await findSong(id);
         if (!song.tab) throw new Error('This song has no tab file');
-        const r = await call(`${UPLOAD}/files/${song.tab.id}?uploadType=media&supportsAllDrives=true&fields=id,modifiedTime`, { method: 'PATCH', headers: { 'Content-Type': 'application/octet-stream' }, body: bytes });
-        const updated = await r.json();
+        const r = await call(`${UPLOAD}/files/${song.tab.id}?uploadType=media&supportsAllDrives=true&fields=id,name,modifiedTime`, { method: 'PATCH', headers: { 'Content-Type': 'application/octet-stream' }, body: bytes });
+        let updated = await r.json();
+        if (fileName && fileName !== updated.name) {
+          const named = await call(`${API}/files/${song.tab.id}?supportsAllDrives=true&fields=id,name,modifiedTime`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: fileName }) });
+          updated = await named.json();
+        }
         song.tab.modifiedTime = updated.modifiedTime;
         scheduleSongList();
         return updated;

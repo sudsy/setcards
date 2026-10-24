@@ -28,7 +28,7 @@
     addYt: $('addYt'), addStatus: $('addStatus'),
     noteDlg: $('noteDlg'), noteTitle: $('noteTitle'), noteHint: $('noteHint'), noteForm: $('noteForm'), noteText: $('noteText'), noteClear: $('noteClear'),
     settingsBtn: $('settingsBtn'), settingsDlg: $('settingsDlg'), trackSel: $('trackSel'),
-    zoomRange: $('zoomRange'), zoomOut: $('zoomOut'), ytInput: $('ytInput'), exportBtn: $('exportBtn'), showTabCards: $('showTabCards'), showChords: $('showChords'),
+    zoomRange: $('zoomRange'), zoomOut: $('zoomOut'), ytInput: $('ytInput'), exportBtn: $('exportBtn'), showTabCards: $('showTabCards'), showChords: $('showChords'), replaceInput: $('replaceInput'),
     tabNoteDlg: $('tabNoteDlg'), tabNoteTitle: $('tabNoteTitle'), tabNoteText: $('tabNoteText'), tabNotePositions: $('tabNotePositions'),
     tabNoteForm: $('tabNoteForm'), tabNoteString: $('tabNoteString'), tabNoteFret: $('tabNoteFret'),
     barDlg: $('barDlg'), barDlgTitle: $('barDlgTitle'), barDlgText: $('barDlgText'),
@@ -467,7 +467,6 @@
   // Why notes cannot be moved here, or null when they can.
   function noteEditBlock() {
     if (!state.song || !state.source || state.source.tex || !state.source.bytes) return 'Notes can only be moved in a Guitar Pro file.';
-    if (/\.(xml|musicxml|mxl)$/i.test(state.song.fileName || '')) return 'Notes in MusicXML files cannot be moved yet.';
     if (transposeSemis()) return 'Set the key back to the file’s key to move notes, so the saved file keeps its notes.';
     if (!SM.library.parse(state.song.key).source.replaceTab) return 'This copy of the song is read-only here.';
     return null;
@@ -496,6 +495,9 @@
     return same ? bytes : null;
   }
 
+  // Guitar Pro 7 files are saved as .gp, keeping the song's name.
+  const gpName = (fileName) => `${(fileName || 'Song').replace(/\.(gp[345]?|gpx|xml|musicxml|mxl|capx)$/i, '')}.gp`;
+
   // Moves a note in the Guitar Pro file itself, then reads the song again so the tab, cards and analysis follow.
   async function moveNote(note, string, fret) {
     const st = noteStaff();
@@ -508,14 +510,17 @@
     const bytes = fileWithNote(noteKey(note), string, fret);
     if (!bytes) { toast('That note could not be moved in the file, so nothing was changed'); return false; }
     const { source, id } = SM.library.parse(state.song.key);
+    // the file is Guitar Pro 7 now, so it is named .gp whatever it was before
+    const name = gpName(state.song.fileName);
     try {
-      await source.replaceTab(id, bytes);
+      await source.replaceTab(id, bytes, name);
     } catch (e) {
       console.error(e);
       toast('The file could not be saved. Check the connection and try again.');
       return false;
     }
     state.source = { bytes, tex: null, hash: fingerprint(bytes) };
+    state.song.fileName = name;
     loadSource();
     toast('Note moved in the file');
     return true;
@@ -1772,6 +1777,29 @@
   }
 
   // Attaches a Guitar Pro file to a song that didn't have one, keeping its notes, status and video.
+  // Puts an uploaded file in place of the song's tab. Sections, chords and notes stay with the song.
+  async function replaceTabFile(file) {
+    if (!file) return;
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      AT.importer.ScoreLoader.loadScoreFromBytes(bytes, api.settings);   // throws when this is not a readable tab
+      const { source, id } = SM.library.parse(state.song.key);
+      if (!source.replaceTab) throw new Error('This copy of the song is read-only here.');
+      await flushSave();
+      toast('Replacing the tab…');
+      await source.replaceTab(id, bytes, file.name);
+      state.song.fileName = file.name;
+      state.source = { bytes, tex: null, hash: fingerprint(bytes) };
+      loadSource();
+      closeDialog(els.settingsDlg);
+      toast('Tab replaced');
+    } catch (e) {
+      console.error(e);
+      toast(e.message && /read-only|Google|Drive/.test(e.message) ? e.message : 'That file could not be read. Setcards opens Guitar Pro 3 to 8 files and MusicXML.');
+    }
+  }
+  els.replaceInput.addEventListener('change', (e) => { replaceTabFile(e.target.files[0]); e.target.value = ''; });
+
   async function attachTab(file) {
     if (!file) return;
     try {
