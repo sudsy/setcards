@@ -734,17 +734,12 @@
         play.setAttribute('aria-label', `Play ${g.name}`);
         play.title = `Play ${g.name}`;
         play.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5l12 7-12 7z"/></svg>';
-        play.addEventListener('click', () => playRange(r.start, r.start + r.len - 1));
+        play.addEventListener('click', () => playRange(occ[0].start, occ[0].end));
         card.querySelector('.card-head').appendChild(play);
       }
-      riffIds.forEach((id) => {
-        const riff = state.riffs[id];
-        if (!riff) return;
-        // in landscape or upright, a riff with no notes for this instrument has no tab to show
-        if ((isPaged() || isCompact()) && riff.empty) return;
-        card.appendChild(riffBlock(riff, shown.has(id)));
-        shown.add(id);
-      });
+      // the whole section is written out, bar by bar, including any repeats inside it
+      card.appendChild(sectionBlock(occ[0]));
+      riffIds.forEach((id) => shown.add(id));
       // held upright, the card is only its colour and tab; a long press opens the rest
       if (isCompact()) attachPartDetail(card, g, occ, layoutHtml, fills);
       frag.appendChild(card);
@@ -806,6 +801,38 @@
     document.body.appendChild(dlg);
     if (window.dialogPolyfill) window.dialogPolyfill.registerDialog(dlg);
     dlg.showModal();
+  }
+
+  // A part written out in full: every bar of the section in order, so repeats are shown in place.
+  function sectionBlock(p) {
+    const div = document.createElement('div');
+    div.className = 'riff section-block';
+    const chordCells = [];
+    for (let bar = p.start; bar <= p.end; bar++) {
+      const names = chordsAt(bar);
+      const ri = riffForBar(bar);
+      const riffId = ri ? ri.riff : '';
+      const offset = ri ? ri.offset : 0;
+      chordCells.push(`<button class="chord-cell" data-bar="${bar}" data-riff="${riffId}" data-offset="${offset}" title="Change the chords for bar ${bar + 1}">${names.length ? names.map(esc).join(' ') : '<span class="no-chord">+ chord</span>'}</button>`);
+    }
+    div.innerHTML = `
+      <div class="riff-head">
+        <span class="riff-len">${plural(p.bars, 'bar')}</span>
+        <button class="riff-play" type="button" aria-label="Play this part" title="Play this part">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5l12 7-12 7z"/></svg>
+        </button>
+      </div>
+      ${showChords() ? `<div class="chord-row">${chordCells.join('<span class="bar-sep">|</span>')}</div>` : ''}`;
+    div.querySelectorAll('.chord-cell').forEach((b) => b.addEventListener('click', () => openChordDialog(Number(b.dataset.bar), b.dataset.riff, Number(b.dataset.offset))));
+    div.querySelector('.riff-play').addEventListener('click', () => playRange(p.start, p.end));
+    if (showTabInCards()) {
+      const holder = document.createElement('div');
+      holder.className = 'mini-tab';
+      holder.dataset.start = p.start;
+      holder.dataset.len = p.bars;
+      div.appendChild(holder);
+    }
+    return div;
   }
 
   function riffBlock(riff, seenBefore) {
