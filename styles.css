@@ -809,6 +809,11 @@ body.compact .card.single-riff .riff-id, body.compact .card.single-riff .riff-le
 body.compact .card.single-riff .riff-head { min-height: 0; justify-content: flex-end; margin-top: -30px; position: relative; z-index: 1; }
 body.compact .card.single-riff .riff-play { width: 34px; height: 34px; }
 body.compact .card .mini-tab { margin-bottom: -40px; }
-body.compact .structure { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; max-height: none; scrollbar-width: none; }
-body.compact .structure::-webkit-scrollbar { display: none; }
-body.compact .step { flex: none; }
+body.compact .structure { flex-wrap: wrap; max-height: none; }
+
+/* portrait: the title and its details share a row, and a one-riff part plays from its heading */
+body.compact #songView .song-id { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+body.compact #songView .song-title { font-size: 1.15rem; }
+body.compact #songView .song-meta { font-size: 0.8rem; }
+body.compact .card.single-riff .riff-head { display: none; }
+body.compact .card-head .head-play { margin-left: auto; width: 34px; height: 34px; }

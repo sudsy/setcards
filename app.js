@@ -703,6 +703,18 @@
       const riffIds = [];
       occ.forEach((p) => p.units.forEach((u) => { if (!riffIds.includes(u.riff)) riffIds.push(u.riff); }));
       card.classList.toggle('single-riff', riffIds.length === 1);
+      // a part with one riff gets its play button in the heading when the riff row is hidden (portrait)
+      if (riffIds.length === 1 && isCompact() && state.riffs[riffIds[0]]) {
+        const r = state.riffs[riffIds[0]];
+        const play = document.createElement('button');
+        play.type = 'button';
+        play.className = 'riff-play head-play';
+        play.setAttribute('aria-label', `Play ${g.name}`);
+        play.title = `Play ${g.name}`;
+        play.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5l12 7-12 7z"/></svg>';
+        play.addEventListener('click', () => playRange(r.start, r.start + r.len - 1));
+        card.querySelector('.card-head').appendChild(play);
+      }
       riffIds.forEach((id) => {
         const riff = state.riffs[id];
         if (!riff) return;
