@@ -110,6 +110,8 @@
       this.marks.push(`${name} ${Math.round(performance.now() - this.t0)} ms`);
       this.show();
     },
+    // the panel is for the song screen, so it is out of the way on the song list
+    hide() { if (this.box) this.box.hidden = true; },
     miniDrawn() { if (this.t0) { this.drawn++; this.show(); } },
     miniDone() { if (this.t0) { this.done++; this.last = Math.round(performance.now() - this.t0); this.show(); } },
     show() {
@@ -2178,6 +2180,7 @@
     showList(fresh);
   }
   function showList(fresh) {
+    diag.hide();
     const live = els.songListWrap;
     live.querySelectorAll('.song-row.current').forEach((r) => r.classList.remove('current'));
     if (live.innerHTML !== fresh.innerHTML) {
