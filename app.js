@@ -97,34 +97,35 @@
     toastTimer = setTimeout(() => els.toast.classList.remove('show'), 2800);
   }
   const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-  // Timings for opening a song, to see where the time goes on a device without developer tools.
-  // Add ?diag=1 to the address to turn them on (?diag=0 turns them off); the figures show in the corner.
+  // Timings for opening a song, shown after the song loads until they are dismissed. Shown again on each song opened.
   const diag = {
-    on: false, t0: 0, marks: [], drawn: 0, done: 0, last: 0, box: null,
+    t0: 0, marks: [], drawn: 0, done: 0, last: 0, box: null, dismissed: false,
     start() {
-      if (!this.on) return;
       this.t0 = performance.now(); this.marks = []; this.drawn = 0; this.done = 0; this.last = 0;
+      this.dismissed = false;
       this.mark('opening');
     },
     mark(name) {
-      if (!this.on || !this.t0) return;
+      if (!this.t0) return;
       this.marks.push(`${name} ${Math.round(performance.now() - this.t0)} ms`);
       this.show();
     },
-    miniDrawn() { if (this.on && this.t0) { this.drawn++; this.show(); } },
-    miniDone() { if (this.on && this.t0) { this.done++; this.last = Math.round(performance.now() - this.t0); this.show(); } },
+    miniDrawn() { if (this.t0) { this.drawn++; this.show(); } },
+    miniDone() { if (this.t0) { this.done++; this.last = Math.round(performance.now() - this.t0); this.show(); } },
     show() {
-      if (!this.box) { this.box = document.createElement('div'); this.box.className = 'diag'; document.body.appendChild(this.box); }
-      const minis = this.drawn ? [`minis drawn ${this.drawn}, finished ${this.done}, last at ${this.last} ms`] : [];
-      this.box.textContent = [...this.marks, ...minis].join('\n');
+      if (this.dismissed) return;
+      if (!this.box) {
+        this.box = document.createElement('div');
+        this.box.className = 'diag';
+        this.box.innerHTML = '<div class="diag-head"><strong>Opening timings</strong><button type="button" class="diag-close" aria-label="Dismiss timings">Dismiss</button></div><pre class="diag-body"></pre>';
+        this.box.querySelector('.diag-close').addEventListener('click', () => { this.dismissed = true; this.box.hidden = true; });
+        document.body.appendChild(this.box);
+      }
+      this.box.hidden = false;
+      const minis = this.drawn ? [`part tabs drawn ${this.drawn}, finished ${this.done}, last at ${this.last} ms`] : [];
+      this.box.querySelector('.diag-body').textContent = [...this.marks, ...minis].join('\n');
     }
   };
-  try {
-    const q = new URLSearchParams(location.search).get('diag');
-    if (q === '1') localStorage.setItem('setcards:diag', '1');
-    if (q === '0') localStorage.removeItem('setcards:diag');
-    diag.on = localStorage.getItem('setcards:diag') === '1';
-  } catch (e) { /* storage blocked: no diagnostics */ }
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
   function kindOf(name) {
