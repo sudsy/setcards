@@ -86,6 +86,7 @@
   let ytReady = false;
   let ytApi = null;
   let minis = [];       // small alphaTab renderers inside the cards
+  let drawSeq = 0;
   let miniObserver = null;
 
   /* ---------------- helpers ---------------- */
@@ -108,9 +109,9 @@
 
   // Timings for opening a song, shown after the song loads until they are dismissed. Shown again on each song opened.
   const diag = {
-    t0: 0, marks: [], drawn: 0, done: 0, last: 0, box: null, dismissed: false,
+    t0: 0, marks: [], drawn: 0, done: 0, last: 0, cached: 0, box: null, dismissed: false,
     start() {
-      this.t0 = performance.now(); this.marks = []; this.drawn = 0; this.done = 0; this.last = 0;
+      this.t0 = performance.now(); this.marks = []; this.drawn = 0; this.done = 0; this.last = 0; this.cached = 0;
       this.dismissed = false;
       this.mark(`opening (${renderEngine})`);
     },
@@ -123,6 +124,7 @@
     hide() { if (this.box) this.box.hidden = true; },
     miniDrawn() { if (this.t0) { this.drawn++; this.show(); } },
     miniDone() { if (this.t0) { this.done++; this.last = Math.round(performance.now() - this.t0); this.show(); } },
+    restored() { if (this.t0) { this.cached++; this.show(); } },
     show() {
       if (this.dismissed) return;
       if (!this.box) {
@@ -134,6 +136,7 @@
       }
       this.box.hidden = false;
       const minis = this.drawn ? [`part tabs drawn ${this.drawn}, finished ${this.done}, last at ${this.last} ms`] : [];
+      if (this.cached) minis.push(`part tabs from this device's copy ${this.cached}`);
       this.box.querySelector('.diag-body').textContent = [...this.marks, ...minis].join('\n');
     }
   };
@@ -1002,25 +1005,123 @@
     }, 250);
   });
 
+  // A stable fingerprint of the file's contents, so a changed file never shows parts drawn from the old one.
+  function fingerprint(data) {
+    const view = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
+    let h = 0x811c9dc5;
+    for (let i = 0; i < view.length; i++) h = Math.imul(h ^ (typeof view === 'string' ? view.charCodeAt(i) : view[i]), 0x01000193);
+    return `${(h >>> 0).toString(16)}:${view.length}`;
+  }
+
+  // Parts drawn on the canvas engine are kept on this device as images, so reopening a song shows them without drawing again.
+  const partCache = (() => {
+    let db = null;
+    const hasIdb = () => typeof indexedDB !== 'undefined';
+    const open = () => db || (db = new Promise((res, rej) => {
+      const r = indexedDB.open('setcards-parts', 1);
+      r.onupgradeneeded = () => { const st = r.result.createObjectStore('parts', { keyPath: 'k' }); st.createIndex('song', 'song'); };
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    }));
+    const run = (mode, fn) => open().then((d) => new Promise((res, rej) => {
+      const t = d.transaction('parts', mode);
+      const req = fn(t.objectStore('parts'));
+      t.oncomplete = () => res(req && req.result);
+      t.onerror = () => rej(t.error);
+    }));
+    return {
+      get: (k) => (hasIdb() ? run('readonly', (st) => st.get(k)) : Promise.resolve(null)),
+      put: (rec) => (hasIdb() ? run('readwrite', (st) => st.put(rec)) : Promise.resolve()),
+      // parts drawn from an older copy of the song's file are no longer used
+      prune: (song, fileHash) => (hasIdb() ? open().then((d) => new Promise((res, rej) => {
+        const t = d.transaction('parts', 'readwrite');
+        const req = t.objectStore('parts').index('song').openCursor(IDBKeyRange.only(song));
+        req.onsuccess = () => { const c = req.result; if (!c) return; if (c.value.fileHash !== fileHash || c.value.v !== 2) c.delete(); c.continue(); };
+        t.oncomplete = () => res();
+        t.onerror = () => rej(t.error);
+      })) : Promise.resolve())
+    };
+  })();
+
+  // What the part's tab is drawn with. A part drawn with the same settings, song file and colours can be reused.
+  function partKey(display) {
+    const cs = getComputedStyle(document.documentElement);
+    const colours = ['--ink', '--muted', '--surface'].map((v) => cs.getPropertyValue(v).trim()).join();
+    return ['v2', state.song.key, state.source.hash, transposeSemis(), state.trackIndex, colours, JSON.stringify(display)].join('|');
+  }
+
+  // The settings a part is drawn with, from its size on the card.
+  function miniDisplay(el) {
+    const len = Number(el.dataset.len);
+    const start = Number(el.dataset.start);
+    const width = el.clientWidth || els.cards.clientWidth;
+    const perRow = barsPerRow(width, len, start);
+    return {
+      scale: prefs.zoom * (isPaged() ? 0.72 : isCompact() ? 0.7 : 0.85),
+      staveProfile: STAVES[prefs.stave] ?? AT.StaveProfile.Tab,
+      startBar: start + 1, barCount: len, barsPerRow: perRow,
+      // a phrase of 8 or more bars that fills its rows is stretched across the card; a short riff keeps its natural width,
+      // so three bars are not stretched into the width of eight
+      justifyLastSystem: len >= 8 && len % perRow === 0
+    };
+  }
+
+  // The drawn part as its canvases, one image per system, with the sizes and positions it was laid out at,
+  // so it can be put back on the card without alphaTab.
+  function snapshotMini(el) {
+    const surface = el.querySelector('.at-surface');
+    if (!surface || !surface.offsetWidth) return null;
+    const box = (n) => `left:${n.offsetLeft}px;top:${n.offsetTop}px;width:${n.offsetWidth}px;height:${n.offsetHeight}px`;
+    const systems = [...surface.children].map((div) => {
+      const c = div.querySelector('canvas');
+      if (!c) return { box: box(div), html: div.outerHTML };
+      return { box: box(div), src: c.toDataURL('image/png'), w: c.offsetWidth, h: c.offsetHeight };
+    });
+    return { size: `width:${surface.offsetWidth}px;height:${surface.offsetHeight}px`, systems };
+  }
+
+  function restoreMini(el, snap) {
+    el.textContent = '';
+    const surface = document.createElement('div');
+    surface.className = 'at-surface at';
+    surface.setAttribute('style', `position:relative;overflow:hidden;line-height:0;font-size:0px;${snap.size}`);
+    snap.systems.forEach((s) => {
+      const div = document.createElement('div');
+      div.setAttribute('style', `position:absolute;display:inline-block;z-index:1;${s.box}`);
+      if (s.src) {
+        const img = new Image();
+        img.src = s.src;
+        img.setAttribute('style', `width:${s.w}px;height:${s.h}px`);
+        div.appendChild(img);
+      } else {
+        div.innerHTML = s.html;
+      }
+      surface.appendChild(div);
+    });
+    el.appendChild(surface);
+  }
+
   function startMinis() {
     lastFit = barsPerRow(els.cards.clientWidth, 8, null);
     const holders = [...els.cards.querySelectorAll('.mini-tab')];
     if (!holders.length) return;
     // A part's tab is drawn while it is near the screen and released when it scrolls away, so a long song never
     // holds every drawing in memory (an older iPad runs out of memory and crashes with them all open).
-    const draw = (el) => {
-      if (el.dataset.drawn) return;
-      el.dataset.drawn = '1';
+    // Runs once a part's tab is on its card, whether it was restored from the device's copy or drawn.
+    const settled = (el) => {
+      el.style.minHeight = '';
+      // the card is its full height now, which can move the parts after it on to the next screen;
+      // a part just picked from the song order is kept in view
+      const picked = pagedTarget && isPaged() && els.cards.querySelector(`.card[data-group="${CSS.escape(pagedTarget)}"]`);
+      if (picked) els.cards.scrollLeft = picked.offsetLeft - els.cards.offsetLeft;
+      clearTimeout(markInView.t);
+      markInView.t = setTimeout(markInView, 80);
+      el.querySelectorAll('svg').forEach((svg) => { if (svg.querySelectorAll('text').length === 1 && /alphaTab/.test(svg.textContent)) svg.parentElement.style.display = 'none'; });
+    };
+    const drawMini = (el, display, base) => {
       const mini = new AT.AlphaTabApi(el, {
         core: { fontDirectory: 'lib/font/', engine: renderEngine, logLevel: 'error', useWorkers: false, enableLazyLoading: false },
-        display: {
-          scale: prefs.zoom * (isPaged() ? 0.72 : isCompact() ? 0.7 : 0.85), layoutMode: AT.LayoutMode.Page, staveProfile: STAVES[prefs.stave] ?? AT.StaveProfile.Tab,
-          startBar: Number(el.dataset.start) + 1, barCount: Number(el.dataset.len),
-          barsPerRow: barsPerRow(el.clientWidth || els.cards.clientWidth, Number(el.dataset.len), Number(el.dataset.start)),
-          // a phrase of 8 or more bars that fills its rows is stretched across the card; a short riff keeps its natural width,
-          // so three bars are not stretched into the width of eight
-          justifyLastSystem: Number(el.dataset.len) >= 8 && Number(el.dataset.len) % barsPerRow(el.clientWidth || els.cards.clientWidth, Number(el.dataset.len), Number(el.dataset.start)) === 0
-        },
+        display: Object.assign({ layoutMode: AT.LayoutMode.Page }, display),
         notation: { rhythmMode: AT.TabRhythmMode.ShowWithBars },
         player: { playerMode: AT.PlayerMode.Disabled }
       });
@@ -1031,21 +1132,37 @@
       styleTab(mini);
       mini.updateSettings();
       // alphaTab adds a "rendered by alphaTab" line to every render; the full tab keeps it, snippets drop it.
+      let kept = false;
       mini.renderFinished.on(() => {
         diag.miniDone();
-        el.style.minHeight = '';
-        // the card is its full height now, which can move the parts after it on to the next screen;
-        // a part just picked from the song order is kept in view
-        const picked = pagedTarget && isPaged() && els.cards.querySelector(`.card[data-group="${CSS.escape(pagedTarget)}"]`);
-        if (picked) els.cards.scrollLeft = picked.offsetLeft - els.cards.offsetLeft;
-        clearTimeout(markInView.t);
-        markInView.t = setTimeout(markInView, 80);
-        el.querySelectorAll('svg').forEach((svg) => { if (svg.querySelectorAll('text').length === 1 && /alphaTab/.test(svg.textContent)) svg.parentElement.style.display = 'none'; });
+        settled(el);
+        if (!kept && renderEngine === 'html5') {
+          kept = true;
+          // alphaTab sets the size of the part a moment after it reports the render finished
+          setTimeout(() => {
+            const snap = el._mini === mini && snapshotMini(el);
+            if (snap) partCache.put(Object.assign({ snap, v: 2 }, base)).catch(() => {});
+          }, 200);
+        }
       });
       mini.renderScore(state.score, [state.trackIndex]);
       el._mini = mini;
       minis.push(mini);
       diag.miniDrawn();
+    };
+    // A part's tab is drawn while it is near the screen and released when it scrolls away, so a long song never
+    // holds every drawing in memory (an older iPad runs out of memory and crashes with them all open).
+    const draw = (el) => {
+      if (el.dataset.drawn) return;
+      const token = el.dataset.drawn = String(++drawSeq);
+      const display = miniDisplay(el);
+      const base = { k: partKey(display), song: state.song.key, fileHash: state.source.hash };
+      const cached = renderEngine === 'html5' ? partCache.get(base.k).catch(() => null) : Promise.resolve(null);
+      cached.then((rec) => {
+        if (el.dataset.drawn !== token || !el.isConnected) return;   // released or replaced meanwhile
+        if (rec) { restoreMini(el, rec.snap); diag.restored(); settled(el); return; }
+        drawMini(el, display, base);
+      });
     };
     const release = (el) => {
       if (!el.dataset.drawn) return;
@@ -1492,7 +1609,7 @@
       return;
     }
     // All tracks are loaded; the one for this person's role is chosen once the file is read.
-    state.source = { bytes: song.bytes, tex: song.tex };
+    state.source = { bytes: song.bytes, tex: song.tex, hash: fingerprint(song.bytes || song.tex) };
     loadSource();
   }
 
@@ -1500,6 +1617,7 @@
   function loadSource() {
     const key = state.song.key;
     const track = (prefs.tracks[key] && prefs.tracks[key][prefs.role]) || 0;
+    if (renderEngine === 'html5') partCache.prune(key, state.source.hash).catch(() => {});
     if (state.source.tex) api.tex(state.source.tex, [track]);
     else api.load(state.source.bytes, [track]);
   }
