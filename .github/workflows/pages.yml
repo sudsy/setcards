@@ -61,10 +61,9 @@ jobs:
         run: sed -i "s/__SETCARDS_VERSION__/${GITHUB_SHA::7}/" sw.js version.js
       - name: Install the build tools
         run: npm ci
-      # The site is the Safari 12 build, which also runs in modern browsers. It is published at the root,
-      # and again under /legacy/ so the copy already installed on older iPads keeps working.
+      # The site is the Safari 12 build, which also runs in modern browsers.
       - name: Build the site
-        run: node scripts/build-legacy.mjs site && node scripts/build-legacy.mjs site/legacy
+        run: node scripts/build-legacy.mjs site
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
