@@ -895,8 +895,18 @@
   // Small tab snippets are drawn only when they scroll into view.
   // As many bars to a row as fit (about 140px a bar at normal size), keeping to 1, 2, 4 or 8 so phrases stay together:
   // 2 on a phone, 8 on a wide screen.
-  function barsPerRow(width, len) {
-    const fit = Math.max(1, Math.floor(width / ((isPaged() ? 90 : isCompact() ? 82 : 140) * prefs.zoom)));
+  // Each note needs at least this much width on screen (CSS px, before the tab size), so a dense bar is never squeezed.
+  const MIN_PX_PER_NOTE = 22;
+  // How many bars fit on one line of a tab. A bar is never narrower than MIN_PX_PER_NOTE for each of its notes,
+  // so a dense section (a bass solo) wraps onto more lines instead of cramming its notes together.
+  function barsPerRow(width, len, start) {
+    let most = 0;
+    if (start != null && state.score) {
+      for (let k = 0; k < len; k++) most = Math.max(most, SM.analysis.barTokens(state.score, state.trackIndex, start + k).length);
+    }
+    const base = isPaged() ? 90 : isCompact() ? 82 : 140;
+    const barWidth = Math.max(base, most * MIN_PX_PER_NOTE) * prefs.zoom;
+    const fit = Math.max(1, Math.floor(width / barWidth));
     const n = [8, 4, 2, 1].find((x) => x <= fit);
     return Math.min(len, n);
   }
@@ -942,14 +952,14 @@
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
       if (!state.score || prefs.view !== 'cards' || els.songView.hidden) return;
-      const fit = barsPerRow(els.cards.clientWidth, 8);
+      const fit = barsPerRow(els.cards.clientWidth, 8, null);
       if (lastFit !== null && fit !== lastFit) { const top = els.scroller.scrollTop; renderCards(); els.scroller.scrollTop = top; }
       lastFit = fit;
     }, 250);
   });
 
   function startMinis() {
-    lastFit = barsPerRow(els.cards.clientWidth, 8);
+    lastFit = barsPerRow(els.cards.clientWidth, 8, null);
     const holders = [...els.cards.querySelectorAll('.mini-tab')];
     if (!holders.length) return;
     const draw = (el) => {
@@ -960,10 +970,10 @@
         display: {
           scale: prefs.zoom * (isPaged() ? 0.72 : isCompact() ? 0.7 : 0.85), layoutMode: AT.LayoutMode.Page, staveProfile: STAVES[prefs.stave] ?? AT.StaveProfile.Tab,
           startBar: Number(el.dataset.start) + 1, barCount: Number(el.dataset.len),
-          barsPerRow: barsPerRow(el.clientWidth || els.cards.clientWidth, Number(el.dataset.len)),
+          barsPerRow: barsPerRow(el.clientWidth || els.cards.clientWidth, Number(el.dataset.len), Number(el.dataset.start)),
           // a phrase of 8 or more bars that fills its rows is stretched across the card; a short riff keeps its natural width,
           // so three bars are not stretched into the width of eight
-          justifyLastSystem: Number(el.dataset.len) >= 8 && Number(el.dataset.len) % barsPerRow(el.clientWidth || els.cards.clientWidth, Number(el.dataset.len)) === 0
+          justifyLastSystem: Number(el.dataset.len) >= 8 && Number(el.dataset.len) % barsPerRow(el.clientWidth || els.cards.clientWidth, Number(el.dataset.len), Number(el.dataset.start)) === 0
         },
         notation: { rhythmMode: AT.TabRhythmMode.ShowWithBars },
         player: { playerMode: AT.PlayerMode.Disabled }
