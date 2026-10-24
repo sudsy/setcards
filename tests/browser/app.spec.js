@@ -345,10 +345,11 @@ test('a song can be added with just a name, then given its tab later', async ({ 
   await proposed.locator('.song-open').click();
   await page.locator('#attachInput').setInputFiles(await demoGpFile());
   await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
-  await expect(page.locator('#songMeta')).toContainText('Learning');
+  await expect(page.locator('#songMeta')).toContainText('Proposed');
   await expect(page.locator('.cards > .role-note .role-note-text')).toHaveText('Check the key with the singer');
   await page.click('#backBtn');
-  await expect(page.locator('.list-section', { hasText: 'Proposed' })).toHaveCount(0);
+  // still proposed until the band decides it is being learnt
+  await expect(page.locator('.list-section', { hasText: 'Proposed' })).toHaveCount(1);
   await expect(page.locator('.song-row .details').first()).toContainText('104 bpm');
   expect(errors).toEqual([]);
 });

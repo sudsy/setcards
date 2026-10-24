@@ -1509,7 +1509,6 @@
       await flushSave();
       const notes = Object.assign({}, state.notes, { meta: SM.analysis.songMeta(score), updatedAt: Date.now() });
       if (!notes.artist && score.artist) notes.artist = score.artist;
-      if (notes.status === 'proposed') notes.status = 'learning';
       toast('Adding the tab…');
       const newId = await source.attachTab(id, file.name, bytes, notes);
       await openSong(SM.library.key(sourceId, newId));
