@@ -97,13 +97,22 @@
     toastTimer = setTimeout(() => els.toast.classList.remove('show'), 2800);
   }
   const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  // Which alphaTab engine draws the tabs: 'svg' (default) or 'html5' (canvas). Set with ?engine=html5 or ?engine=svg, and kept on this device.
+  const renderEngine = (() => {
+    try {
+      const q = new URLSearchParams(location.search).get('engine');
+      if (q === 'svg' || q === 'html5') localStorage.setItem('setcards:engine', q);
+      return localStorage.getItem('setcards:engine') === 'html5' ? 'html5' : 'svg';
+    } catch (e) { return 'svg'; }
+  })();
+
   // Timings for opening a song, shown after the song loads until they are dismissed. Shown again on each song opened.
   const diag = {
     t0: 0, marks: [], drawn: 0, done: 0, last: 0, box: null, dismissed: false,
     start() {
       this.t0 = performance.now(); this.marks = []; this.drawn = 0; this.done = 0; this.last = 0;
       this.dismissed = false;
-      this.mark('opening');
+      this.mark(`opening (${renderEngine})`);
     },
     mark(name) {
       if (!this.t0) return;
@@ -1003,7 +1012,7 @@
       if (el.dataset.drawn) return;
       el.dataset.drawn = '1';
       const mini = new AT.AlphaTabApi(el, {
-        core: { fontDirectory: 'lib/font/', engine: 'svg', logLevel: 'error', useWorkers: false, enableLazyLoading: false },
+        core: { fontDirectory: 'lib/font/', engine: renderEngine, logLevel: 'error', useWorkers: false, enableLazyLoading: false },
         display: {
           scale: prefs.zoom * (isPaged() ? 0.72 : isCompact() ? 0.7 : 0.85), layoutMode: AT.LayoutMode.Page, staveProfile: STAVES[prefs.stave] ?? AT.StaveProfile.Tab,
           startBar: Number(el.dataset.start) + 1, barCount: Number(el.dataset.len),
@@ -1141,7 +1150,7 @@
 
   /* ---------------- alphaTab ---------------- */
   const api = new AT.AlphaTabApi(els.tab, {
-    core: { fontDirectory: 'lib/font/', engine: 'svg', logLevel: 'warning' },
+    core: { fontDirectory: 'lib/font/', engine: renderEngine, logLevel: 'warning' },
     display: { scale: prefs.zoom, layoutMode: AT.LayoutMode.Page, staveProfile: STAVES[prefs.stave] ?? AT.StaveProfile.Tab },
     notation: { rhythmMode: AT.TabRhythmMode.ShowWithBars },
     player: {
