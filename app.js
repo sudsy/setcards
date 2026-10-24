@@ -97,6 +97,34 @@
     toastTimer = setTimeout(() => els.toast.classList.remove('show'), 2800);
   }
   const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  // Timings for opening a song, to see where the time goes on a device without developer tools.
+  // Add ?diag=1 to the address to turn them on (?diag=0 turns them off); the figures show in the corner.
+  const diag = {
+    on: false, t0: 0, marks: [], drawn: 0, done: 0, last: 0, box: null,
+    start() {
+      if (!this.on) return;
+      this.t0 = performance.now(); this.marks = []; this.drawn = 0; this.done = 0; this.last = 0;
+      this.mark('opening');
+    },
+    mark(name) {
+      if (!this.on || !this.t0) return;
+      this.marks.push(`${name} ${Math.round(performance.now() - this.t0)} ms`);
+      this.show();
+    },
+    miniDrawn() { if (this.on && this.t0) { this.drawn++; this.show(); } },
+    miniDone() { if (this.on && this.t0) { this.done++; this.last = Math.round(performance.now() - this.t0); this.show(); } },
+    show() {
+      if (!this.box) { this.box = document.createElement('div'); this.box.className = 'diag'; document.body.appendChild(this.box); }
+      const minis = this.drawn ? [`minis drawn ${this.drawn}, finished ${this.done}, last at ${this.last} ms`] : [];
+      this.box.textContent = [...this.marks, ...minis].join('\n');
+    }
+  };
+  try {
+    const q = new URLSearchParams(location.search).get('diag');
+    if (q === '1') localStorage.setItem('setcards:diag', '1');
+    if (q === '0') localStorage.removeItem('setcards:diag');
+    diag.on = localStorage.getItem('setcards:diag') === '1';
+  } catch (e) { /* storage blocked: no diagnostics */ }
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
   function kindOf(name) {
@@ -992,6 +1020,7 @@
       mini.updateSettings();
       // alphaTab adds a "rendered by alphaTab" line to every render; the full tab keeps it, snippets drop it.
       mini.renderFinished.on(() => {
+        diag.miniDone();
         el.style.minHeight = '';
         // the card is its full height now, which can move the parts after it on to the next screen;
         // a part just picked from the song order is kept in view
@@ -1004,6 +1033,7 @@
       mini.renderScore(state.score, [state.trackIndex]);
       el._mini = mini;
       minis.push(mini);
+      diag.miniDrawn();
     };
     const release = (el) => {
       if (!el.dataset.drawn) return;
@@ -1182,6 +1212,7 @@
   new MutationObserver(onTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
   api.scoreLoaded.on((score) => {
+    diag.mark('parsed');
     state.score = score;
     original.text.clear();
     original.chord.clear();
@@ -1204,6 +1235,7 @@
       }
     }
     deriveParts();
+    diag.mark('sections and analysis');
     applyAnnotations();
     // key, tempo and length are kept with the song so the song list can show them without opening it
     const meta = state.tabMeta;
@@ -1216,7 +1248,7 @@
     renderMap();
     fillTrackSelect();
     applyPlaybackRange();
-    if (prefs.view === 'cards') { renderCards(); doneSwitching(); }
+    if (prefs.view === 'cards') { renderCards(); doneSwitching(); diag.mark('cards shown'); }
     if (suggested) toast(`This file had no sections, so Setcards suggested ${state.notes.sections.length}. Rename them in Edit.`);
   });
 
@@ -1373,6 +1405,7 @@
   async function openSong(key, title) {
     flushSave();
     opening = key;
+    diag.start();
     startSwitching(title);
     let song;
     try {
@@ -1384,6 +1417,7 @@
       toast(e.message || 'That song could not be opened');
       return false;
     }
+    diag.mark('copy read');
     if (opening !== key) return true;   // another song was picked meanwhile
     applySong(key, song);
     if (song.latest) checkForChanges(key, song);
