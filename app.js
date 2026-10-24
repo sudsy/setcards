@@ -381,6 +381,15 @@
       p.occNo = g.occ.length;
     });
 
+    // Sections with no name Setcards knows (Part A, B, C…) each get their own colour, in order of first appearance
+    let unnamed = 0;
+    groups.forEach((g) => {
+      if (!/^other/.test(g.kind)) return;
+      unnamed++;
+      g.kind = 'x' + ((unnamed - 1) % 8 + 1);
+      g.occ.forEach((i) => { parts[i].kind = g.kind; });
+    });
+
     // Repeating riffs inside each section, from the track this person plays.
     const res = SM.analysis.analyse(state.score, state.trackIndex, parts, chordsAt, parts.map((p) => p.ref && p.ref.unit));
     state.riffs = {};
