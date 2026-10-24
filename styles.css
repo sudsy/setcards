@@ -791,4 +791,4 @@ body.paged .card .mini-tab { margin-bottom: -14px; }
 .sync-btn.warn::after { content: ""; position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
 @media (prefers-reduced-motion: reduce) { .sync-btn.busy svg { animation-duration: 2.4s; } }
 /* tab numbers sit on a thin halo in the page colour, so they stand out where a line runs through them */
-#tab svg text, .mini-tab svg text { paint-order: stroke fill; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
+#tab svg text, .mini-tab svg text { paint-order: stroke fill; stroke: var(--surface); stroke-width: 7px; stroke-linejoin: round; }
