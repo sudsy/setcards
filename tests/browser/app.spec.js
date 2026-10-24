@@ -99,6 +99,8 @@ test('opens a song as cards, with the song order at the top', async ({ page }) =
   await expect(steps(page)).toHaveText(['Whole song', 'Intro', 'Verse', 'Pre-chorus', 'Chorus', 'Verse', 'Pre-chorus', 'Chorus', 'Bridge', 'Chorus', 'Outro']);
   await expect(page.locator('.card-head h2')).toHaveText(['Intro', 'Verse', 'Pre-chorus', 'Chorus', 'Bridge', 'Outro']);
   await expect(page.locator('.mini-tab canvas').first()).toBeVisible();
+  // alphaTab's credit is in the play bar, not in the parts
+  await expect(page.locator('.playerbar .player-credit')).toHaveText('rendered by alphaTab');
   expect(errors).toEqual([]);
 });
 

@@ -1356,7 +1356,12 @@
   });
 
   api.renderStarted.on(() => { els.loading.hidden = false; });
-  api.renderFinished.on(() => { els.loading.hidden = true; doneSwitching(); });
+  api.renderFinished.on(() => {
+    els.loading.hidden = true;
+    doneSwitching();
+    // alphaTab's credit line is shown in the play bar instead, so it is left out of the tab (set once the size is settled)
+    setTimeout(() => { const credit = creditLine(els.tab); if (credit) credit.style.display = 'none'; }, 200);
+  });
   // alphaTab draws its tab into the page after it reports a render, so the numbers are marked as they appear
   [els.tab, els.cards].forEach((box) => new MutationObserver(() => addNumberHalos(box)).observe(box, { childList: true, subtree: true }));
   api.error.on((e) => {
