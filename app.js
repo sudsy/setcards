@@ -968,6 +968,19 @@
   });
 
   // Theme colours, bigger bold fret numbers and wider string spacing than alphaTab's defaults (14px on 13px).
+  // Each tab number gets an outline copy in the page colour just under it, so the lines behind it are cut away.
+  // Done with a copy, not paint-order, because older browsers (Safari 12) ignore paint-order on SVG text.
+  function addNumberHalos(root) {
+    root.querySelectorAll('svg text').forEach((t) => {
+      if (t.dataset.halo || t.classList.contains('tab-halo') || !t.parentNode) return;
+      const halo = t.cloneNode(true);
+      halo.setAttribute('class', 'tab-halo');
+      halo.removeAttribute('fill');
+      t.dataset.halo = '1';
+      t.parentNode.insertBefore(halo, t);
+    });
+  }
+
   function styleTab(target) {
     const cs = getComputedStyle(document.documentElement);
     const v = (name) => cs.getPropertyValue(name).trim();
@@ -1038,6 +1051,8 @@
 
   api.renderStarted.on(() => { els.loading.hidden = false; });
   api.renderFinished.on(() => { els.loading.hidden = true; doneSwitching(); });
+  // alphaTab draws its tab into the page after it reports a render, so the numbers are marked as they appear
+  [els.tab, els.cards].forEach((box) => new MutationObserver(() => addNumberHalos(box)).observe(box, { childList: true, subtree: true }));
   api.error.on((e) => {
     els.loading.hidden = true;
     console.error(e);
