@@ -75,7 +75,7 @@
     loop: true,
     playing: false,
     playingPart: -1,
-    videoOn: true,
+    videoOn: false,
     barDlgIndex: 0,
     noteEdit: null,
     chordEdit: null
@@ -912,15 +912,14 @@
   }
   // A phone on its side: one screen per part (two when they fit), swiped or picked from the song order.
   // A tablet held upright: the cards are trimmed so several parts fit on one screen without scrolling.
-  const portraitQuery = window.matchMedia('(orientation: portrait)');
-  const isCompact = () => document.body.classList.contains('compact');
-  const compactClass = () => { const on = portraitQuery.matches && !!state.score; if (on !== isCompact()) { document.body.classList.toggle('compact', on); return true; } return false; };
-  const uprightQuery = window.matchMedia('(orientation: portrait)');
-  const syncUpright = () => document.body.classList.toggle('upright', uprightQuery.matches);
-  syncUpright();
-  if (uprightQuery.addEventListener) uprightQuery.addEventListener('change', syncUpright);
-  if (portraitQuery.addEventListener) portraitQuery.addEventListener('change', () => { if (compactClass() && state.score && prefs.view === 'cards') renderCards(); });
+  // Every window except a landscape phone (which has its own one-screen layout) gets the compact cards,
+  // with the Cards / Full tab switch in the title bar, so phones, tablets and desktops look the same.
   const landscapeQuery = window.matchMedia('(orientation: landscape) and (max-height: 540px)');
+  const isCompact = () => document.body.classList.contains('compact');
+  const compactClass = () => { const on = !landscapeQuery.matches && !!state.score; if (on !== isCompact()) { document.body.classList.toggle('compact', on); return true; } return false; };
+  const syncUpright = () => document.body.classList.toggle('upright', !landscapeQuery.matches);
+  syncUpright();
+  compactClass();
   const isPaged = () => document.body.classList.contains('paged');
   function applyPaged() {
     const paged = landscapeQuery.matches && prefs.view === 'cards' && !els.songView.hidden && !role().cues && !!state.score && state.song && state.song.hasTab !== false;
@@ -928,7 +927,12 @@
     document.body.classList.toggle('paged', paged);
     return true;
   }
-  const relayout = () => { if (applyPaged() && state.score && prefs.view === 'cards') renderCards(); };
+  const relayout = () => {
+    applyPaged();
+    const changed = compactClass();
+    syncUpright();
+    if ((changed || isPaged()) && state.score && prefs.view === 'cards') renderCards();
+  };
   if (landscapeQuery.addEventListener) landscapeQuery.addEventListener('change', relayout);
   // the song order lights up the parts on screen
   function markInView() {
@@ -1408,6 +1412,8 @@
     updateBanner();
     resetDisplay();
     if (state.editing) setEditing(false);
+    // a song's video is not shown until it is asked for
+    if (!refresh) state.videoOn = false;
     if (!refresh || song.notes.youtubeUrl !== prevVideo) setupVideo();
     const hasTab = !!(song.bytes || song.tex);
     state.song.hasTab = hasTab;
@@ -1480,7 +1486,6 @@
       const v = e.target.value.trim();
       if (v && !youtubeId(v)) { toast('That does not look like a YouTube link'); return; }
       state.notes.youtubeUrl = v;
-      state.videoOn = true;
       saveNotes();
       setupVideo();
     });
@@ -2669,7 +2674,6 @@
     const v = els.ytInput.value.trim();
     if (v && !youtubeId(v)) { toast('That does not look like a YouTube link'); return; }
     state.notes.youtubeUrl = v;
-    state.videoOn = true;
     saveNotes();
     setupVideo();
   });
