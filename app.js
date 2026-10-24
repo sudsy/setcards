@@ -98,48 +98,15 @@
     toastTimer = setTimeout(() => els.toast.classList.remove('show'), 2800);
   }
   const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-  // Which alphaTab engine draws the tabs: 'svg' (default) or 'html5' (canvas). Set with ?engine=html5 or ?engine=svg, and kept on this device.
+  // Which alphaTab engine draws the tabs: 'html5' (canvas, default) or 'svg'. ?engine=svg switches back, ?engine=html5 returns; kept on this device.
   const renderEngine = (() => {
     try {
       const q = new URLSearchParams(location.search).get('engine');
       if (q === 'svg' || q === 'html5') localStorage.setItem('setcards:engine', q);
-      return localStorage.getItem('setcards:engine') === 'html5' ? 'html5' : 'svg';
-    } catch (e) { return 'svg'; }
+      return localStorage.getItem('setcards:engine') === 'svg' ? 'svg' : 'html5';
+    } catch (e) { return 'html5'; }
   })();
 
-  // Timings for opening a song, shown after the song loads until they are dismissed. Shown again on each song opened.
-  const diag = {
-    t0: 0, marks: [], drawn: 0, done: 0, last: 0, cached: 0, box: null, dismissed: false,
-    start() {
-      this.t0 = performance.now(); this.marks = []; this.drawn = 0; this.done = 0; this.last = 0; this.cached = 0;
-      this.dismissed = false;
-      this.mark(`opening (${renderEngine})`);
-    },
-    mark(name) {
-      if (!this.t0) return;
-      this.marks.push(`${name} ${Math.round(performance.now() - this.t0)} ms`);
-      this.show();
-    },
-    // the panel is for the song screen, so it is out of the way on the song list
-    hide() { if (this.box) this.box.hidden = true; },
-    miniDrawn() { if (this.t0) { this.drawn++; this.show(); } },
-    miniDone() { if (this.t0) { this.done++; this.last = Math.round(performance.now() - this.t0); this.show(); } },
-    restored() { if (this.t0) { this.cached++; this.show(); } },
-    show() {
-      if (this.dismissed) return;
-      if (!this.box) {
-        this.box = document.createElement('div');
-        this.box.className = 'diag';
-        this.box.innerHTML = '<div class="diag-head"><strong>Opening timings</strong><button type="button" class="diag-close" aria-label="Dismiss timings">Dismiss</button></div><pre class="diag-body"></pre>';
-        this.box.querySelector('.diag-close').addEventListener('click', () => { this.dismissed = true; this.box.hidden = true; });
-        document.body.appendChild(this.box);
-      }
-      this.box.hidden = false;
-      const minis = this.drawn ? [`part tabs drawn ${this.drawn}, finished ${this.done}, last at ${this.last} ms`] : [];
-      if (this.cached) minis.push(`part tabs from this device's copy ${this.cached}`);
-      this.box.querySelector('.diag-body').textContent = [...this.marks, ...minis].join('\n');
-    }
-  };
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
   function kindOf(name) {
@@ -1036,7 +1003,7 @@
       prune: (song, fileHash) => (hasIdb() ? open().then((d) => new Promise((res, rej) => {
         const t = d.transaction('parts', 'readwrite');
         const req = t.objectStore('parts').index('song').openCursor(IDBKeyRange.only(song));
-        req.onsuccess = () => { const c = req.result; if (!c) return; if (c.value.fileHash !== fileHash || c.value.v !== 2) c.delete(); c.continue(); };
+        req.onsuccess = () => { const c = req.result; if (!c) return; if (c.value.fileHash !== fileHash || c.value.v !== 3) c.delete(); c.continue(); };
         t.oncomplete = () => res();
         t.onerror = () => rej(t.error);
       })) : Promise.resolve())
@@ -1047,7 +1014,7 @@
   function partKey(display) {
     const cs = getComputedStyle(document.documentElement);
     const colours = ['--ink', '--muted', '--surface'].map((v) => cs.getPropertyValue(v).trim()).join();
-    return ['v2', state.song.key, state.source.hash, transposeSemis(), state.trackIndex, colours, JSON.stringify(display)].join('|');
+    return ['v3', state.song.key, state.source.hash, transposeSemis(), state.trackIndex, colours, JSON.stringify(display)].join('|');
   }
 
   // The settings a part is drawn with, from its size on the card.
@@ -1066,13 +1033,21 @@
     };
   }
 
+  // alphaTab's "rendered by alphaTab" line is the small system at the end of a part; the cards leave it out
+  function creditLine(el) {
+    const kids = el.querySelectorAll('.at-surface > div');
+    const last = kids[kids.length - 1];
+    return last && last.offsetHeight <= 12 ? last : null;
+  }
+
   // The drawn part as its canvases, one image per system, with the sizes and positions it was laid out at,
   // so it can be put back on the card without alphaTab.
   function snapshotMini(el) {
     const surface = el.querySelector('.at-surface');
     if (!surface || !surface.offsetWidth) return null;
     const box = (n) => `left:${n.offsetLeft}px;top:${n.offsetTop}px;width:${n.offsetWidth}px;height:${n.offsetHeight}px`;
-    const systems = [...surface.children].map((div) => {
+    const credit = creditLine(el);
+    const systems = [...surface.children].filter((div) => div !== credit).map((div) => {
       const c = div.querySelector('canvas');
       if (!c) return { box: box(div), html: div.outerHTML };
       return { box: box(div), src: c.toDataURL('image/png'), w: c.offsetWidth, h: c.offsetHeight };
@@ -1134,21 +1109,22 @@
       // alphaTab adds a "rendered by alphaTab" line to every render; the full tab keeps it, snippets drop it.
       let kept = false;
       mini.renderFinished.on(() => {
-        diag.miniDone();
         settled(el);
         if (!kept && renderEngine === 'html5') {
           kept = true;
           // alphaTab sets the size of the part a moment after it reports the render finished
           setTimeout(() => {
-            const snap = el._mini === mini && snapshotMini(el);
-            if (snap) partCache.put(Object.assign({ snap, v: 2 }, base)).catch(() => {});
+            if (el._mini !== mini) return;
+            const credit = creditLine(el);
+            if (credit) credit.style.display = 'none';
+            const snap = snapshotMini(el);
+            if (snap) partCache.put(Object.assign({ snap, v: 3 }, base)).catch(() => {});
           }, 200);
         }
       });
       mini.renderScore(state.score, [state.trackIndex]);
       el._mini = mini;
       minis.push(mini);
-      diag.miniDrawn();
     };
     // A part's tab is drawn while it is near the screen and released when it scrolls away, so a long song never
     // holds every drawing in memory (an older iPad runs out of memory and crashes with them all open).
@@ -1160,7 +1136,7 @@
       const cached = renderEngine === 'html5' ? partCache.get(base.k).catch(() => null) : Promise.resolve(null);
       cached.then((rec) => {
         if (el.dataset.drawn !== token || !el.isConnected) return;   // released or replaced meanwhile
-        if (rec) { restoreMini(el, rec.snap); diag.restored(); settled(el); return; }
+        if (rec) { restoreMini(el, rec.snap); settled(el); return; }
         drawMini(el, display, base);
       });
     };
@@ -1341,7 +1317,6 @@
   new MutationObserver(onTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
   api.scoreLoaded.on((score) => {
-    diag.mark('parsed');
     state.score = score;
     original.text.clear();
     original.chord.clear();
@@ -1364,7 +1339,6 @@
       }
     }
     deriveParts();
-    diag.mark('sections and analysis');
     applyAnnotations();
     // key, tempo and length are kept with the song so the song list can show them without opening it
     const meta = state.tabMeta;
@@ -1377,7 +1351,7 @@
     renderMap();
     fillTrackSelect();
     applyPlaybackRange();
-    if (prefs.view === 'cards') { renderCards(); doneSwitching(); diag.mark('cards shown'); }
+    if (prefs.view === 'cards') { renderCards(); doneSwitching(); }
     if (suggested) toast(`This file had no sections, so Setcards suggested ${state.notes.sections.length}. Rename them in Edit.`);
   });
 
@@ -1534,7 +1508,6 @@
   async function openSong(key, title) {
     flushSave();
     opening = key;
-    diag.start();
     startSwitching(title);
     let song;
     try {
@@ -1546,7 +1519,6 @@
       toast(e.message || 'That song could not be opened');
       return false;
     }
-    diag.mark('copy read');
     if (opening !== key) return true;   // another song was picked meanwhile
     applySong(key, song);
     if (song.latest) checkForChanges(key, song);
@@ -2307,7 +2279,6 @@
     showList(fresh);
   }
   function showList(fresh) {
-    diag.hide();
     const live = els.songListWrap;
     live.querySelectorAll('.song-row.current').forEach((r) => r.classList.remove('current'));
     if (live.innerHTML !== fresh.innerHTML) {

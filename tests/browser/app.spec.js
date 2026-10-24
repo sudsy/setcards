@@ -98,7 +98,7 @@ test('opens a song as cards, with the song order at the top', async ({ page }) =
   await openDemo(page);
   await expect(steps(page)).toHaveText(['Whole song', 'Intro', 'Verse', 'Pre-chorus', 'Chorus', 'Verse', 'Pre-chorus', 'Chorus', 'Bridge', 'Chorus', 'Outro']);
   await expect(page.locator('.card-head h2')).toHaveText(['Intro', 'Verse', 'Pre-chorus', 'Chorus', 'Bridge', 'Outro']);
-  await expect(page.locator('.mini-tab svg').first()).toBeVisible();
+  await expect(page.locator('.mini-tab canvas').first()).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -120,7 +120,7 @@ test('tapping a section in the song order scrolls to its card', async ({ page })
 test('the full tab shows one section at a time, or the whole song', async ({ page }) => {
   await openDemo(page);
   await page.click('#viewTab:visible, #viewTabTop:visible');
-  await expect(page.locator('#tab .at-surface svg').first()).toBeVisible();
+  await expect(page.locator('#tab .at-surface canvas').first()).toBeVisible();
   await steps(page).nth(4).click();
   await expect(page.locator('#sectionName')).toHaveText('Chorus');
   await expect(page.locator('#sectionBars')).toContainText('1 of 3');
@@ -214,7 +214,7 @@ test('in Edit, tapping a bar starts a new section there', async ({ page }) => {
   await page.click('#editBtn');
   await expect(page.locator('#editPanel')).toBeVisible();
   const surface = page.locator('#tab .at-surface');
-  await expect(surface.locator('svg').first()).toBeVisible();
+  await expect(surface.locator('canvas').first()).toBeVisible();
   await page.locator('#scroller').evaluate((el) => { el.scrollTop = 200; });
   const box = await surface.boundingBox();
   await page.mouse.click(box.x + box.width / 2, box.y + 260);
@@ -377,6 +377,8 @@ test('band settings show which version of Setcards is running', async ({ page })
 });
 
 test('the bass view hides chords unless they are turned on', async ({ page }) => {
+  // these check the words alphaTab writes, which only the SVG engine leaves in the page
+  await page.addInitScript(() => localStorage.setItem('setcards:engine', 'svg'));
   await openDemo(page);
   await chooseRole(page, 'Guitar');
   // bar 1 (the intro), so it is in the part of the full tab that is drawn first
@@ -401,6 +403,8 @@ test('the bass view hides chords unless they are turned on', async ({ page }) =>
 });
 
 test('the tab can be transposed for the band or just on this device', async ({ page }) => {
+  // these check the words alphaTab writes, which only the SVG engine leaves in the page
+  await page.addInitScript(() => localStorage.setItem('setcards:engine', 'svg'));
   await openDemo(page);
   await chooseRole(page, 'Guitar');
   // a chord in the tab's own key
