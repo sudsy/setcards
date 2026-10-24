@@ -744,19 +744,27 @@
   }
 
   // A long press on a part (held upright) opens its details, so the card itself stays as small as its tab.
+  // Touch events, not pointer events: Safari before iOS 13 (older iPads) has no pointer events.
   function attachPartDetail(card, g, occ, layoutHtml, fills) {
     let timer = null;
     let fired = false;
-    const cancel = () => { clearTimeout(timer); timer = null; };
-    card.addEventListener('pointerdown', (e) => {
-      if (e.target.closest('button, input, textarea, select, a')) return;
+    const start = (e) => {
+      if (e.target.closest && e.target.closest('button, input, textarea, select, a')) return;
       fired = false;
+      clearTimeout(timer);
       timer = setTimeout(() => { fired = true; openPartDetail(g, occ, layoutHtml, fills); }, 500);
-    });
-    ['pointerup', 'pointerleave', 'pointercancel', 'pointermove'].forEach((ev) => card.addEventListener(ev, cancel));
+    };
+    const stop = () => { clearTimeout(timer); timer = null; };
+    card.addEventListener('touchstart', start, { passive: true });
+    card.addEventListener('touchmove', stop, { passive: true });
+    card.addEventListener('touchend', stop);
+    card.addEventListener('touchcancel', stop);
+    card.addEventListener('mousedown', start);
+    card.addEventListener('mouseup', stop);
+    card.addEventListener('mouseleave', stop);
     card.addEventListener('contextmenu', (e) => e.preventDefault());
+    // a long press that opened the details should not also act as a tap
     card.addEventListener('click', (e) => { if (fired) { e.preventDefault(); e.stopPropagation(); fired = false; } }, true);
-    card.style.webkitTouchCallout = 'none';
   }
 
   function openPartDetail(g, occ, layoutHtml, fills) {

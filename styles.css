@@ -851,7 +851,7 @@ body.upright #songView .topbar .top-view button { padding: 5px 9px; font-size: 0
 
 /* held upright, a part is its colour and its tab; the heading, layout and riff rows are in its long press details */
 body.compact .card > .card-head, body.compact .card > .layout, body.compact .card .riff-head, body.compact .card .head-play { display: none; }
-body.compact .card { padding: 4px 8px 2px; gap: 0; }
+body.compact .card { padding: 4px 8px 2px; gap: 0; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 body.compact .card .riff { gap: 0; padding-top: 0; }
 body.compact .card > .role-note { margin-top: 2px; }
 .part-detail { width: min(92vw, 420px); }
