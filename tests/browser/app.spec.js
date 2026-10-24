@@ -173,11 +173,17 @@ test('guitar shows chord diagrams and vocals shows the cue list', async ({ page 
 test('instrument notes are kept with the song and shown only in that instrument’s view', async ({ page }) => {
   await openDemo(page);
   const verseCard = page.locator('.card[data-group="verse"]');
-  await verseCard.locator('.add-note').click();
+  // held upright the card has no note button: a long press opens the part's details, which have one
+  await verseCard.evaluate((el) => el.dispatchEvent(new Event('touchstart', { bubbles: true })));
+  await page.waitForTimeout(650);
+  await verseCard.evaluate((el) => el.dispatchEvent(new Event('touchend', { bubbles: true })));
+  await page.locator('dialog.part-detail .add-note').click();
   await expect(page.locator('#noteTitle')).toHaveText('Bass note · Verse');
   await page.fill('#noteText', 'Walk up into the chorus');
   await page.click('#noteForm button[type=submit]');
   await expect(verseCard.locator('.role-note-text')).toHaveText('Walk up into the chorus');
+  // close the part's details, which opened with the long press
+  await page.keyboard.press('Escape');
 
   await page.click('#roleBtn');
   await page.click('.role-opt:has-text("Guitar")');

@@ -679,6 +679,19 @@
     state.groups.forEach((g) => {
       if (g.empty) return;   // its chip in the song order says how many bars to wait
       const occ = g.occ.map((i) => state.parts[i]);
+      // in landscape or upright, a part with almost nothing to play (mostly rests, or no tab for this instrument)
+      // gets no card of its own: fewer than a quarter of its bars have notes. Its chip stays in the song order.
+      if (isPaged() || isCompact()) {
+        let bars = 0;
+        let withNotes = 0;
+        occ.forEach((p) => p.units.forEach((u) => {
+          for (let k = 0; k < u.len; k++) {
+            bars++;
+            if (SM.analysis.barTokens(state.score, state.trackIndex, u.start + k).length) withNotes++;
+          }
+        }));
+        if (bars && withNotes / bars < 0.25) return;
+      }
       const card = document.createElement('section');
       card.className = 'card';
       card.dataset.group = g.key;
@@ -727,6 +740,8 @@
       riffIds.forEach((id) => {
         const riff = state.riffs[id];
         if (!riff) return;
+        // in landscape or upright, a riff with no notes for this instrument has no tab to show
+        if ((isPaged() || isCompact()) && riff.empty) return;
         card.appendChild(riffBlock(riff, shown.has(id)));
         shown.add(id);
       });
@@ -860,7 +875,7 @@
   }
   // A phone on its side: one screen per part (two when they fit), swiped or picked from the song order.
   // A tablet held upright: the cards are trimmed so several parts fit on one screen without scrolling.
-  const portraitQuery = window.matchMedia('(orientation: portrait) and (min-width: 600px)');
+  const portraitQuery = window.matchMedia('(orientation: portrait)');
   const isCompact = () => document.body.classList.contains('compact');
   const compactClass = () => { const on = portraitQuery.matches && !!state.score; if (on !== isCompact()) { document.body.classList.toggle('compact', on); return true; } return false; };
   const uprightQuery = window.matchMedia('(orientation: portrait)');
