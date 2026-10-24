@@ -790,5 +790,5 @@ body.paged .card .mini-tab { margin-bottom: -14px; }
 .sync-btn.busy svg { animation: spin 0.9s linear infinite; }
 .sync-btn.warn::after { content: ""; position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
 @media (prefers-reduced-motion: reduce) { .sync-btn.busy svg { animation-duration: 2.4s; } }
-/* tab numbers: an outline copy in the page colour sits under each number (see addNumberHalos in app.js) */
-.tab-halo { fill: none; stroke: var(--surface); stroke-width: 7px; stroke-linejoin: round; }
+/* tab numbers: a box in the page colour sits under each number (see addNumberHalos in app.js) */
+.tab-halo { fill: var(--surface); stroke: none; }

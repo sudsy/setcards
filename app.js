@@ -968,16 +968,28 @@
   });
 
   // Theme colours, bigger bold fret numbers and wider string spacing than alphaTab's defaults (14px on 13px).
-  // Each tab number gets an outline copy in the page colour just under it, so the lines behind it are cut away.
-  // Done with a copy, not paint-order, because older browsers (Safari 12) ignore paint-order on SVG text.
+  // Each tab number gets a solid box in the page colour just under it, so the lines behind it are cut away.
+  // A plain box rather than an outline, which older browsers draw badly on SVG text. Boxes are drawn only once the
+  // number has a size, so numbers drawn while the tab is hidden get theirs when it is shown.
   function addNumberHalos(root) {
+    const ns = 'http://www.w3.org/2000/svg';
     root.querySelectorAll('svg text').forEach((t) => {
-      if (t.dataset.halo || t.classList.contains('tab-halo') || !t.parentNode) return;
-      const halo = t.cloneNode(true);
-      halo.setAttribute('class', 'tab-halo');
-      halo.removeAttribute('fill');
+      if (t.dataset.halo || t.classList.contains('tab-halo') || !t.parentNode || !t.getBBox) return;
+      let box;
+      try { box = t.getBBox(); } catch (e) { return; }
+      if (!box || box.width === 0) return;
+      // fret numbers only: digits at the size of the tab, not rests, the time signature or bar numbers
+      if (!/^\d{1,2}$/.test(t.textContent.trim()) || box.height < 14 || box.height > 30) return;
+      const pad = 3;
+      const rect = document.createElementNS(ns, 'rect');
+      rect.setAttribute('class', 'tab-halo');
+      rect.setAttribute('x', box.x - pad);
+      rect.setAttribute('y', box.y + box.height * 0.12);
+      rect.setAttribute('width', box.width + pad * 2);
+      rect.setAttribute('height', box.height * 0.76);
+      rect.setAttribute('rx', 3);
       t.dataset.halo = '1';
-      t.parentNode.insertBefore(halo, t);
+      t.parentNode.insertBefore(rect, t);
     });
   }
 
@@ -995,7 +1007,7 @@
     const paper = hexToColor(v('--surface'));
     const blend = (a, b) => Math.round(a + (b - a) * 0.6);
     r.staffLineColor = new AT.model.Color(blend(line.r, paper.r), blend(line.g, paper.g), blend(line.b, paper.b), 255);
-    r.tablatureFont = new AT.model.Font('Arial, Helvetica, sans-serif', 17, AT.model.FontStyle.Plain, AT.model.FontWeight.Bold);
+    r.tablatureFont = new AT.model.Font('Arial, Helvetica, sans-serif', 19, AT.model.FontStyle.Plain, AT.model.FontWeight.Bold);
     r.engravingSettings.tabLineSpacing = 18;
   }
   styleTab(api);
