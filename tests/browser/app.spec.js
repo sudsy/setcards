@@ -607,9 +607,10 @@ test('going back to the band list does not redraw it when nothing has changed', 
   });
   await page.goto('/');
   await expect(page.locator('.song-row')).toHaveCount(2);
-  // a marker on the row: it survives only if the list is not redrawn
-  await page.locator('.song-row').first().evaluate((el) => { el.dataset.marker = 'kept'; });
+  // a marker on the row element (not in its HTML, which would count as a change): it survives only if the list is not redrawn
+  await page.locator('.song-row').first().evaluate((el) => { el.keptMarker = true; });
   await page.locator('.song-row .song-open', { hasText: 'Bravo' }).click();
   await page.click('#backBtn');
-  await expect(page.locator('.song-row').first()).toHaveAttribute('data-marker', 'kept');
+  await page.waitForTimeout(1000);
+  expect(await page.locator('.song-row').first().evaluate((el) => el.keptMarker === true)).toBe(true);
 });

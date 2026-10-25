@@ -320,6 +320,8 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .video-panel { padding: 8px var(--gutter-r) 8px var(--gutter-l); border-bottom: 1px solid var(--line); background: var(--surface); }
 /* the player box is 16:9, sized from the window: at most 560px wide, 28% of the window tall, and never wider than the screen */
 .video-frame { --vf-w: min(560px, calc(28vh * 16 / 9), calc(100vw - 32px)); position: relative; width: var(--vf-w); height: calc(var(--vf-w) * 9 / 16); margin: 0 auto; overflow: hidden; }
+.video-panel.audio-only .video-frame { width: 100%; max-width: 560px; height: auto; }
+.song-audio { display: block; width: 100%; }
 .video-frame iframe, .video-frame > div { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; border-radius: var(--radius); }
 
 /* ---------- tab ---------- */

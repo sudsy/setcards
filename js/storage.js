@@ -765,6 +765,16 @@
         return tab.id;
       },
       // Gives a tab-less song its Guitar Pro file. Returns the song's new id.
+      // An MP3 for a band song goes in its folder, so everyone in the band can play it.
+      async uploadAudio(id, fileName, bytes) {
+        const song = await findSong(id);
+        if (!song.folder) await moveLooseSongs([song]);
+        const m = multipart({ name: fileName, parents: [song.folder ? song.folder.id : folder().id] }, bytes, 'audio/mpeg');
+        const r = await call(`${UPLOAD}/files?uploadType=multipart&supportsAllDrives=true&fields=id`, { method: 'POST', headers: { 'Content-Type': m.type }, body: m.body });
+        return (await r.json()).id;
+      },
+      downloadAudio: (fileId) => downloadTab(fileId),
+      trashAudio: (fileId) => trash(fileId),
       async attachTab(id, fileName, bytes, notes) {
         const song = await findSong(id);
         if (!song.folder) await moveLooseSongs([song]);
@@ -798,8 +808,63 @@
   /* ---------------- the library ---------------- */
   const sources = { local, site, drive };
 
+  // MP3s for songs, kept on this device so they play offline.
+  const audioStore = (() => {
+    let db = null;
+    const open = () => db || (db = new Promise((res, rej) => {
+      const r = indexedDB.open('setcards-audio', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('clips', { keyPath: 'k' });
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    }));
+    const tx = (mode, fn) => open().then((d) => new Promise((res, rej) => {
+      const t = d.transaction('clips', mode);
+      const req = fn(t.objectStore('clips'));
+      t.oncomplete = () => res(req && req.result);
+      t.onerror = () => rej(t.error);
+    }));
+    return {
+      get: (k) => tx('readonly', (s) => s.get(k)),
+      put: (rec) => tx('readwrite', (s) => s.put(rec)),
+      del: (k) => tx('readwrite', (s) => s.delete(k))
+    };
+  })();
+
+  // An MP3 for a song. This device keeps a copy. A band song also keeps it in its Drive folder, so the others can play it.
+  const audio = {
+    async save(key, name, bytes) {
+      const { source, id } = library.parse(key);
+      if (!source.canWrite) throw new Error('This copy of the song is read-only here.');
+      const fileId = source.uploadAudio ? await source.uploadAudio(id, name, bytes) : null;
+      await audioStore.put({ k: key, name, fileId, bytes, type: 'audio/mpeg' });
+      return { name, fileId };
+    },
+    // The copy on this device, or the file from the band's folder when this device does not have it yet.
+    async load(key, meta) {
+      if (!meta) return null;
+      const copy = await audioStore.get(key);
+      if (copy && copy.name === meta.name && copy.fileId === (meta.fileId || null)) return copy;
+      const { source } = library.parse(key);
+      if (!meta.fileId || !source.downloadAudio) return null;
+      const rec = { k: key, name: meta.name, fileId: meta.fileId, bytes: await source.downloadAudio(meta.fileId), type: 'audio/mpeg' };
+      await audioStore.put(rec).catch(() => {});
+      return rec;
+    },
+    // Takes the file out of the band's folder (a replaced MP3 is discarded this way).
+    async discard(key, meta) {
+      if (!meta || !meta.fileId) return;
+      const { source } = library.parse(key);
+      if (source.trashAudio) await source.trashAudio(meta.fileId);
+    },
+    async remove(key, meta) {
+      await audio.discard(key, meta);
+      await audioStore.del(key).catch(() => {});
+    }
+  };
+
   const library = {
     sources,
+    audio,
     key: (sourceId, id) => `${sourceId}:${id}`,
     parse(key) { const i = key.indexOf(':'); return { source: sources[key.slice(0, i)], sourceId: key.slice(0, i), id: key.slice(i + 1) }; },
     emptyNotes,

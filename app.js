@@ -28,7 +28,7 @@
     addYt: $('addYt'), addStatus: $('addStatus'),
     noteDlg: $('noteDlg'), noteTitle: $('noteTitle'), noteHint: $('noteHint'), noteForm: $('noteForm'), noteText: $('noteText'), noteClear: $('noteClear'),
     settingsBtn: $('settingsBtn'), settingsDlg: $('settingsDlg'), trackSel: $('trackSel'),
-    zoomRange: $('zoomRange'), zoomOut: $('zoomOut'), ytInput: $('ytInput'), exportBtn: $('exportBtn'), showTabCards: $('showTabCards'), showChords: $('showChords'),
+    zoomRange: $('zoomRange'), zoomOut: $('zoomOut'), ytInput: $('ytInput'), exportBtn: $('exportBtn'), showTabCards: $('showTabCards'), showChords: $('showChords'), audioInput: $('audioInput'), audioRemove: $('audioRemove'),
     barDlg: $('barDlg'), barDlgTitle: $('barDlgTitle'), barDlgText: $('barDlgText'),
     presetRow: $('presetRow'), barForm: $('barForm'), barName: $('barName'), barSubmit: $('barSubmit'), barRemove: $('barRemove'),
     barChords: $('barChords'), barChordsAll: $('barChordsAll'), barChordsAllLabel: $('barChordsAllLabel'),
@@ -84,6 +84,19 @@
   let updateWaiting = false;   // a new version of the app is ready and will load at the next good moment
   let ytPlayer = null;
   let ytReady = false;
+  let audioEl = null;     // an MP3 for the song, in place of the YouTube video
+  let audioUrl = null;
+  let audioSeq = 0;
+  // The media for the song is an MP3 (audioEl) or a YouTube video (ytPlayer). These read and drive whichever is in use.
+  const media = {
+    ready: () => (audioEl ? audioEl.readyState >= 1 : !!(ytPlayer && ytReady)),
+    time: () => (audioEl ? audioEl.currentTime : ytPlayer.getCurrentTime()),
+    seek: (t) => { if (audioEl) audioEl.currentTime = t; else ytPlayer.seekTo(t, true); },
+    playing: () => (audioEl ? !audioEl.paused : !!(ytPlayer && ytReady && ytPlayer.getPlayerState() === 1)),
+    rate: (v) => { if (audioEl) audioEl.playbackRate = v; else if (ytPlayer && ytReady) ytPlayer.setPlaybackRate(v); }
+  };
+  const mediaKey = (n) => (n ? `${n.youtubeUrl || ''}|${n.audio ? n.audio.name + (n.audio.fileId || '') : ''}` : '');
+
   let ytApi = null;
   let minis = [];       // small alphaTab renderers inside the cards
   let drawSeq = 0;
@@ -1393,7 +1406,7 @@
     state.playing = e.state === 1;
     els.playBtn.classList.toggle('is-playing', state.playing);
     els.playBtn.setAttribute('aria-label', state.playing ? 'Pause' : 'Play');
-    if (!state.playing && !(ytPlayer && ytReady)) setPlayingPart(-1);
+    if (!state.playing && !media.ready()) setPlayingPart(-1);
   });
   api.playerPositionChanged.on((e) => {
     if (!state.score || !state.playing) return;
@@ -1551,7 +1564,7 @@
   }
 
   function applySong(key, song, refresh) {
-    const prevVideo = state.notes && state.notes.youtubeUrl;
+    const prevVideo = mediaKey(state.notes);
     if (state.playing) api.stop();
     destroyMinis();
     state.song = { key, title: song.notes.title || song.title || (song.fileName || 'Untitled').replace(SM.SONG_EXT, ''), artist: song.notes.artist || song.artist || '', fileName: song.fileName, canShare: song.canShare, localOnly: song.localOnly, offline: !!song.offline };
@@ -1571,7 +1584,7 @@
     if (state.editing) setEditing(false);
     // a song's video is not shown until it is asked for
     if (!refresh) state.videoOn = false;
-    if (!refresh || song.notes.youtubeUrl !== prevVideo) setupVideo();
+    if (!refresh || mediaKey(song.notes) !== prevVideo) setupVideo();
     const hasTab = !!(song.bytes || song.tex);
     state.song.hasTab = hasTab;
     document.body.classList.toggle('no-tab', !hasTab);
@@ -1760,7 +1773,7 @@
       li.textContent = 'No sections yet.';
       els.sectionList.appendChild(li);
     }
-    const videoReady = !!(ytPlayer && ytReady);
+    const videoReady = media.ready();
     list.forEach((s) => {
       const p = state.parts.find((x) => x.ref === s);
       const li = document.createElement('li');
@@ -1817,7 +1830,7 @@
       const nowBtn = li.querySelector('.now-btn');
       if (nowBtn) {
         nowBtn.addEventListener('click', () => {
-          s.videoTime = Math.round(ytPlayer.getCurrentTime() * 10) / 10;
+          s.videoTime = Math.round(media.time() * 10) / 10;
           timeIn.value = fmtTime(s.videoTime);
           saveNotes();
         });
@@ -2030,7 +2043,7 @@
   els.speedSel.addEventListener('change', () => {
     const v = Number(els.speedSel.value);
     api.playbackSpeed = v;
-    if (ytPlayer && ytReady) ytPlayer.setPlaybackRate(v);
+    media.rate(v);
   });
   els.prevBtn.addEventListener('click', () => selectView(state.view - 1));
   els.nextBtn.addEventListener('click', () => selectView(state.view + 1));
@@ -2060,15 +2073,55 @@
     return ytApi;
   }
 
+  // Empties the video panel, ready for a YouTube video or an MP3.
+  function resetFrame() {
+    audioSeq++;
+    if (ytPlayer) { ytPlayer.destroy(); ytPlayer = null; ytReady = false; }
+    if (audioEl) audioEl.pause();
+    audioEl = null;
+    if (audioUrl) URL.revokeObjectURL(audioUrl);
+    audioUrl = null;
+    els.videoPanel.classList.remove('audio-only');
+    const holder = document.createElement('div');
+    holder.id = 'ytPlayer';
+    els.videoPanel.querySelector('.video-frame').replaceChildren(holder);
+  }
+
+  // The MP3 is read from this device, or from the band's Drive folder when this device does not have it yet.
+  function playAudio() {
+    const key = state.song.key;
+    const meta = state.notes.audio;
+    const seq = audioSeq;
+    SM.library.audio.load(key, meta).then((clip) => {
+      if (seq !== audioSeq || !state.song || state.song.key !== key) return;
+      if (!clip) { toast('This MP3 is not on this device yet. Open the song when you are online.'); return; }
+      audioUrl = URL.createObjectURL(new Blob([clip.bytes], { type: clip.type }));
+      audioEl = document.createElement('audio');
+      audioEl.controls = true;
+      audioEl.preload = 'auto';
+      audioEl.className = 'song-audio';
+      audioEl.src = audioUrl;
+      audioEl.playbackRate = Number(els.speedSel.value) || 1;
+      els.videoPanel.querySelector('.video-frame').replaceChildren(audioEl);
+    }).catch((e) => { console.error(e); toast('The MP3 could not be opened'); });
+  }
+
   function setupVideo() {
     const id = youtubeId(state.notes && state.notes.youtubeUrl);
-    els.videoBtn.hidden = !id;
+    const hasAudio = !!(state.notes && state.notes.audio);
+    els.videoBtn.hidden = !id && !hasAudio;
+    if (hasAudio) {
+      resetFrame();
+      els.videoPanel.classList.add('audio-only');
+      els.videoPanel.hidden = !state.videoOn;
+      els.videoBtn.setAttribute('aria-pressed', String(state.videoOn));
+      playAudio();
+      return;
+    }
+    if (audioEl) resetFrame();
     if (!id) {
       els.videoPanel.hidden = true;
-      if (ytPlayer) { ytPlayer.destroy(); ytPlayer = null; ytReady = false; }
-      const holder = document.createElement('div');
-      holder.id = 'ytPlayer';
-      els.videoPanel.querySelector('.video-frame').replaceChildren(holder);
+      resetFrame();
       return;
     }
     els.videoPanel.hidden = !state.videoOn;
@@ -2084,28 +2137,62 @@
   }
 
   function seekVideoToView() {
-    if (!ytPlayer || !ytReady || state.view === -1) return;
+    if (!media.ready() || state.view === -1) return;
     const t = state.parts[state.view].ref && state.parts[state.view].ref.videoTime;
-    if (t != null) ytPlayer.seekTo(t, true);
+    if (t != null) media.seek(t);
   }
 
-  // Loops the video inside the selected section and lights up the section the video is in.
+  // Loops the media inside the selected section and lights up the section it is playing.
   setInterval(() => {
-    if (!ytPlayer || !ytReady || !state.parts.length || typeof ytPlayer.getPlayerState !== 'function') return;
-    if (ytPlayer.getPlayerState() !== 1) return;
-    const t = ytPlayer.getCurrentTime();
+    if (!media.ready() || !state.parts.length || !media.playing()) return;
+    const t = media.time();
     // a section's video time is where it is first played
     const timed = state.parts.map((p, i) => ({ i, t: !p.again && p.ref && p.ref.start === p.start ? p.ref.videoTime : null })).filter((x) => x.t != null);
     if (!timed.length) return;
     if (state.view !== -1 && state.loop) {
       const start = state.parts[state.view].ref && state.parts[state.view].ref.videoTime;
       const next = timed.find((x) => x.t > (start ?? Infinity));
-      if (start != null && next && t >= next.t) { ytPlayer.seekTo(start, true); return; }
+      if (start != null && next && t >= next.t) { media.seek(start); return; }
     }
     let cur = -1;
     timed.forEach((x) => { if (x.t <= t) cur = x.i; });
     setPlayingPart(cur);
   }, 250);
+
+  // An MP3 plays in place of the YouTube video, with the same section start times.
+  async function attachAudio(file) {
+    if (!file || !state.song) return;
+    const key = state.song.key;
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      toast('Adding the MP3…');
+      const old = state.notes.audio;
+      const meta = await SM.library.audio.save(key, file.name, bytes);
+      if (old && old.fileId && old.fileId !== meta.fileId) await SM.library.audio.discard(key, old).catch((e) => console.error(e));
+      if (!state.song || state.song.key !== key) return;
+      state.notes.audio = meta;
+      saveNotes();
+      setupVideo();
+      toast('MP3 added. It plays where the video plays.');
+    } catch (e) {
+      console.error(e);
+      toast(e.message && /read-only|Google|Drive/.test(e.message) ? e.message : 'The MP3 could not be added');
+    }
+  }
+  els.audioInput.addEventListener('change', (e) => { attachAudio(e.target.files[0]); e.target.value = ''; });
+  els.audioRemove.addEventListener('click', async () => {
+    const key = state.song.key;
+    try {
+      await SM.library.audio.remove(key, state.notes.audio);
+    } catch (e) {
+      console.error(e);
+      toast('The MP3 could not be removed from the band folder');
+    }
+    delete state.notes.audio;
+    saveNotes();
+    setupVideo();
+    toast('MP3 removed');
+  });
 
   els.videoBtn.addEventListener('click', () => {
     state.videoOn = !state.videoOn;
@@ -2696,6 +2783,7 @@
     els.zoomRange.value = prefs.zoom;
     els.zoomOut.textContent = `${Math.round(prefs.zoom * 100)}%`;
     els.ytInput.value = state.notes.youtubeUrl || '';
+    els.audioRemove.hidden = !state.notes.audio;
     const m = state.notes.meta || {};
     els.statusSel.value = songStatus(state.notes, state.song.hasTab);
     fillKeySettings();
