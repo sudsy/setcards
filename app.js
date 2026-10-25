@@ -13,7 +13,8 @@
     prevBtn: $('prevBtn'), nextBtn: $('nextBtn'),
     editBtn: $('editBtn'), editPanel: $('editPanel'), sectionList: $('sectionList'),
     findRepeatsBtn: $('findRepeatsBtn'), suggestBtn: $('suggestBtn'), useMarkersBtn: $('useMarkersBtn'), doneEditBtn: $('doneEditBtn'),
-    syncBtn: $('syncBtn'), scroller: $('scroller'), tab: $('tab'), cards: $('cards'), loading: $('loading'), drop: $('drop'), banner: $('banner'),
+    syncBtn: $('syncBtn'), scroller: $('scroller'), tab: $('tab'), cards: $('cards'), loading: $('loading'), drop: $('drop'),
+    noticeBtn: $('noticeBtn'), noticeDlg: $('noticeDlg'), noticeText: $('noticeText'),
     playBtn: $('playBtn'), loopBtn: $('loopBtn'), speedSel: $('speedSel'),
     videoBtn: $('videoBtn'), videoPanel: $('videoPanel'), playerStatus: $('playerStatus'),
     homeView: $('homeView'), songView: $('songView'), backBtn: $('backBtn'), bandName: $('bandName'), homeRoleBtn: $('homeRoleBtn'),
@@ -230,9 +231,12 @@
     if (s && s.offline) msgs.push('Offline: this is the copy saved on this phone. Changes are kept here and sent to the band when you’re back online.');
     else if (s && s.localOnly) msgs.push('Your changes to this song are saved in this browser only. Add the song to a band folder to share them.');
     if (s && state.score && state.partMissing) msgs.push(missingPartText());
-    els.banner.hidden = !msgs.length;
-    els.banner.textContent = msgs.join(' ');
+    // notices sit behind a button in the top bar, so they never move the tab while it is played
+    els.noticeBtn.hidden = !msgs.length;
+    els.noticeText.textContent = msgs.join(' ');
+    if (!msgs.length) closeDialog(els.noticeDlg);
   }
+  els.noticeBtn.addEventListener('click', () => els.noticeDlg.showModal());
   function missingPartText() {
     const tracks = state.score.tracks;
     const t = tracks[state.trackIndex];
@@ -1517,7 +1521,7 @@
     els.songView.classList.add('switching');
     els.songTitle.textContent = title || '';
     els.songMeta.textContent = '';
-    els.banner.hidden = true;
+    els.noticeBtn.hidden = true;
     els.loading.hidden = false;
   }
   const doneSwitching = () => els.songView.classList.remove('switching');

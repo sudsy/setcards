@@ -75,6 +75,9 @@
         <button id="viewCardsTop" aria-pressed="true">Cards</button>
         <button id="viewTabTop" aria-pressed="false">Full tab</button>
       </div>
+      <button id="noticeBtn" class="icon-btn notice-btn" aria-label="Notices" title="Notices" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.5"/></svg>
+      </button>
       <button id="settingsBtn" class="icon-btn" aria-label="Song settings" title="Song settings">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
       </button>
@@ -90,8 +93,6 @@
       </div>
       <div id="structure" class="structure"></div>
     </nav>
-
-    <div id="banner" class="banner" hidden></div>
 
     <div id="sectionHead" class="section-head" hidden>
       <button id="prevBtn" class="step-btn" aria-label="Previous section">
@@ -206,6 +207,16 @@
         <button class="text-btn primary" type="submit">Save note</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="noticeDlg" class="sheet small">
+    <div class="sheet-head">
+      <h2>Notices</h2>
+      <button class="icon-btn" data-close aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <p id="noticeText" class="fine"></p>
   </dialog>
 
   <dialog id="settingsDlg" class="sheet">

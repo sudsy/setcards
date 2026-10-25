@@ -476,7 +476,8 @@ test('a tab without a bass part says so in the bass view', async ({ page }) => {
   const bytes = new alphaTab.exporter.Gp7Exporter().export(imp.readScore(), new alphaTab.Settings());
   await page.locator('#attachInput').setInputFiles({ name: 'guitar-only.gp', mimeType: 'application/octet-stream', buffer: Buffer.from(bytes) });
   await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
-  await expect(page.locator('#banner')).toHaveText('This tab only has the guitar part, with no bass part, so that is what’s shown here.');
+  await page.click('#noticeBtn');
+  await expect(page.locator('#noticeText')).toHaveText('This tab only has the guitar part, with no bass part, so that is what’s shown here.');
   expect(errors).toEqual([]);
 });
 
