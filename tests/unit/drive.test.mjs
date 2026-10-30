@@ -162,14 +162,14 @@ test('the first save of the day is kept as a permanent version, later saves are 
   assert.equal(JSON.parse(store.get('an').content).status, 'ready');
 });
 
-test('a Song list sheet is kept in the folder, and only rewritten when what it shows changes', async () => {
+test('a Song list sheet is kept in the folder, and changes only when a song is added or its details change', async () => {
   const store = fakeDrive([
     { id: 'a', name: 'smooth.gp', content: 'gp' },
     { id: 'an', name: 'smooth.gp.setcards.json', content: notes({ title: 'Smooth Operator', artist: 'Sade', status: 'ready', meta: { key: 'Dm', keyGuessed: true, tempo: 120, seconds: 254 } }) }
   ]);
   let drive = loadDrive();
   await drive.add(null, null, { title: 'New, Idea', artist: 'Us', status: 'proposed', youtubeUrl: 'https://youtu.be/x' });
-  assert.equal(await drive.syncSongList(), true);
+  await drive.syncSongList();
   const sheet = [...store.values()].find((f) => f.name === 'Song list');
   assert.equal(sheet.mimeType, 'application/vnd.google-apps.spreadsheet');
   assert.deepEqual(sheet.content.trim().split('\r\n'), [
@@ -178,17 +178,21 @@ test('a Song list sheet is kept in the folder, and only rewritten when what it s
     '"New, Idea",Us,Proposed,,,,,https://youtu.be/x,'
   ]);
 
-  // a fresh start with nothing changed reads the sheet and leaves it alone
+  // a fresh start, listing the songs and a chord change: nothing is written to the sheet
+  const before = sheet.content;
   drive = loadDrive();
-  assert.equal(await drive.syncSongList(), false);
-
-  // a chord change doesn't touch the sheet; a status change does
   await drive.list();
-  await drive.saveNotes('a', { title: 'Smooth Operator', artist: 'Sade', status: 'ready', meta: { key: 'Dm', keyGuessed: true, tempo: 120, seconds: 254 }, chords: { 3: 'Am' } });
-  assert.equal(await drive.syncSongList(), false);
-  await drive.saveNotes('a', { title: 'Smooth Operator', artist: 'Sade', status: 'learning', meta: { key: 'Dm', keyGuessed: true, tempo: 120, seconds: 254 } });
-  assert.equal(await drive.syncSongList(), true);
+  await drive.syncSongList();
+  const [smooth] = (await drive.list()).filter((s) => s.title === 'Smooth Operator');
+  await drive.saveNotes(smooth.id, { title: 'Smooth Operator', artist: 'Sade', status: 'ready', meta: { key: 'Dm', keyGuessed: true, tempo: 120, seconds: 254 }, chords: { 3: 'Am' } });
+  await drive.syncSongList();
+  assert.equal(sheet.content, before);
+
+  // a status change updates that song's row, and only that row
+  await drive.saveNotes(smooth.id, { title: 'Smooth Operator', artist: 'Sade', status: 'learning', meta: { key: 'Dm', keyGuessed: true, tempo: 120, seconds: 254 } });
+  await drive.syncSongList();
   assert.match(sheet.content, /Smooth Operator,Sade,Learning/);
+  assert.match(sheet.content, /"New, Idea",Us,Proposed/);
 });
 
 test('songs saved straight in the band folder are moved into Tabs, one folder per song', async () => {
@@ -271,7 +275,7 @@ test('with nothing saved yet, an unreachable Drive still reports the problem', a
   await assert.rejects(() => drive.list(), /Failed to fetch/);
 });
 
-test('the order of the rows in the Song list sheet is the order songs are listed in, and is kept', async () => {
+test('the order of the rows in the Song list sheet is kept: adding, changing or removing a song never moves another row', async () => {
   const store = fakeDrive([]);
   const drive = loadDrive();
   for (const title of ['First', 'Second', 'Third']) await drive.add(null, null, { title, artist: 'Us', status: 'proposed' });
@@ -282,11 +286,27 @@ test('the order of the rows in the Song list sheet is the order songs are listed
 
   // someone moves Third to the top in Google Sheets
   sheet.content = [lines[0], lines[3], lines[1], lines[2]].join('\r\n') + '\r\n';
-  assert.deepEqual((await drive.list()).map((s) => s.title), ['Third', 'First', 'Second']);
-  assert.equal(await drive.syncSongList(), false);
+  const moved = sheet.content;
+  const songs = await drive.list();
+  assert.deepEqual(songs.map((s) => s.title), ['Third', 'First', 'Second']);
+  // listing the songs does not write the sheet
+  await drive.syncSongList();
+  assert.equal(sheet.content, moved);
 
-  // a new song goes at the bottom, and the moved rows stay put
+  // a change to one song's details changes its row in place
+  const first = songs.find((s) => s.title === 'First');
+  await drive.saveNotes(first.id, { title: 'First', artist: 'Us', status: 'learning' });
+  await drive.syncSongList();
+  assert.deepEqual(sheet.content.trim().split('\r\n').slice(1).map((l) => l.split(',')[0] + ':' + l.split(',')[2]), ['Third:Proposed', 'First:Learning', 'Second:Proposed']);
+
+  // a new song goes at the bottom
   await drive.add(null, null, { title: 'Fourth', artist: 'Us', status: 'proposed' });
-  assert.equal(await drive.syncSongList(), true);
+  await drive.syncSongList();
   assert.deepEqual(sheet.content.trim().split('\r\n').slice(1).map((l) => l.split(',')[0]), ['Third', 'First', 'Second', 'Fourth']);
+
+  // a removed song's row is taken out, and nothing else moves
+  const second = (await drive.list()).find((s) => s.title === 'Second');
+  await drive.remove(second.id);
+  await drive.syncSongList();
+  assert.deepEqual(sheet.content.trim().split('\r\n').slice(1).map((l) => l.split(',')[0]), ['Third', 'First', 'Fourth']);
 });
