@@ -2263,15 +2263,23 @@
     renderHome();
   }
 
+  // Opening a song adds a step to the browser's history, so the back gesture returns to the list instead of leaving the app.
   function showSongView() {
+    if (!els.homeView.hidden) history.pushState({ setcardsSong: true }, '');
     els.homeView.hidden = true;
     els.songView.hidden = false;
   }
+  // Back from a song: the step taken to open it is undone, and the list is shown when the browser goes back.
+  function backToList() {
+    if (history.state && history.state.setcardsSong) history.back();
+    else showHome();
+  }
+  window.addEventListener('popstate', () => { if (!els.songView.hidden) showHome(); });
 
   async function openFromList(key, title) {
     showSongView();
     const ok = await openSong(key, title);
-    if (!ok) showHome();
+    if (!ok) backToList();
   }
 
   const STATUS_LABELS = { proposed: 'Proposed', learning: 'Learning', ready: 'Ready' };
@@ -2732,7 +2740,7 @@
   }
 
   els.bandBtn.addEventListener('click', () => { renderBandDialog(); els.bandDlg.showModal(); });
-  els.backBtn.addEventListener('click', showHome);
+  els.backBtn.addEventListener('click', backToList);
 
   // Opening the app from an invite link (?band=<folder id>&name=<folder name>) offers to join that folder.
   function checkInvite() {

@@ -158,6 +158,21 @@ test('chords entered on a riff apply to every repeat and survive a reload', asyn
   await expect(page.locator('.card[data-group="verse"] .chord-cell').first()).toHaveText('Em');
 });
 
+test('going back from a song returns to the list, and does not leave the app', async ({ page }) => {
+  await openDemo(page);
+  await expect(page.locator('#songView')).toBeVisible();
+  // the browser's back gesture: back to the list, still in the app
+  await page.goBack();
+  await expect(page.locator('#homeView')).toBeVisible();
+  await expect(page.locator('#songView')).toBeHidden();
+  expect(new URL(page.url()).pathname).toBe('/');
+  // the in-app back button does the same, and the song opens again
+  await page.locator('.song-row .song-open', { hasText: 'Low Road (demo)' }).click();
+  await expect(page.locator('#songView')).toBeVisible();
+  await page.click('#backBtn');
+  await expect(page.locator('#homeView')).toBeVisible();
+});
+
 test('a capo is chosen at the top of the song, and shows the chord shapes to play', async ({ page }) => {
   await openDemo(page);
   await chooseRole(page, 'Guitar');
