@@ -23,7 +23,7 @@
     fileInput: $('fileInput'), shareUpload: $('shareUpload'), shareUploadWrap: $('shareUploadWrap'),
     originalKeyInput: $('originalKeyInput'), bandKeyInput: $('bandKeyInput'), tabKeyInput: $('tabKeyInput'), keyInfo: $('keyInfo'),
     bandTrDown: $('bandTrDown'), bandTrUp: $('bandTrUp'), bandTrOut: $('bandTrOut'), matchKeyBtn: $('matchKeyBtn'),
-    capoSel: $('capoSel'), myTrDown: $('myTrDown'), myTrUp: $('myTrUp'), myTrOut: $('myTrOut'), myTrReset: $('myTrReset'),
+    capoTop: $('capoTop'), myTrDown: $('myTrDown'), myTrUp: $('myTrUp'), myTrOut: $('myTrOut'), myTrReset: $('myTrReset'),
     tempoInput: $('tempoInput'), statusSel: $('statusSel'), noTab: $('noTab'),
     addSongBtn: $('addSongBtn'), addDlg: $('addDlg'), addForm: $('addForm'), addTitle: $('addTitle'), addArtist: $('addArtist'),
     addYt: $('addYt'), addStatus: $('addStatus'),
@@ -222,8 +222,9 @@
     const k = [keys.band || (m.key ? m.key + (m.keyGuessed ? '?' : '') : ''), tr ? `tab ${signed(tr)}` : ''].filter(Boolean).join(', ');
     const t = (state.notes && state.notes.tempo) || m.tempo;
     const st = state.notes && STATUS_LABELS[state.notes.status] && state.notes.status !== 'ready' ? STATUS_LABELS[state.notes.status] : '';
-    const capo = capoOf();
-    els.songMeta.textContent = [place, st, state.song.artist, k, capo ? `Capo ${capo}` : '', t ? `${t} bpm` : ''].filter(Boolean).join(' · ') || state.song.fileName || '';
+    els.songMeta.textContent = [place, st, state.song.artist, k, t ? `${t} bpm` : ''].filter(Boolean).join(' · ') || state.song.fileName || '';
+    els.capoTop.value = String(capoOf());
+    els.capoTop.classList.toggle('on', capoOf() > 0);
   }
 
   function updateBanner() {
@@ -2866,7 +2867,6 @@
     els.bandTrOut.textContent = signed(bandTranspose());
     els.myTrOut.textContent = myTranspose() === undefined ? 'same' : signed(myTranspose());
     els.myTrReset.disabled = myTranspose() === undefined;
-    els.capoSel.value = String(capoOf());
     const toBand = SM.chords.semitonesBetween(k.tab, k.band);
     els.matchKeyBtn.disabled = toBand === null || toBand === bandTranspose();
     els.keyInfo.textContent = keyInfoText();
@@ -2917,8 +2917,8 @@
     const k = keysOf(state.notes);
     setTranspose(SM.chords.semitonesBetween(k.tab, k.band) || 0, null);
   });
-  els.capoSel.addEventListener('change', () => {
-    const fret = Number(els.capoSel.value);
+  els.capoTop.addEventListener('change', () => {
+    const fret = Number(els.capoTop.value);
     if (fret) state.notes.capo = fret; else delete state.notes.capo;
     saveNotes();
     // only the chord names change, so the tab and the rest of the song stay as they are

@@ -158,7 +158,7 @@ test('chords entered on a riff apply to every repeat and survive a reload', asyn
   await expect(page.locator('.card[data-group="verse"] .chord-cell').first()).toHaveText('Em');
 });
 
-test('a capo shows the chord shapes to play, and the song line says where it is', async ({ page }) => {
+test('a capo is chosen at the top of the song, and shows the chord shapes to play', async ({ page }) => {
   await openDemo(page);
   await chooseRole(page, 'Guitar');
   // a chord on the first bar, then the capo changes the shape shown for it
@@ -168,17 +168,15 @@ test('a capo shows the chord shapes to play, and the song line says where it is'
   await page.click('#chordForm button[type=submit]');
   await expect(first).toHaveText('Dm7');
   const before = await first.textContent();
-  await page.click('#settingsBtn');
-  await page.selectOption('#capoSel', '2');
-  await page.keyboard.press('Escape');
-  await expect(page.locator('#songMeta')).toContainText('Capo 2');
+  await page.selectOption('#capoTop', '2');
   await expect(first).not.toHaveText(before);
-  // the tab itself is not changed by the capo: the bass part still has the same notes
-  await page.click('#settingsBtn');
-  await expect(page.locator('#capoSel')).toHaveValue('2');
-  await page.selectOption('#capoSel', '0');
-  await page.keyboard.press('Escape');
+  await expect(page.locator('#capoTop')).toHaveValue('2');
   await expect(page.locator('#songMeta')).not.toContainText('Capo');
+  // the capo is kept with the song: it is still set after going back to the list and in the full tab
+  await page.click('#backBtn');
+  await page.locator('.song-row .song-open', { hasText: 'Low Road (demo)' }).click();
+  await expect(page.locator('#capoTop')).toHaveValue('2');
+  await page.selectOption('#capoTop', '0');
   await expect(first).toHaveText(before);
 });
 
