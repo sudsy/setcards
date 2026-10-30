@@ -54,7 +54,6 @@
   const prefs = Object.assign({ role: 'bass', view: 'cards', zoom: 1, stave: 'tab', last: null, tracks: {}, cardsTab: {}, chords: {}, transpose: {} }, readJson('setcards:prefs'));
   prefs.chords = prefs.chords || {};
   prefs.transpose = prefs.transpose || {};
-  prefs.capo = prefs.capo || {};   // capo fret for each song, on this device
   function readJson(k) { try { return JSON.parse(localStorage.getItem(k)) || {}; } catch (e) { return {}; } }
   function savePrefs() { try { localStorage.setItem('setcards:prefs', JSON.stringify(prefs)); } catch (e) { /* storage unavailable */ } }
   const role = () => ROLES.find((r) => r.id === prefs.role) || ROLES[0];
@@ -270,8 +269,8 @@
   const myTranspose = () => (state.song ? prefs.transpose[state.song.key] : undefined);
   const transposeSemis = () => (myTranspose() ?? bandTranspose());
   const signed = (n) => (n > 0 ? `+${n}` : String(n));
-  // The capo fret for this song on this device (0 for none). It changes only the chord names shown.
-  const capoOf = () => (state.song && prefs.capo[state.song.key]) || 0;
+  // The capo fret for this song (0 for none), kept with the song so the band sees it. It changes only the chord names shown.
+  const capoOf = () => (state.notes && Number(state.notes.capo)) || 0;
 
   // Plain words about the keys: how the band's key compares with the recording and the tab.
   function keyInfoText() {
@@ -2920,8 +2919,8 @@
   });
   els.capoSel.addEventListener('change', () => {
     const fret = Number(els.capoSel.value);
-    if (fret) prefs.capo[state.song.key] = fret; else delete prefs.capo[state.song.key];
-    savePrefs();
+    if (fret) state.notes.capo = fret; else delete state.notes.capo;
+    saveNotes();
     // only the chord names change, so the tab and the rest of the song stay as they are
     applyAnnotations();
     updateSongMeta();
