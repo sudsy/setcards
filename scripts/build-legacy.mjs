@@ -12,7 +12,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const out = resolve(root, process.argv[2] || 'dist/legacy');
 const at = (p) => join(root, p);
 
-const SCRIPTS = ['app.js', 'js/analysis.js', 'js/chords.js', 'js/storage.js', 'demo.js', 'config.js', 'version.js', 'sw.js', 'lib/alphaTab.min.js'];
+const SCRIPTS = ['app.js', 'js/analysis.js', 'js/chords.js', 'js/noteedit.js', 'js/storage.js', 'demo.js', 'config.js', 'version.js', 'sw.js', 'lib/alphaTab.min.js'];
 
 // Colour tokens get an r, g, b companion so colours can be mixed with rgba(); used by the legacy colour rules.
 function addColourCompanions(css) {

@@ -109,6 +109,12 @@
 
     <section id="editPanel" class="edit-panel" hidden aria-label="Edit sections">
       <p class="edit-hint">Tap any bar in the tab to start a section there or set its chords. Sections run until the next one starts, and sections with the same name count as one part.</p>
+      <div id="noteEditBar" class="note-edit-bar" hidden>
+        <span id="noteEditCount" class="fine"></span>
+        <button id="noteDiscard" class="text-btn" type="button">Discard</button>
+        <button id="noteSave" class="text-btn primary" type="button">Save notes to the file</button>
+      </div>
+      <p class="fine">In the full tab, click a string in a bar, then type a fret number to add a note. Backspace removes the selected note. Save writes the changes to the file.</p>
       <ol id="sectionList" class="section-list"></ol>
       <div class="edit-actions">
         <button id="suggestBtn" class="text-btn">Suggest sections</button>
@@ -368,6 +374,7 @@
   <script src="config.js"></script>
   <script src="js/analysis.js"></script>
   <script src="js/chords.js"></script>
+  <script src="js/noteedit.js"></script>
   <script src="js/storage.js"></script>
   <script src="demo.js"></script>
   <script src="app.js"></script>

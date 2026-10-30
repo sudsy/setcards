@@ -23,6 +23,7 @@
     fileInput: $('fileInput'), shareUpload: $('shareUpload'), shareUploadWrap: $('shareUploadWrap'),
     originalKeyInput: $('originalKeyInput'), bandKeyInput: $('bandKeyInput'), tabKeyInput: $('tabKeyInput'), keyInfo: $('keyInfo'),
     bandTrDown: $('bandTrDown'), bandTrUp: $('bandTrUp'), bandTrOut: $('bandTrOut'), matchKeyBtn: $('matchKeyBtn'),
+    noteEditBar: $('noteEditBar'), noteEditCount: $('noteEditCount'), noteDiscard: $('noteDiscard'), noteSave: $('noteSave'),
     myTrDown: $('myTrDown'), myTrUp: $('myTrUp'), myTrOut: $('myTrOut'), myTrReset: $('myTrReset'),
     tempoInput: $('tempoInput'), statusSel: $('statusSel'), noTab: $('noTab'),
     addSongBtn: $('addSongBtn'), addDlg: $('addDlg'), addForm: $('addForm'), addTitle: $('addTitle'), addArtist: $('addArtist'),
@@ -1292,7 +1293,7 @@
 
   /* ---------------- alphaTab ---------------- */
   const api = new AT.AlphaTabApi(els.tab, {
-    core: { fontDirectory: 'lib/font/', engine: renderEngine, logLevel: 'warning' },
+    core: { fontDirectory: 'lib/font/', engine: renderEngine, logLevel: 'warning', includeNoteBounds: true },
     display: { scale: prefs.zoom, layoutMode: AT.LayoutMode.Page, staveProfile: STAVES[prefs.stave] ?? AT.StaveProfile.Tab },
     notation: { rhythmMode: AT.TabRhythmMode.ShowWithBars },
     player: {
@@ -1408,6 +1409,7 @@
   api.renderFinished.on(() => {
     els.loading.hidden = true;
     doneSwitching();
+    drawSelection();
     // alphaTab's credit line is shown in the play bar instead, so it is left out of the tab (set once the size is settled)
     setTimeout(() => { const credit = creditLine(els.tab); if (credit) credit.style.display = 'none'; }, 200);
   });
@@ -1460,9 +1462,189 @@
     const surface = els.tab.querySelector('.at-surface');
     if (!surface) return;
     const r = surface.getBoundingClientRect();
-    const beat = api.boundsLookup.getBeatAtPos(e.clientX - r.left, e.clientY - r.top);
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    const target = noteEditBlock() ? null : editTargetAt(x, y);
+    if (target) {
+      state.edit.sel = target;
+      state.edit.typing = null;
+      drawSelection();
+      return;
+    }
+    const beat = api.boundsLookup.getBeatAtPos(x, y);
     if (beat) openBarDialog(beat.voice.bar.index);
+    if (beat && noteEditBlock()) toast(noteEditBlock());
   });
+
+  /* ---------------- notes edited in the full tab (desktop) ---------------- */
+  // The changes are kept as steps and shown on the tab straight away. Save writes them into the file, which is read again.
+  const EDIT_FRET_MAX = 24;
+  state.edit = { ops: [], sel: null, typing: null };
+  const newNote = (beat, string) => {
+    const n = new AT.model.Note();
+    n.beat = beat;
+    n.string = string;
+    n.fret = 0;
+    n.isDead = false;
+    n.isStringed = true;
+    return n;
+  };
+  // Why notes cannot be edited here, or null when they can.
+  function noteEditBlock() {
+    if (!state.song || !state.song.hasTab || !state.source || state.source.tex || !state.source.bytes) return 'Notes can only be edited in a Guitar Pro or MusicXML file.';
+    if (transposeSemis()) return 'Set the key back to the file’s key to edit notes, so the saved file keeps its notes.';
+    if (!SM.library.parse(state.song.key).source.replaceTab) return 'This copy of the song is read-only here.';
+    return null;
+  }
+  // Where the strings of the staff are, worked out from the note heads drawn on it (at least two strings are needed).
+  function staffLines(bb) {
+    const sys = api.boundsLookup.staffSystems.find((x) => x.bars.some((mb) => mb.bars.some((sb) => sb.beats.includes(bb))));
+    if (!sys) return null;
+    const pts = [];
+    sys.bars.forEach((mb) => mb.bars.forEach((sb) => sb.beats.forEach((b) => (b.notes || []).forEach((nb) => {
+      pts.push({ s: nb.note.string, y: nb.noteHeadBounds.y + nb.noteHeadBounds.h / 2 });
+    }))));
+    if (new Set(pts.map((p) => p.s)).size < 2) return null;
+    const n = pts.length;
+    const ms = pts.reduce((a, p) => a + p.s, 0) / n;
+    const my = pts.reduce((a, p) => a + p.y, 0) / n;
+    const slope = pts.reduce((a, p) => a + (p.s - ms) * (p.y - my), 0) / pts.reduce((a, p) => a + (p.s - ms) ** 2, 0);
+    const base = my - slope * ms;
+    return { yOf: (s) => base + slope * s, stringAt: (y) => Math.round((y - base) / slope) };
+  }
+  // The note under the click, or the string nearest the click on the beat it is in.
+  function editTargetAt(x, y) {
+    const bl = api.boundsLookup;
+    const beat = bl.getBeatAtPos(x, y);
+    if (!beat) return null;
+    const key = SM.noteEdit.beatKey(beat);
+    const onNote = bl.getNoteAtPos(beat, x, y);
+    if (onNote) return { key, beat, string: onNote.string, note: onNote };
+    const bb = (bl.findBeats(beat) || [])[0];
+    const lines = bb && staffLines(bb);
+    if (!lines) return null;
+    const strings = state.score.tracks[state.trackIndex].staves[0].tuning.length;
+    const spacing = Math.abs(lines.yOf(2) - lines.yOf(1)) || 1;
+    if (y < lines.yOf(1) - spacing / 2 || y > lines.yOf(strings) + spacing / 2) return null;
+    const string = Math.min(strings, Math.max(1, lines.stringAt(y)));
+    return { key, beat, string, note: beat.notes.find((n) => n.string === string) || null };
+  }
+  // The box around the selected note, or the place where a note would go.
+  function selectionRect(sel) {
+    const bl = api.boundsLookup;
+    const bb = (bl.findBeats(sel.beat) || [])[0];
+    if (!bb) return null;
+    const nb = sel.note && (bb.notes || []).find((x) => x.note === sel.note);
+    if (nb) return { x: nb.noteHeadBounds.x, y: nb.noteHeadBounds.y, w: nb.noteHeadBounds.w, h: nb.noteHeadBounds.h };
+    const lines = staffLines(bb);
+    const vb = bb.visualBounds;
+    if (!lines || !vb) return null;
+    const h = Math.abs(lines.yOf(2) - lines.yOf(1)) * 0.8;
+    return { x: vb.x, y: lines.yOf(sel.string) - h / 2, w: vb.w, h };
+  }
+  function drawSelection() {
+    const surface = els.tab.querySelector('.at-surface');
+    if (!surface) return;
+    surface.querySelectorAll('.note-sel').forEach((el) => el.remove());
+    const sel = state.edit.sel;
+    if (!state.editing || !sel) return;
+    const rect = selectionRect(sel);
+    if (!rect) return;
+    const box = document.createElement('div');
+    box.className = 'note-sel';
+    box.style.cssText = `left:${rect.x}px;top:${rect.y}px;width:${rect.w}px;height:${rect.h}px`;
+    surface.appendChild(box);
+  }
+  function updateNoteBar() {
+    const n = state.edit.ops.length;
+    els.noteEditBar.hidden = !n;
+    els.noteEditCount.textContent = `${n} unsaved ${n === 1 ? 'change' : 'changes'} to the notes`;
+  }
+  // Shows the change on the tab, and records it.
+  function recordStep(op, continuing) {
+    const ops = state.edit.ops;
+    const last = ops[ops.length - 1];
+    if (continuing && last && last.op === 'set' && op.op === 'set' && last.beat === op.beat && last.string === op.string) last.fret = op.fret;
+    else ops.push(op);
+    SM.noteEdit.applyOps(state.score, state.trackIndex, [op], newNote);
+    refreshEdited();
+  }
+  function refreshEdited() {
+    updateNoteBar();
+    api.render();
+  }
+  function typeDigit(d) {
+    const sel = state.edit.sel;
+    if (!sel) { toast('Click a string in a bar first, then type the fret number'); return; }
+    const t = state.edit.typing;
+    const continuing = !!t && t.key === sel.key && t.string === sel.string && Date.now() - t.at < 1200;
+    const typed = continuing ? Number(t.buffer + d) : Number(d);
+    const fret = typed <= EDIT_FRET_MAX ? typed : Number(d);
+    state.edit.typing = { key: sel.key, string: sel.string, buffer: String(fret), at: Date.now() };
+    recordStep({ op: 'set', beat: sel.key, string: sel.string, fret }, continuing);
+    sel.note = sel.beat.notes.find((n) => n.string === sel.string) || null;
+    drawSelection();
+  }
+  function deleteSelected() {
+    const sel = state.edit.sel;
+    if (!sel || !sel.note) return;
+    recordStep({ op: 'delete', beat: sel.key, string: sel.string }, false);
+    state.edit.typing = null;
+    sel.note = null;
+    drawSelection();
+  }
+  document.addEventListener('keydown', (e) => {
+    if (!state.editing || prefs.view !== 'tab' || els.songView.hidden || document.querySelector('dialog[open]')) return;
+    if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+    if (/^[0-9]$/.test(e.key)) { e.preventDefault(); if (!noteEditBlock()) typeDigit(e.key); else toast(noteEditBlock()); }
+    else if (e.key === 'Backspace' || e.key === 'Delete') { if (state.edit.sel && state.edit.sel.note) { e.preventDefault(); deleteSelected(); } }
+    else if (e.key === 'Escape') { state.edit.sel = null; state.edit.typing = null; drawSelection(); }
+  });
+  // Nothing is written until Save; leaving the edit with changes asks first.
+  function confirmNoteEdits() {
+    return !state.edit.ops.length || confirm('Discard the note changes you have not saved?');
+  }
+  function discardNoteEdits() {
+    state.edit.ops = [];
+    state.edit.sel = null;
+    state.edit.typing = null;
+    updateNoteBar();
+    if (state.song && state.source) loadSource();
+  }
+  async function saveNoteEdits() {
+    if (!state.edit.ops.length) return;
+    const blocked = noteEditBlock();
+    if (blocked) { toast(blocked); return; }
+    try {
+      const settings = api.settings;
+      // the file as it was read, with the changes applied, written out and read back to check it holds exactly those notes
+      const score = AT.importer.ScoreLoader.loadScoreFromBytes(state.source.bytes, settings);
+      SM.noteEdit.applyOps(score, state.trackIndex, state.edit.ops, newNote);
+      const expected = SM.noteEdit.notesText(score, state.trackIndex);
+      const bytes = new Uint8Array(new AT.exporter.Gp7Exporter().export(score, settings));
+      const check = AT.importer.ScoreLoader.loadScoreFromBytes(bytes, settings);
+      const same = check.masterBars.length === score.masterBars.length &&
+        JSON.stringify(SM.noteEdit.notesText(check, state.trackIndex)) === JSON.stringify(expected);
+      if (!same) { toast('The notes could not be saved safely, so nothing was changed'); return; }
+      const { source, id } = SM.library.parse(state.song.key);
+      const name = `${(state.song.fileName || 'Song').replace(/\.(gp[345]?|gpx|xml|musicxml|mxl|capx)$/i, '')}.gp`;
+      toast('Saving the notes…');
+      await source.replaceTab(id, bytes, name);
+      state.song.fileName = name;
+      state.source = { bytes, tex: null, hash: fingerprint(bytes) };
+      state.edit.ops = [];
+      state.edit.sel = null;
+      state.edit.typing = null;
+      updateNoteBar();
+      loadSource();
+      toast('Notes saved to the file');
+    } catch (e) {
+      console.error(e);
+      toast(e.message || 'The notes could not be saved');
+    }
+  }
+  els.noteSave.addEventListener('click', saveNoteEdits);
+  els.noteDiscard.addEventListener('click', discardNoteEdits);
 
   /* ---------------- tracks and roles ---------------- */
   function trackMatches(t, roleId) {
@@ -1609,6 +1791,8 @@
     // changes kept in this browser while the page was closing are sent on to where the song lives
     if (song.fromOverlay && song.canShare) saveNotes();
     state.score = null;
+    state.edit = { ops: [], sel: null, typing: null };
+    updateNoteBar();
     state.playingPart = -1;
     prefs.last = key;
     savePrefs();
@@ -1767,6 +1951,8 @@
 
   /* ---------------- edit mode ---------------- */
   function setEditing(on) {
+    if (!on && !confirmNoteEdits()) return;
+    if (!on && state.edit.ops.length) discardNoteEdits();
     state.editing = on;
     document.body.classList.toggle('editing', on);
     els.editBtn.setAttribute('aria-pressed', String(on));
@@ -2253,6 +2439,8 @@
 
   async function showHome() {
     if (updateWaiting) { refreshForUpdate(); return; }
+    if (!confirmNoteEdits()) return;
+    if (state.edit.ops.length) discardNoteEdits();
     if (state.playing) api.stop();
     destroyMinis();
     if (state.editing) setEditing(false);
