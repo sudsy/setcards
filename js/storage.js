@@ -652,7 +652,10 @@
       configured: () => !!cfg().clientId,
       connected: () => !!folder(),
       signedIn: hasToken,
-      signIn: () => signIn(true),
+      // signed in on this device before (the access token itself is only kept for this session)
+      wasSignedIn: () => !!ls.get('setcards:driveSignedIn'),
+      // interactive: may open Google's sign-in; otherwise Google is asked to renew access without showing anything
+      signIn: (interactive = true) => signIn(interactive),
       folder,
       available: () => !!cfg().clientId && !!folder(),
       setClient(c) { ls.set('setcards:google', c); },

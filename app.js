@@ -82,6 +82,7 @@
     chordEdit: null
   };
 
+  let silentSignInTried = false;   // one quiet sign-in attempt per visit, before asking with the button
   let updateWaiting = false;   // a new version of the app is ready and will load at the next good moment
   let ytPlayer = null;
   let ytReady = false;
@@ -2464,6 +2465,12 @@
       } else if (!drive.connected()) {
         renderBandBox();
       } else if (!drive.signedIn()) {
+        // A phone's app icon starts a new session each time, so the token from last time is gone. Google can often
+        // renew access without asking, so that is tried first; the songs appear by themselves if it works.
+        if (drive.wasSignedIn() && !silentSignInTried) {
+          silentSignInTried = true;
+          drive.signIn(false).then(() => renderHome(), () => {});
+        }
         const box = els.bandBox;
         box.hidden = false;
         box.innerHTML = `<p>Sign in to Google to see <strong></strong>’s songs.</p><button class="text-btn primary" id="homeSignIn" type="button">Show band songs</button>`;
