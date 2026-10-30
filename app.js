@@ -23,7 +23,7 @@
     fileInput: $('fileInput'), shareUpload: $('shareUpload'), shareUploadWrap: $('shareUploadWrap'),
     originalKeyInput: $('originalKeyInput'), bandKeyInput: $('bandKeyInput'), tabKeyInput: $('tabKeyInput'), keyInfo: $('keyInfo'),
     bandTrDown: $('bandTrDown'), bandTrUp: $('bandTrUp'), bandTrOut: $('bandTrOut'), matchKeyBtn: $('matchKeyBtn'),
-    myTrDown: $('myTrDown'), myTrUp: $('myTrUp'), myTrOut: $('myTrOut'), myTrReset: $('myTrReset'),
+    capoSel: $('capoSel'), myTrDown: $('myTrDown'), myTrUp: $('myTrUp'), myTrOut: $('myTrOut'), myTrReset: $('myTrReset'),
     tempoInput: $('tempoInput'), statusSel: $('statusSel'), noTab: $('noTab'),
     addSongBtn: $('addSongBtn'), addDlg: $('addDlg'), addForm: $('addForm'), addTitle: $('addTitle'), addArtist: $('addArtist'),
     addYt: $('addYt'), addStatus: $('addStatus'),
@@ -54,6 +54,7 @@
   const prefs = Object.assign({ role: 'bass', view: 'cards', zoom: 1, stave: 'tab', last: null, tracks: {}, cardsTab: {}, chords: {}, transpose: {} }, readJson('setcards:prefs'));
   prefs.chords = prefs.chords || {};
   prefs.transpose = prefs.transpose || {};
+  prefs.capo = prefs.capo || {};   // capo fret for each song, on this device
   function readJson(k) { try { return JSON.parse(localStorage.getItem(k)) || {}; } catch (e) { return {}; } }
   function savePrefs() { try { localStorage.setItem('setcards:prefs', JSON.stringify(prefs)); } catch (e) { /* storage unavailable */ } }
   const role = () => ROLES.find((r) => r.id === prefs.role) || ROLES[0];
@@ -222,7 +223,8 @@
     const k = [keys.band || (m.key ? m.key + (m.keyGuessed ? '?' : '') : ''), tr ? `tab ${signed(tr)}` : ''].filter(Boolean).join(', ');
     const t = (state.notes && state.notes.tempo) || m.tempo;
     const st = state.notes && STATUS_LABELS[state.notes.status] && state.notes.status !== 'ready' ? STATUS_LABELS[state.notes.status] : '';
-    els.songMeta.textContent = [place, st, state.song.artist, k, t ? `${t} bpm` : ''].filter(Boolean).join(' · ') || state.song.fileName || '';
+    const capo = capoOf();
+    els.songMeta.textContent = [place, st, state.song.artist, k, capo ? `Capo ${capo}` : '', t ? `${t} bpm` : ''].filter(Boolean).join(' · ') || state.song.fileName || '';
   }
 
   function updateBanner() {
@@ -268,6 +270,8 @@
   const myTranspose = () => (state.song ? prefs.transpose[state.song.key] : undefined);
   const transposeSemis = () => (myTranspose() ?? bandTranspose());
   const signed = (n) => (n > 0 ? `+${n}` : String(n));
+  // The capo fret for this song on this device (0 for none). It changes only the chord names shown.
+  const capoOf = () => (state.song && prefs.capo[state.song.key]) || 0;
 
   // Plain words about the keys: how the band's key compares with the recording and the tab.
   function keyInfoText() {
@@ -333,10 +337,13 @@
   }
 
   // Chords are stored in the tab's own key and shown in the key the tab is transposed to.
+  // With a capo, the names are the shapes to play: a capo at 2 shows the chord a tone below what sounds.
   function chordsAt(bar) {
     const own = state.notes && state.notes.chords && state.notes.chords[bar];
-    if (own != null) return own === '-' ? [] : SM.chords.split(own).map((c) => SM.chords.transposeName(c, transposeSemis()));
-    return (state.fileChords[bar] || []).map((c) => c.name);
+    const sounding = own != null
+      ? (own === '-' ? [] : SM.chords.split(own).map((c) => SM.chords.transposeName(c, transposeSemis())))
+      : (state.fileChords[bar] || []).map((c) => c.name);
+    return capoOf() ? sounding.map((c) => SM.chords.transposeName(c, -capoOf())) : sounding;
   }
   function songChordNames() {
     const seen = [];
@@ -1031,7 +1038,7 @@
   function partKey(display) {
     const cs = getComputedStyle(document.documentElement);
     const colours = ['--ink', '--muted', '--surface'].map((v) => cs.getPropertyValue(v).trim()).join();
-    return ['v3', state.song.key, state.source.hash, transposeSemis(), state.trackIndex, colours, JSON.stringify(display)].join('|');
+    return ['v3', state.song.key, state.source.hash, transposeSemis(), capoOf(), state.trackIndex, colours, JSON.stringify(display)].join('|');
   }
 
   // The settings a part is drawn with, from its size on the card.
@@ -1878,7 +1885,8 @@
     });
     // chords for this bar
     const rf = riffForBar(bar);
-    els.barChords.value = (state.notes.chords[bar] != null ? state.notes.chords[bar] : chordsAt(bar).join(' '));
+    const own = state.notes.chords[bar];
+    els.barChords.value = own === '-' ? '-' : chordsAt(bar).join(' ');
     els.barChords.dataset.initial = els.barChords.value;
     const times = rf ? riffBars(rf.riff, rf.offset).length : 1;
     els.barChordsAllLabel.hidden = !(rf && times > 1);
@@ -1890,8 +1898,8 @@
   function setChords(bar, text, everywhere) {
     const rf = riffForBar(bar);
     const bars = everywhere && rf ? riffBars(rf.riff, rf.offset) : [bar];
-    // entered in the key shown; stored in the tab's own key
-    const value = SM.chords.transposeText(text.trim(), -transposeSemis());
+    // entered as the shapes shown (with any capo); stored in the tab's own key
+    const value = SM.chords.transposeText(text.trim(), capoOf() - transposeSemis());
     bars.forEach((b) => {
       if (value) state.notes.chords[b] = value;
       else if (state.fileChords[b]) state.notes.chords[b] = '-';
@@ -2859,6 +2867,7 @@
     els.bandTrOut.textContent = signed(bandTranspose());
     els.myTrOut.textContent = myTranspose() === undefined ? 'same' : signed(myTranspose());
     els.myTrReset.disabled = myTranspose() === undefined;
+    els.capoSel.value = String(capoOf());
     const toBand = SM.chords.semitonesBetween(k.tab, k.band);
     els.matchKeyBtn.disabled = toBand === null || toBand === bandTranspose();
     els.keyInfo.textContent = keyInfoText();
@@ -2908,6 +2917,15 @@
   els.matchKeyBtn.addEventListener('click', () => {
     const k = keysOf(state.notes);
     setTranspose(SM.chords.semitonesBetween(k.tab, k.band) || 0, null);
+  });
+  els.capoSel.addEventListener('change', () => {
+    const fret = Number(els.capoSel.value);
+    if (fret) prefs.capo[state.song.key] = fret; else delete prefs.capo[state.song.key];
+    savePrefs();
+    // only the chord names change, so the tab and the rest of the song stay as they are
+    applyAnnotations();
+    updateSongMeta();
+    if (prefs.view === 'tab') api.render(); else renderCards();
   });
   els.myTrDown.addEventListener('click', () => setTranspose(undefined, transposeSemis() - 1));
   els.myTrUp.addEventListener('click', () => setTranspose(undefined, transposeSemis() + 1));

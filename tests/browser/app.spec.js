@@ -158,6 +158,30 @@ test('chords entered on a riff apply to every repeat and survive a reload', asyn
   await expect(page.locator('.card[data-group="verse"] .chord-cell').first()).toHaveText('Em');
 });
 
+test('a capo shows the chord shapes to play, and the song line says where it is', async ({ page }) => {
+  await openDemo(page);
+  await chooseRole(page, 'Guitar');
+  // a chord on the first bar, then the capo changes the shape shown for it
+  const first = page.locator('.chord-cell').first();
+  await first.click();
+  await page.fill('#chordInput', 'Dm7');
+  await page.click('#chordForm button[type=submit]');
+  await expect(first).toHaveText('Dm7');
+  const before = await first.textContent();
+  await page.click('#settingsBtn');
+  await page.selectOption('#capoSel', '2');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#songMeta')).toContainText('Capo 2');
+  await expect(first).not.toHaveText(before);
+  // the tab itself is not changed by the capo: the bass part still has the same notes
+  await page.click('#settingsBtn');
+  await expect(page.locator('#capoSel')).toHaveValue('2');
+  await page.selectOption('#capoSel', '0');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#songMeta')).not.toContainText('Capo');
+  await expect(first).toHaveText(before);
+});
+
 test('guitar shows chord diagrams and vocals shows the cue list', async ({ page }) => {
   await openDemo(page);
   await chooseRole(page, 'Guitar');
