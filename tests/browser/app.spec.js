@@ -168,16 +168,20 @@ test('a capo is chosen at the top of the song, and shows the chord shapes to pla
   await page.click('#chordForm button[type=submit]');
   await expect(first).toHaveText('Dm7');
   const before = await first.textContent();
-  await page.selectOption('#capoTop', '2');
+  await page.selectOption('.capo-pick', '2');
   await expect(first).not.toHaveText(before);
-  await expect(page.locator('#capoTop')).toHaveValue('2');
+  await expect(page.locator('.capo-pick')).toHaveValue('2');
   await expect(page.locator('#songMeta')).not.toContainText('Capo');
   // the capo is kept with the song: it is still set after going back to the list and in the full tab
   await page.click('#backBtn');
   await page.locator('.song-row .song-open', { hasText: 'Low Road (demo)' }).click();
-  await expect(page.locator('#capoTop')).toHaveValue('2');
-  await page.selectOption('#capoTop', '0');
+  await expect(page.locator('.capo-pick')).toHaveValue('2');
+  await page.selectOption('.capo-pick', '0');
   await expect(first).toHaveText(before);
+  // the capo is chosen with the cards, so the full tab has no capo control
+  await page.selectOption('.capo-pick', '2');
+  await page.click('#viewTab:visible, #viewTabTop:visible');
+  await expect(page.locator('.capo-pick')).toHaveCount(0);
 });
 
 test('guitar shows chord diagrams and vocals shows the cue list', async ({ page }) => {
@@ -370,7 +374,7 @@ test('a song can be added with just a name, then given its tab later', async ({ 
   await page.locator('#attachInput').setInputFiles(await demoGpFile());
   await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
   await expect(page.locator('#songMeta')).toContainText('Proposed');
-  await expect(page.locator('.cards > .role-note .role-note-text')).toHaveText('Check the key with the singer');
+  await expect(page.locator('.song-note-row > .role-note .role-note-text')).toHaveText('Check the key with the singer');
   await page.click('#backBtn');
   // still proposed until the band decides it is being learnt
   await expect(page.locator('.list-section', { hasText: 'Proposed' })).toHaveCount(1);

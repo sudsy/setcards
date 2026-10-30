@@ -487,10 +487,10 @@ dialog::backdrop { background: rgba(10, 12, 18, 0.55); }
 .notice-btn { position: relative; }
 .capo-pick { flex: none; max-width: 78px; padding: 6px 2px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--ink); font-size: 0.82rem; }
 .capo-pick.on { border-color: var(--accent); }
+.song-note-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: -4px; }
+.song-note-row > .add-note, .song-note-row > .role-note { margin-bottom: 0; }
 .topbar .song-id { min-width: 5.5rem; }
-/* in portrait the view switch is on the title bar, so the song order row holds only the capo */
-body.upright #songView .map-top { display: flex; justify-content: flex-start; }
-body.upright #songView .map-label, body.upright #songView .map-top .seg-toggle { display: none; }
+body.upright #songView .map-top { display: none; }
 .notice-btn::after { content: ""; position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent-fill); }
 @media (max-width: 420px) {
   .topbar { gap: 4px; }

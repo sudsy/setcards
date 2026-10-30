@@ -23,7 +23,7 @@
     fileInput: $('fileInput'), shareUpload: $('shareUpload'), shareUploadWrap: $('shareUploadWrap'),
     originalKeyInput: $('originalKeyInput'), bandKeyInput: $('bandKeyInput'), tabKeyInput: $('tabKeyInput'), keyInfo: $('keyInfo'),
     bandTrDown: $('bandTrDown'), bandTrUp: $('bandTrUp'), bandTrOut: $('bandTrOut'), matchKeyBtn: $('matchKeyBtn'),
-    capoTop: $('capoTop'), myTrDown: $('myTrDown'), myTrUp: $('myTrUp'), myTrOut: $('myTrOut'), myTrReset: $('myTrReset'),
+    myTrDown: $('myTrDown'), myTrUp: $('myTrUp'), myTrOut: $('myTrOut'), myTrReset: $('myTrReset'),
     tempoInput: $('tempoInput'), statusSel: $('statusSel'), noTab: $('noTab'),
     addSongBtn: $('addSongBtn'), addDlg: $('addDlg'), addForm: $('addForm'), addTitle: $('addTitle'), addArtist: $('addArtist'),
     addYt: $('addYt'), addStatus: $('addStatus'),
@@ -223,8 +223,6 @@
     const t = (state.notes && state.notes.tempo) || m.tempo;
     const st = state.notes && STATUS_LABELS[state.notes.status] && state.notes.status !== 'ready' ? STATUS_LABELS[state.notes.status] : '';
     els.songMeta.textContent = [place, st, state.song.artist, k, t ? `${t} bpm` : ''].filter(Boolean).join(' · ') || state.song.fileName || '';
-    els.capoTop.value = String(capoOf());
-    els.capoTop.classList.toggle('on', capoOf() > 0);
   }
 
   function updateBanner() {
@@ -644,6 +642,32 @@
   }
 
   // A note, or a small button to add one. partKey null means the note for the whole song.
+  // The whole-song note, with the capo beside it: the capo shows the chord shapes, so it is chosen where the cards are.
+  function songNoteRow() {
+    const row = document.createElement('div');
+    row.className = 'song-note-row';
+    row.appendChild(noteBlock(null));
+    row.appendChild(capoPicker());
+    return row;
+  }
+  function capoPicker() {
+    const sel = document.createElement('select');
+    sel.className = 'capo-pick' + (capoOf() ? ' on' : '');
+    sel.setAttribute('aria-label', 'Capo fret');
+    sel.title = 'Capo: the chord shapes shown are for this fret';
+    sel.innerHTML = '<option value="0">No capo</option>' + Array.from({ length: 12 }, (_, i) => `<option value="${i + 1}">Capo ${i + 1}</option>`).join('');
+    sel.value = String(capoOf());
+    sel.addEventListener('change', () => {
+      const fret = Number(sel.value);
+      if (fret) state.notes.capo = fret; else delete state.notes.capo;
+      saveNotes();
+      // only the chord names change, so the tab and the rest of the song stay as they are
+      applyAnnotations();
+      if (prefs.view === 'tab') api.render(); else renderCards();
+    });
+    return sel;
+  }
+
   function noteBlock(partKey, partName) {
     const text = getNote(partKey);
     const label = `${role().label} note`;
@@ -690,7 +714,7 @@
     const frag = document.createDocumentFragment();
 
     frag.appendChild(songKeysBlock());
-    frag.appendChild(noteBlock(null));
+    frag.appendChild(songNoteRow());
 
     if (r.cues) {
       frag.appendChild(cueSheet());
@@ -2916,15 +2940,6 @@
   els.matchKeyBtn.addEventListener('click', () => {
     const k = keysOf(state.notes);
     setTranspose(SM.chords.semitonesBetween(k.tab, k.band) || 0, null);
-  });
-  els.capoTop.addEventListener('change', () => {
-    const fret = Number(els.capoTop.value);
-    if (fret) state.notes.capo = fret; else delete state.notes.capo;
-    saveNotes();
-    // only the chord names change, so the tab and the rest of the song stay as they are
-    applyAnnotations();
-    updateSongMeta();
-    if (prefs.view === 'tab') api.render(); else renderCards();
   });
   els.myTrDown.addEventListener('click', () => setTranspose(undefined, transposeSemis() - 1));
   els.myTrUp.addEventListener('click', () => setTranspose(undefined, transposeSemis() + 1));
