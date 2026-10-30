@@ -261,8 +261,15 @@
       });
     }
 
+    // Calls made without a tap (on refresh, or when the list is read) only renew access quietly: a popup opened
+    // without a tap is blocked by the browser. When that is not possible, the sign-in button asks.
     async function call(url, opts = {}) {
-      const t = await signIn(true);
+      let t;
+      try {
+        t = await signIn(false);
+      } catch (e) {
+        throw new Error('Google needs you to sign in again. Open Songs and tap Show band songs.');
+      }
       const r = await fetch(url, Object.assign({}, opts, { headers: Object.assign({ Authorization: 'Bearer ' + t }, opts.headers || {}) }));
       if (r.status === 401) {
         token = null;
