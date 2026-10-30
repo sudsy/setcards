@@ -646,8 +646,8 @@
   function songNoteRow() {
     const row = document.createElement('div');
     row.className = 'song-note-row';
-    row.appendChild(noteBlock(null));
     row.appendChild(capoPicker());
+    row.appendChild(noteBlock(null));
     return row;
   }
   function capoPicker() {
