@@ -2655,7 +2655,7 @@
       } else if (!drive.signedIn()) {
         // A phone's app icon starts a new session each time, so the token from last time is gone. Google can often
         // renew access without asking, so that is tried first; the songs appear by themselves if it works.
-        if (drive.wasSignedIn() && !silentSignInTried) {
+        if (drive.wasSignedIn() && drive.canRenewQuietly() && !silentSignInTried) {
           silentSignInTried = true;
           drive.signIn(false).then(() => renderHome(), () => {});
         }

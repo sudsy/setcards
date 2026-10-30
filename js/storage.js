@@ -263,9 +263,14 @@
 
     // Calls made without a tap (on refresh, or when the list is read) only renew access quietly: a popup opened
     // without a tap is blocked by the browser. When that is not possible, the sign-in button asks.
+    // Google's sign-in window is a popup, and a browser blocks a popup that no tap caused. So without a tap only an
+    // installed app (which Chrome on a computer does not count) tries a quiet renewal, and elsewhere the button asks.
+    const installed = () => (typeof matchMedia === 'function' && matchMedia('(display-mode: standalone)').matches) || !!root.navigator.standalone;
+    const canRenewQuietly = () => installed();
     async function call(url, opts = {}) {
       let t;
       try {
+        if (!hasToken() && !canRenewQuietly()) throw new Error('no sign-in without a tap');
         t = await signIn(false);
       } catch (e) {
         throw new Error('Google needs you to sign in again. Open Songs and tap Show band songs.');
@@ -670,6 +675,7 @@
       signedIn: hasToken,
       // signed in on this device before (the access token itself is only kept for this session)
       wasSignedIn: () => !!ls.get('setcards:driveSignedIn'),
+      canRenewQuietly,
       // interactive: may open Google's sign-in; otherwise Google is asked to renew access without showing anything
       signIn: (interactive = true) => signIn(interactive),
       folder,
