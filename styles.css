@@ -895,4 +895,17 @@ body.compact .card .riff { border-top: 0; }
 .chord-sheet .bar input.clash { border-color: var(--danger); color: var(--danger); }
 .chord-sheet-bar { display: flex; gap: 10px; align-items: center; justify-content: flex-end; padding-top: 10px; border-top: 1px solid var(--line); }
 .chord-sheet-bar .fine { margin-right: auto; }
-.card > .card-chords { margin-top: 8px; font-size: 0.8rem; }
+.card-actions { display: flex; flex-wrap: nowrap; gap: 8px; margin-top: 8px; }
+.card-actions .text-btn { font-size: 0.8rem; }
+.repeat-btn[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.skip-btn { flex: none; width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+.skip-btn svg { width: 22px; height: 22px; fill: currentColor; }
+/* touch: every control is at least 44 px square, and the capo picker is large enough to hit */
+@media (pointer: coarse) {
+  button, .chip, .toggle, .text-btn, .step-btn, .icon-btn, .role-btn { min-height: 44px; min-width: 44px; }
+  select, input:not([type="checkbox"]):not([type="range"]), .check { min-height: 44px; font-size: 16px; }
+  .check { display: flex; align-items: center; }
+  input[type="range"] { min-height: 44px; }
+  .capo-pick { min-width: 72px; min-height: 44px; }
+}
+.capo-pick { min-height: 36px; min-width: 64px; max-width: none; }

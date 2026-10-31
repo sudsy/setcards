@@ -407,36 +407,29 @@ test('the repeats option is only offered where a riff is played more than once',
   expect(errors).toEqual([]);
 });
 
-test('for bass in the tab view, a section can show repeated bars as %, and the notes are unchanged', async ({ page }) => {
+test('for bass on a card, the repeats of its section can be shown as %, and only on the cards', async ({ page }) => {
   const errors = watchErrors(page);
   await openDemo(page);
   await chooseRole(page, 'Bass');
-  await page.click('#viewTab:visible, #viewTabTop:visible');
-  await page.click('#nextBtn');
-  await expect(page.locator('#simileBtn')).toBeVisible();
-  await expect(page.locator('#simileBtn')).toHaveAttribute('aria-pressed', 'false');
+  const pct = page.locator('.card').first().locator('.repeat-btn');
+  await expect(pct).toHaveAttribute('aria-pressed', 'false');
   expect(await page.evaluate(() => window.setcardsTest.state().simileBars)).toBe(0);
-  await page.click('#simileBtn');
-  await expect(page.locator('#simileBtn')).toHaveAttribute('aria-pressed', 'true');
+  await pct.click();
+  await expect(page.locator('.card').first().locator('.repeat-btn')).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(() => page.evaluate(() => window.setcardsTest.state().simileBars)).toBeGreaterThan(0);
-  // the whole-song tab keeps every bar as written (the % would crowd the lyrics), and the button is only offered for a section
-  await page.click('#prevBtn');
-  await expect(page.locator('#simileBtn')).toBeHidden();
+  // the full tab keeps every bar as written, so the lyrics are not crowded
+  await page.click('#viewTab:visible, #viewTabTop:visible');
   await expect.poll(() => page.evaluate(() => window.setcardsTest.state().simileBars)).toBe(0);
-  await page.click('#nextBtn');
-  await expect(page.locator('#simileBtn')).toHaveAttribute('aria-pressed', 'true');
-  await page.click('#simileBtn');
-  await expect(page.locator('#simileBtn')).toHaveAttribute('aria-pressed', 'false');
-  await expect.poll(() => page.evaluate(() => window.setcardsTest.state().simileBars)).toBe(0);
+  await page.click('#viewCards:visible, #viewCardsTop:visible');
+  await expect(page.locator('.card').first().locator('.repeat-btn')).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(() => page.evaluate(() => window.setcardsTest.state().simileBars)).toBeGreaterThan(0);
   expect(errors).toEqual([]);
 });
 
 test('an export made while bars show as % has the same notes as the song', async ({ page }) => {
   await openDemo(page);
   await chooseRole(page, 'Bass');
-  await page.click('#viewTab:visible, #viewTabTop:visible');
-  await page.click('#nextBtn');
-  await page.click('#simileBtn');
+  await page.locator('.card').first().locator('.repeat-btn').click();
   await expect.poll(() => page.evaluate(() => window.setcardsTest.state().simileBars)).toBeGreaterThan(0);
   await page.click('#settingsBtn');
   const download = page.waitForEvent('download');
@@ -454,6 +447,36 @@ test('an export made while bars show as % has the same notes as the song', async
   expect(exported.notes).toBe(original.notes);
   expect(exported.bars).toBe(original.bars);
   expect(exported.marks).toBe(0);
+});
+
+test('picking a section in the full tab scrolls to it and keeps the rest of the tab', async ({ page }) => {
+  await openDemo(page);
+  await chooseRole(page, 'Bass');
+  await page.click('#viewTab:visible, #viewTabTop:visible');
+  await page.click('#nextBtn');
+  await page.click('#nextBtn');
+  await page.click('#nextBtn');
+  await expect.poll(() => page.evaluate(() => window.setcardsTest.state().scroll)).toBeGreaterThan(0);
+  await page.click('#prevBtn');
+  await page.click('#prevBtn');
+  await page.click('#prevBtn');
+  await expect(page.locator('#sectionName')).toHaveText('Whole song');
+  // the top of the tab (its padding is a few pixels)
+  await expect.poll(() => page.evaluate(() => window.setcardsTest.state().scroll)).toBeLessThan(40);
+});
+
+test('the play bar has back to the beginning and no loop button', async ({ page }) => {
+  await openDemo(page);
+  await expect(page.locator('#loopBtn')).toHaveCount(0);
+  await expect(page.locator('#skipBtn')).toBeVisible();
+  await chooseRole(page, 'Bass');
+  await page.click('#viewTab:visible, #viewTabTop:visible');
+  await page.click('#nextBtn');
+  await page.click('#nextBtn');
+  await page.click('#skipBtn');
+  const start = await page.evaluate(() => window.setcardsTest.state().parts[1].playStart ?? window.setcardsTest.state().parts[1].start);
+  // alphaTab numbers a range one tick later, so a tick either side is the start
+  await expect.poll(() => page.evaluate(() => Math.abs(window.setcardsTest.state().tick - window.setcardsTest.state().parts[1].start))).toBeLessThanOrEqual(1);
 });
 
 test('guitar shows chord diagrams and vocals shows the cue list', async ({ page }) => {

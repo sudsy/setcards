@@ -9,13 +9,13 @@
     songTitle: $('songTitle'), songMeta: $('songMeta'),
     structure: $('structure'),
     viewCards: $('viewCards'), viewTab: $('viewTab'), viewCardsTop: $('viewCardsTop'), viewTabTop: $('viewTabTop'), roleBtn: $('roleBtn'),
-    sectionHead: $('sectionHead'), sectionName: $('sectionName'), sectionBars: $('sectionBars'), simileBtn: $('simileBtn'),
+    sectionHead: $('sectionHead'), sectionName: $('sectionName'), sectionBars: $('sectionBars'),
     prevBtn: $('prevBtn'), nextBtn: $('nextBtn'),
     editBtn: $('editBtn'), editPanel: $('editPanel'), sectionList: $('sectionList'),
     findRepeatsBtn: $('findRepeatsBtn'), suggestBtn: $('suggestBtn'), useMarkersBtn: $('useMarkersBtn'), doneEditBtn: $('doneEditBtn'),
     syncBtn: $('syncBtn'), scroller: $('scroller'), tab: $('tab'), cards: $('cards'), loading: $('loading'), drop: $('drop'),
     noticeBtn: $('noticeBtn'), noticeDlg: $('noticeDlg'), noticeText: $('noticeText'),
-    playBtn: $('playBtn'), loopBtn: $('loopBtn'), drumsBtn: $('drumsBtn'), speedSel: $('speedSel'),
+    playBtn: $('playBtn'), skipBtn: $('skipBtn'), drumsBtn: $('drumsBtn'), speedSel: $('speedSel'),
     videoBtn: $('videoBtn'), videoPanel: $('videoPanel'), playerStatus: $('playerStatus'),
     homeView: $('homeView'), songView: $('songView'), backBtn: $('backBtn'), bandName: $('bandName'), homeRoleBtn: $('homeRoleBtn'),
     bandBtn: $('bandBtn'), bandDlg: $('bandDlg'), driveBox: $('driveBox'), modeBox: $('modeBox'),
@@ -76,7 +76,6 @@
     riffs: {},          // riff id -> { id, start, len, uses }
     view: -1,           // selected occurrence in the tab view, -1 = whole song
     editing: false,
-    loop: true,
     playing: false,
     playingPart: -1,
     videoOn: false,
@@ -622,13 +621,6 @@
       els.sectionName.textContent = p.label;
       els.sectionBars.textContent = bits.join(' · ');
     }
-    const cur = currentSection();
-    els.simileBtn.hidden = !(simileOn() && cur !== null);
-    if (cur !== null) {
-      const on = simileStarts().includes(cur);
-      els.simileBtn.setAttribute('aria-pressed', String(on));
-      els.simileBtn.classList.toggle('is-on', on);
-    }
     els.prevBtn.disabled = state.view <= -1;
     els.nextBtn.disabled = state.view >= state.parts.length - 1;
   }
@@ -738,6 +730,7 @@
     els.cards.innerHTML = '';
     applyPaged();
     if (!state.score) return;
+    applySimileMarks();
     const r = role();
     const frag = document.createDocumentFragment();
 
@@ -824,7 +817,9 @@
       }
       // the whole section is written out, bar by bar, including any repeats inside it
       card.appendChild(sectionBlock(occ[0]));
-      // the section's chords, one box per bar (kept in the card body, since the heading is hidden when held upright)
+      // the card's controls, under its bars: its chords, and for bass its repeats as % (an experiment)
+      const actions = document.createElement('div');
+      actions.className = 'card-actions';
       if (!r.cues && showChords()) {
         const chordsBtn = document.createElement('button');
         chordsBtn.type = 'button';
@@ -833,8 +828,22 @@
         chordsBtn.setAttribute('aria-label', `Edit chords for ${g.name}`);
         chordsBtn.title = `Edit chords for ${g.name}`;
         chordsBtn.addEventListener('click', () => openChordSheet(g.name, occ[0]));
-        card.appendChild(chordsBtn);
+        actions.appendChild(chordsBtn);
       }
+      if (r.id === 'bass' && showTabInCards()) {
+        const start = sectionBarRange(occ[0].start)[0];
+        const on = simileStarts().includes(start);
+        const pct = document.createElement('button');
+        pct.type = 'button';
+        pct.className = 'text-btn repeat-btn';
+        pct.textContent = 'Repeats as %';
+        pct.setAttribute('aria-pressed', String(on));
+        pct.setAttribute('aria-label', `Show repeated bars in ${g.name} as %`);
+        pct.title = `Show repeated bars in ${g.name} as %`;
+        pct.addEventListener('click', () => toggleSimile(start));
+        actions.appendChild(pct);
+      }
+      if (actions.children.length) card.appendChild(actions);
       riffIds.forEach((id) => shown.add(id));
       // held upright, the card is only its colour and tab; a long press opens the rest
       if (isCompact()) attachPartDetail(card, g, occ, layoutHtml, fills);
@@ -1261,7 +1270,6 @@
       destroyMinis();
       els.cards.innerHTML = '';
       applySimileMarks();
-      updateHeader();
       api.render();
     } else {
       renderCards();
@@ -1283,18 +1291,27 @@
     if (cards && state.editing) setEditing(false);
   }
 
+  // Scrolls the full tab to a bar once it has been drawn.
+  let pendingTabBar = null;
+  function scrollTabToBar(bar) {
+    const mb = api.boundsLookup && api.boundsLookup.findMasterBarByIndex(bar);
+    if (!mb) return;
+    els.scroller.scrollTop = Math.max(0, els.tab.offsetTop + mb.visualBounds.y - 8);
+  }
   function selectView(index, opts = {}) {
     if (!state.score) return;
     index = Math.max(-1, Math.min(state.parts.length - 1, index));
     state.view = index;
     refreshChipStates();
     updateHeader();
+    // the full tab always shows every bar; a picked part is scrolled to, not cut out of the tab
     const d = api.settings.display;
-    if (index === -1) { d.startBar = 1; d.barCount = -1; } else { d.startBar = state.parts[index].start + 1; d.barCount = state.parts[index].bars; }
+    d.startBar = 1;
+    d.barCount = -1;
     api.updateSettings();
-    applySimileMarks();
+    pendingTabBar = index >= 0 ? state.parts[index].start : -1;
+    if (prefs.view !== 'tab') els.scroller.scrollTop = 0;   // the cards start each part at the top
     api.render();
-    els.scroller.scrollTop = 0;
     applyPlaybackRange();
     if (!opts.keepVideo) seekVideoToView();
     const active = els.structure.querySelector('[aria-current="true"]');
@@ -1319,7 +1336,7 @@
     range.startTick = p.playStart;
     range.endTick = p.playEnd;
     api.playbackRange = range;
-    api.isLooping = state.loop;
+    api.isLooping = false;
     api.tickPosition = range.startTick;
   }
 
@@ -1334,7 +1351,7 @@
     const wasPlaying = state.playing;
     if (wasPlaying) api.stop();
     api.playbackRange = range;
-    api.isLooping = state.loop;
+    api.isLooping = false;
     api.tickPosition = range.startTick;
     if (wasPlaying) api.play();
   }
@@ -1348,6 +1365,7 @@
         parts: state.parts.map((p) => ({ start: p.playStart, end: p.playEnd })),
         bars: state.score ? state.score.masterBars.slice(0, 12).map((m) => m.start) : [],
         sideSticks: clickNotes.size,
+        scroll: els.scroller ? els.scroller.scrollTop : 0,
         simileBars: state.score && state.score.tracks[state.trackIndex] ? state.score.tracks[state.trackIndex].staves[0].bars.filter((b) => b.simileMark).length : 0
       })
     };
@@ -1357,7 +1375,7 @@
     const range = rangeFor(start, end);
     api.stop();
     api.playbackRange = range;
-    api.isLooping = state.loop;
+    api.isLooping = false;
     api.tickPosition = range.startTick;
     api.play();
   }
@@ -1486,6 +1504,10 @@
   api.renderFinished.on(() => {
     els.loading.hidden = true;
     doneSwitching();
+    if (pendingTabBar !== null && prefs.view === 'tab') {
+      if (pendingTabBar < 0) els.scroller.scrollTop = 0; else scrollTabToBar(pendingTabBar);
+      pendingTabBar = null;
+    }
     drawSelection();
     // alphaTab's credit line is shown in the play bar instead, so it is left out of the tab (set once the size is settled)
     setTimeout(() => { const credit = creditLine(els.tab); if (credit) credit.style.display = 'none'; }, 200);
@@ -1943,7 +1965,6 @@
     els.homeRoleBtn.textContent = role().label;
     if (!state.score) return;
     applySimileMarks();
-    updateHeader();
     const i = pickTrack(state.score);
     updateBanner();
     if (i !== state.trackIndex) useTrack(i);
@@ -2587,10 +2608,8 @@
   // In a section that is switched on, a bar exactly like the one before it is drawn with a % sign. The notes stay in
   // the score, so playback and the saved file are unchanged; the marks are put back while a file is written.
   const originalSimile = new Map();   // bar -> the mark it came with, for the bars shown with %
-  const simileOn = () => prefs.role === 'bass' && prefs.view === 'tab';
+  const simileOn = () => prefs.role === 'bass' && prefs.view === 'cards';
   const simileStarts = () => (state.notes && state.notes.simile) || [];
-  // the section on screen (its first bar), or null for the whole song, where the % marks are never shown
-  const currentSection = () => (state.view >= 0 && state.parts[state.view] ? sectionBarRange(state.parts[state.view].start)[0] : null);
   function restoreSimile() {
     originalSimile.forEach((mark, bar) => { bar.simileMark = mark; });
   }
@@ -2604,8 +2623,7 @@
       const ta = SM.analysis.barTokens(state.score, state.trackIndex, a);
       return ta.length > 0 && JSON.stringify(ta) === JSON.stringify(SM.analysis.barTokens(state.score, state.trackIndex, b));
     };
-    const shown = currentSection();
-    simileStarts().filter((start) => start === shown).forEach((start) => {
+    simileStarts().forEach((start) => {
       const [a, b] = sectionBarRange(start);
       for (let i = a + 1; i <= b; i++) {
         const bar = staff.bars[i];
@@ -2615,18 +2633,16 @@
       }
     });
   }
-  els.simileBtn.addEventListener('click', () => {
-    const start = currentSection();
-    if (start === null || !state.notes) return;
+  // the % button on a bass card: that section's repeats are drawn with % on its card
+  function toggleSimile(start) {
+    if (!state.notes) return;
     const list = simileStarts().slice();
     const i = list.indexOf(start);
     if (i >= 0) list.splice(i, 1); else list.push(start);
     state.notes.simile = list;
     saveNotes();
-    applySimileMarks();
-    updateHeader();
-    api.render();
-  });
+    renderCards();
+  }
 
   /* ---------------- player controls ---------------- */
   // The drum kit is a SoundFont with its own drum sounds. Each song uses its own kit, or the default one. Kits are
@@ -2730,10 +2746,14 @@
     applyPlaybackRange();
     api.playPause();
   });
-  els.loopBtn.addEventListener('click', () => {
-    state.loop = !state.loop;
-    els.loopBtn.setAttribute('aria-pressed', String(state.loop));
-    api.isLooping = state.loop && !!api.playbackRange;
+  // Back to the beginning: the start of the song, or of the section on screen when one is picked.
+  els.skipBtn.addEventListener('click', () => {
+    if (!state.score) return;
+    const start = state.view >= 0 && state.parts[state.view] ? state.parts[state.view].playStart : 0;
+    const wasPlaying = state.playing;
+    if (wasPlaying) api.stop();
+    api.tickPosition = start;
+    if (wasPlaying) api.play();
   });
   // Plays only the drum track, as backing for practice: every other track is silenced while it is on.
   const drumTrack = () => (state.score ? state.score.tracks.find((t) => trackMatches(t, 'drums')) : null);
@@ -2936,11 +2956,6 @@
     // a section's video time is where it is first played
     const timed = state.parts.map((p, i) => ({ i, t: !p.again && p.ref && p.ref.start === p.start ? p.ref.videoTime : null })).filter((x) => x.t != null);
     if (!timed.length) return;
-    if (state.view !== -1 && state.loop) {
-      const start = state.parts[state.view].ref && state.parts[state.view].ref.videoTime;
-      const next = timed.find((x) => x.t > (start ?? Infinity));
-      if (start != null && next && t >= next.t) { media.seek(start); return; }
-    }
     let cur = -1;
     timed.forEach((x) => { if (x.t <= t) cur = x.i; });
     setPlayingPart(cur);

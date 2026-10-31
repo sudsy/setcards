@@ -102,7 +102,6 @@
         <span id="sectionName" class="section-name">Whole song</span>
         <span id="sectionBars" class="section-bars"></span>
       </div>
-      <button id="simileBtn" class="text-btn simile-btn" type="button" aria-pressed="false" hidden title="Show repeated bars as %">%</button>
       <button id="nextBtn" class="step-btn" aria-label="Next section">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
       </button>
@@ -138,11 +137,13 @@
     </main>
 
     <footer class="playerbar">
+      <button id="skipBtn" class="skip-btn" type="button" aria-label="Back to the beginning" title="Back to the beginning">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h2v14H5zM19 5v14L9 12z"/></svg>
+      </button>
       <button id="playBtn" class="play-btn" aria-label="Play" disabled>
         <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5l12 7-12 7z"/></svg>
         <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3v14H7zM14 5h3v14h-3z"/></svg>
       </button>
-      <button id="loopBtn" class="toggle" aria-pressed="true" title="Loop the selected section or riff">Loop</button>
       <button id="drumsBtn" class="toggle" aria-pressed="false" title="Play only the drums, as backing" hidden>Drums only</button>
       <label class="speed">
         <span>Speed</span>
