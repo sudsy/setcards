@@ -299,7 +299,11 @@
     <p class="fine">0 is straight. Changes only how the drums play, not the file.</p>
     <label class="check"><input id="countIn" type="checkbox"> <span>Count in one bar before playing</span></label>
     <label class="check"><input id="clickBars" type="checkbox"> <span>Click on each beat in bars with no drums</span></label>
-    <p class="fine">For songs whose drums come in late. The click is off in bars where the drums play.</p>
+    <label class="field"><span>Click volume <output id="clickLevelOut">60%</output></span>
+      <input id="clickLevel" type="range" min="0" max="150" step="5" value="60"></label>
+    <label class="field"><span>Count-in volume <output id="countInLevelOut">80%</output></span>
+      <input id="countInLevel" type="range" min="0" max="150" step="5" value="80"></label>
+    <p class="fine">For songs whose drums come in late. The click is off in bars where the drums play. Volumes are kept on this device.</p>
     <label class="field"><span>Drum kit for this song</span><select id="kitSel" aria-label="Drum kit for this song"></select></label>
     <input id="kitInput" type="file" accept=".sf2" hidden>
     <p class="fine">A drum kit is a SoundFont (.sf2). In a band song, kits added here are kept in the band folder for everyone.</p>

@@ -30,7 +30,7 @@
     addYt: $('addYt'), addStatus: $('addStatus'),
     noteDlg: $('noteDlg'), noteTitle: $('noteTitle'), noteHint: $('noteHint'), noteForm: $('noteForm'), noteText: $('noteText'), noteClear: $('noteClear'),
     settingsBtn: $('settingsBtn'), settingsDlg: $('settingsDlg'), trackSel: $('trackSel'),
-    zoomRange: $('zoomRange'), zoomOut: $('zoomOut'), ytInput: $('ytInput'), exportBtn: $('exportBtn'), showTabCards: $('showTabCards'), showChords: $('showChords'), audioInput: $('audioInput'), audioRemove: $('audioRemove'), kitSel: $('kitSel'), kitInput: $('kitInput'), drumFeel: $('drumFeel'), drumFeelOut: $('drumFeelOut'), drumLoud: $('drumLoud'), drumSwell: $('drumSwell'), countIn: $('countIn'), clickBars: $('clickBars'), soundLogText: $('soundLogText'), soundLogCopy: $('soundLogCopy'), appVersion: $('appVersion'),
+    zoomRange: $('zoomRange'), zoomOut: $('zoomOut'), ytInput: $('ytInput'), exportBtn: $('exportBtn'), showTabCards: $('showTabCards'), showChords: $('showChords'), audioInput: $('audioInput'), audioRemove: $('audioRemove'), kitSel: $('kitSel'), kitInput: $('kitInput'), drumFeel: $('drumFeel'), drumFeelOut: $('drumFeelOut'), drumLoud: $('drumLoud'), drumSwell: $('drumSwell'), countIn: $('countIn'), clickBars: $('clickBars'), clickLevel: $('clickLevel'), clickLevelOut: $('clickLevelOut'), countInLevel: $('countInLevel'), countInLevelOut: $('countInLevelOut'), soundLogText: $('soundLogText'), soundLogCopy: $('soundLogCopy'), appVersion: $('appVersion'),
     barDlg: $('barDlg'), barDlgTitle: $('barDlgTitle'), barDlgText: $('barDlgText'),
     presetRow: $('presetRow'), barForm: $('barForm'), barName: $('barName'), barSubmit: $('barSubmit'), barRemove: $('barRemove'),
     barChords: $('barChords'), barChordsAll: $('barChordsAll'), barChordsAllLabel: $('barChordsAllLabel'),
@@ -1546,7 +1546,9 @@
   // Count-in and click, set for each song. The click plays only in bars where the drums have no notes, so a song
   // whose drums come in late keeps its time without the click sitting on top of the drums.
   const clickSetup = () => { const c = (state.notes && state.notes.click) || {}; return { countIn: !!c.countIn, click: !!c.click }; };
-  const CLICK_LEVEL = 0.6, COUNT_IN_LEVEL = 0.8;
+  // the volumes are kept on this device (percent, up to 150)
+  const clickLevel = () => (Number.isFinite(prefs.clickLevel) ? prefs.clickLevel : 60) / 100;
+  const countInLevel = () => (Number.isFinite(prefs.countInLevel) ? prefs.countInLevel : 80) / 100;
   let clickBars = null;   // per bar: true when the drums have no notes in it (no drum track counts as no drums)
   let clickBar = 0;
   function computeClickBars() {
@@ -1569,14 +1571,14 @@
   function updateClick(tick) {
     if (!clickBars) return;
     const c = clickSetup();
-    const level = c.click && clickBars[barAtTick(tick)] ? CLICK_LEVEL : 0;
+    const level = c.click && clickBars[barAtTick(tick)] ? clickLevel() : 0;
     if (api.metronomeVolume !== level) api.metronomeVolume = level;
   }
   function applyClick() {
     if (!state.score) return;
     computeClickBars();
     const c = clickSetup();
-    api.countInVolume = c.countIn ? COUNT_IN_LEVEL : 0;
+    api.countInVolume = c.countIn ? countInLevel() : 0;
     updateClick(api.tickPosition || 0);
   }
   function setPlayingPart(i) {
@@ -2728,6 +2730,10 @@
     applyClick();
   };
   els.countIn.addEventListener('change', clickChanged);
+  for (const [slider, out, key] of [[els.clickLevel, els.clickLevelOut, 'clickLevel'], [els.countInLevel, els.countInLevelOut, 'countInLevel']]) {
+    slider.addEventListener('input', () => { out.textContent = `${slider.value}%`; });
+    slider.addEventListener('change', () => { prefs[key] = Number(slider.value); savePrefs(); applyClick(); });
+  }
   els.clickBars.addEventListener('change', clickChanged);
   els.drumLoud.addEventListener('change', feelChanged);
   els.drumSwell.addEventListener('change', feelChanged);
@@ -3412,6 +3418,10 @@
     const c = clickSetup();
     els.countIn.checked = c.countIn;
     els.clickBars.checked = c.click;
+    els.clickLevel.value = String(Number.isFinite(prefs.clickLevel) ? prefs.clickLevel : 60);
+    els.clickLevelOut.textContent = `${els.clickLevel.value}%`;
+    els.countInLevel.value = String(Number.isFinite(prefs.countInLevel) ? prefs.countInLevel : 80);
+    els.countInLevelOut.textContent = `${els.countInLevel.value}%`;
     els.drumFeelOut.textContent = `${feel.ms} ms`;
     fillKitSelect();
     const m = state.notes.meta || {};
