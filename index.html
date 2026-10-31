@@ -108,6 +108,18 @@
     </div>
 
     <section id="editPanel" class="edit-panel" hidden aria-label="Edit sections">
+      <div id="chordPanel" class="chord-panel" hidden>
+        <h2 class="chord-panel-title">Chords for the whole song</h2>
+        <p class="fine">One box for each bar, in order. Tab or Enter moves to the next bar. Amber marks a bar changed but not yet saved. Red marks a chord the app does not recognise.</p>
+        <div id="chordPanelBody"></div>
+        <div class="chord-panel-bar">
+          <span id="chordPanelCount" class="fine"></span>
+          <button id="chordPanelDiscard" class="text-btn" type="button">Discard</button>
+          <button id="chordPanelSave" class="text-btn primary" type="button">Save chords</button>
+          <button id="chordPanelDone" class="text-btn" type="button">Done</button>
+        </div>
+      </div>
+      <div id="sectionEdit">
       <p class="edit-hint">Tap any bar in the tab to start a section there or set its chords. Sections run until the next one starts, and sections with the same name count as one part.</p>
       <div id="noteEditBar" class="note-edit-bar" hidden>
         <span id="noteEditCount" class="fine"></span>
@@ -121,6 +133,7 @@
         <button id="findRepeatsBtn" class="text-btn">Find repeats</button>
         <button id="useMarkersBtn" class="text-btn">Use markers from file</button>
         <button id="doneEditBtn" class="text-btn primary">Done</button>
+      </div>
       </div>
     </section>
 
@@ -367,23 +380,6 @@
     <button id="barRemove" class="text-btn danger" hidden>Remove this section break</button>
   </dialog>
 
-  <dialog id="chordSheetDlg" class="sheet chord-sheet">
-    <div class="sheet-head">
-      <h2 id="chordSheetTitle">Chords</h2>
-      <button class="icon-btn" data-close aria-label="Close">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
-      </button>
-    </div>
-    <div class="sheet-scroll">
-      <p class="fine">One box for each bar of this section, in order. Tab or Enter moves to the next bar. Amber marks a bar changed but not yet saved. Red marks a chord the app does not recognise.</p>
-      <div id="chordSheetBody"></div>
-    </div>
-    <div class="chord-sheet-bar">
-      <span id="chordSheetCount" class="fine"></span>
-      <button id="chordSheetDiscard" class="text-btn" type="button">Discard</button>
-      <button id="chordSheetSave" class="text-btn primary" type="button">Save chords</button>
-    </div>
-  </dialog>
 
   <dialog id="chordDlg" class="sheet small">
     <div class="sheet-head">

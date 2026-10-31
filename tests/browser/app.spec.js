@@ -333,49 +333,40 @@ test('the click in drum-free bars is a side stick on the first beat, and is left
   expect(errors).toEqual([]);
 });
 
-test('chords for a section are typed in one box per bar from its card, and saved together', async ({ page }) => {
+test('in guitar edit mode, the chords for the whole song are typed in one box per bar and saved together', async ({ page }) => {
   const errors = watchErrors(page);
   await openDemo(page);
   await chooseRole(page, 'Guitar');
-  const card = page.locator('.card[data-group="verse"]');
-  await card.locator('.card-chords').click();
-  const dlg = page.locator('#chordSheetDlg');
-  await expect(dlg).toBeVisible();
-  await expect(dlg.locator('#chordSheetTitle')).not.toBeEmpty();
-  // the boxes are this section's bars only
-  const boxes = dlg.locator('input[data-bar]');
-  const count = await boxes.count();
-  expect(count).toBeGreaterThan(1);
-  const first = await boxes.first().getAttribute('data-bar');
-  const lastBar = await boxes.last().getAttribute('data-bar');
-  await expect(page.getByLabel(`Bar ${Number(first) + 1} chords`)).toBeFocused();
+  await expect(page.locator('.card-chords')).toHaveCount(0);
+  await page.click('#editBtn');
+  await expect(page.locator('#chordPanel')).toBeVisible();
+  await expect(page.locator('#sectionEdit')).toBeHidden();
+  await expect(page.locator('#chordPanelSave')).toBeDisabled();
   // Enter moves on to the next bar
-  await page.getByLabel(`Bar ${Number(first) + 1} chords`).fill('Dm7');
-  await page.getByLabel(`Bar ${Number(first) + 1} chords`).press('Enter');
-  await expect(page.getByLabel(`Bar ${Number(first) + 2} chords`)).toBeFocused();
-  await page.getByLabel(`Bar ${Number(first) + 2} chords`).fill('Gm7');
-  await page.getByLabel(`Bar ${Number(first) + 3} chords`).fill('Xq');
-  await expect(page.locator('#chordSheetCount')).toHaveText('3 unsaved bars');
-  await expect(page.getByLabel(`Bar ${Number(first) + 3} chords`)).toHaveClass(/clash/);
-  await expect(page.getByLabel(`Bar ${Number(first) + 1} chords`)).toHaveClass(/changed/);
-  // discard leaves the section as it was
-  await page.click('#chordSheetDiscard');
-  await expect(dlg).toBeHidden();
-  await card.locator('.card-chords').click();
-  await expect(page.getByLabel(`Bar ${Number(first) + 1} chords`)).not.toHaveValue('Dm7');
+  await page.getByLabel('Bar 1 chords').fill('Dm7');
+  await page.getByLabel('Bar 1 chords').press('Enter');
+  await expect(page.getByLabel('Bar 2 chords')).toBeFocused();
+  await page.getByLabel('Bar 2 chords').fill('Gm7');
+  await page.getByLabel('Bar 3 chords').fill('Xq');
+  await expect(page.locator('#chordPanelCount')).toHaveText('3 unsaved bars');
+  await expect(page.getByLabel('Bar 3 chords')).toHaveClass(/clash/);
+  await expect(page.getByLabel('Bar 1 chords')).toHaveClass(/changed/);
+  // discard puts the boxes back
+  await page.click('#chordPanelDiscard');
+  await expect(page.getByLabel('Bar 1 chords')).not.toHaveValue('Dm7');
   // type two bars and save them together
-  await page.getByLabel(`Bar ${Number(first) + 1} chords`).fill('Dm7');
-  await page.getByLabel(`Bar ${Number(first) + 2} chords`).fill('Gm7');
-  await page.click('#chordSheetSave');
-  await expect(dlg).toBeHidden();
+  await page.getByLabel('Bar 1 chords').fill('Dm7');
+  await page.getByLabel('Bar 2 chords').fill('Gm7');
+  await page.click('#chordPanelSave');
   await expect(page.locator('#toast')).toContainText('Chords saved in 2 bars');
-  await card.locator('.card-chords').click();
-  await expect(page.getByLabel(`Bar ${Number(first) + 1} chords`)).toHaveValue('Dm7');
-  await expect(page.getByLabel(`Bar ${Number(first) + 2} chords`)).toHaveValue('Gm7');
-  // the boxes stop at the section's last bar
-  expect(Number(lastBar)).toBeGreaterThan(Number(first));
-  await expect(page.getByLabel(`Bar ${Number(lastBar) + 2} chords`)).toHaveCount(0);
-  await page.click('#chordSheetDiscard');
+  await expect(page.getByLabel('Bar 1 chords')).toHaveValue('Dm7');
+  await expect(page.locator('#chordPanelCount')).toHaveText('No changes');
+  // the saved chords are there after leaving and coming back to edit
+  await page.click('#chordPanelDone');
+  await expect(page.locator('#chordPanel')).toBeHidden();
+  await page.click('#editBtn');
+  await expect(page.getByLabel('Bar 1 chords')).toHaveValue('Dm7');
+  await expect(page.getByLabel('Bar 2 chords')).toHaveValue('Gm7');
   expect(errors).toEqual([]);
 });
 
@@ -399,11 +390,7 @@ test('the repeats option is only offered where a riff is played more than once',
   await expect(page.locator('#chordDlg')).toBeVisible();
   await expect(page.locator('#chordAllLabel')).toBeHidden();
   await page.click('#chordDlg [data-close]');
-  // the text boxes for a section never copy to repeats
-  await page.locator('.card').first().locator('.card-chords').click();
-  await expect(page.locator('#chordSheetDlg')).toBeVisible();
-  await expect(page.locator('#chordSheetDlg')).not.toContainText('Also in every repeat');
-  await page.click('#chordSheetDiscard');
+
   expect(errors).toEqual([]);
 });
 
