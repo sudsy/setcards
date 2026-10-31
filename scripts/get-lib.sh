@@ -8,6 +8,9 @@ tmp=$(mktemp -d)
 dist="$tmp/package/dist"
 mkdir -p lib/font lib/soundfont
 cp "$dist/alphaTab.min.js" lib/
+# alphaTab clicks the metronome on drum key 33, which the drum kit has no sound for. Key 37 (Side Stick) is a short
+# click that the kit covers, so the metronome uses it. Stops with an error if alphaTab's code is not as expected.
+node -e "const fs=require('fs');const f='lib/alphaTab.min.js';const s=fs.readFileSync(f,'utf8');const from='static MetronomeKey=33;';if(s.split(from).length!==2){console.error('alphaTab MetronomeKey not found once');process.exit(1)}fs.writeFileSync(f,s.replace(from,'static MetronomeKey=37;'))"
 cp "$dist/font/Bravura.woff2" "$dist/font/Bravura.woff" "$dist/font/Bravura.otf" "$dist/font/Bravura-OFL.txt" lib/font/
 cp "$dist/soundfont/sonivox.sf2" "$dist/soundfont/LICENSE" lib/soundfont/
 cp "$tmp/package/LICENSE" lib/LICENSE
