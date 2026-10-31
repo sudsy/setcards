@@ -2469,6 +2469,7 @@
       }
       const kit = await readKit(meta);
       if (kitId(kitMeta()) !== want) return;   // the song changed meanwhile
+      logKitInfo(want, kit);
       if (appliedKit !== null) api.loadSoundFont(await readSynth(), false);
       api.loadSoundFont(kit, true);
       appliedKit = want;
@@ -2477,6 +2478,19 @@
       toast('That drum kit could not be loaded, so the built-in drums play');
     } finally {
       applying = false;
+    }
+  }
+  // Debug: what the kit holds and which track it plays on, so a silent drum track can be told apart from a missing kit.
+  function logKitInfo(id, kit) {
+    try {
+      const banks = SM.soundfont.presetBanks(kit);
+      const drumBank = banks.filter((b) => b.bank === SM.soundfont.DRUM_BANK).length;
+      logSound(`drum kit ${id}: ${kit.length} bytes, ${banks.length} presets, ${drumBank} in drum bank`);
+      logSound(`drum kit presets: ${banks.slice(0, 8).map((b) => `${b.name}@${b.bank}`).join(', ')}`);
+      const d = drumTrack();
+      if (d) logSound(`drum track: "${d.name}", channel ${d.playbackInfo.primaryChannel}, program ${d.playbackInfo.program}, volume ${d.playbackInfo.volume}`);
+    } catch (e) {
+      logSound(`drum kit info failed: ${e && e.message}`);
     }
   }
   setTimeout(() => { if (KIT_PLAYBACK && !oldIos) readKit(null).catch((e) => console.error(e)); }, 3000);
