@@ -96,7 +96,11 @@
 
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
+/* the page is pinned to the screen: on iPads it could otherwise scroll a little, and the play bar with it */
+html { overflow: hidden; }
 body {
+  position: fixed;
+  top: 0; right: 0; bottom: 0; left: 0;
   background: var(--bg);
   color: var(--ink);
   font: 15px/1.4 var(--font-body);
