@@ -333,37 +333,49 @@ test('the click in drum-free bars is a side stick on the first beat, and is left
   expect(errors).toEqual([]);
 });
 
-test('chords for the whole song are typed in one box per bar and saved together', async ({ page }) => {
+test('chords for a section are typed in one box per bar from its card, and saved together', async ({ page }) => {
   const errors = watchErrors(page);
   await openDemo(page);
-  await page.click('#editBtn');
-  await page.click('#chordSheetBtn');
+  await chooseRole(page, 'Guitar');
+  const card = page.locator('.card[data-group="verse"]');
+  await card.locator('.card-chords').click();
   const dlg = page.locator('#chordSheetDlg');
   await expect(dlg).toBeVisible();
-  await expect(dlg.locator('input[data-bar]').first()).toBeVisible();
+  await expect(dlg.locator('#chordSheetTitle')).not.toBeEmpty();
+  // the boxes are this section's bars only
+  const boxes = dlg.locator('input[data-bar]');
+  const count = await boxes.count();
+  expect(count).toBeGreaterThan(1);
+  const first = await boxes.first().getAttribute('data-bar');
+  const lastBar = await boxes.last().getAttribute('data-bar');
+  await expect(page.getByLabel(`Bar ${Number(first) + 1} chords`)).toBeFocused();
   // Enter moves on to the next bar
-  await page.getByLabel('Bar 1 chords').fill('Dm7');
-  await page.getByLabel('Bar 1 chords').press('Enter');
-  await expect(page.getByLabel('Bar 2 chords')).toBeFocused();
-  await page.getByLabel('Bar 2 chords').fill('Gm7');
-  await page.getByLabel('Bar 3 chords').fill('Xq');
+  await page.getByLabel(`Bar ${Number(first) + 1} chords`).fill('Dm7');
+  await page.getByLabel(`Bar ${Number(first) + 1} chords`).press('Enter');
+  await expect(page.getByLabel(`Bar ${Number(first) + 2} chords`)).toBeFocused();
+  await page.getByLabel(`Bar ${Number(first) + 2} chords`).fill('Gm7');
+  await page.getByLabel(`Bar ${Number(first) + 3} chords`).fill('Xq');
   await expect(page.locator('#chordSheetCount')).toHaveText('3 unsaved bars');
-  await expect(page.getByLabel('Bar 3 chords')).toHaveClass(/clash/);
-  await expect(page.getByLabel('Bar 1 chords')).toHaveClass(/changed/);
-  // discard puts the boxes back and leaves the song as it was
+  await expect(page.getByLabel(`Bar ${Number(first) + 3} chords`)).toHaveClass(/clash/);
+  await expect(page.getByLabel(`Bar ${Number(first) + 1} chords`)).toHaveClass(/changed/);
+  // discard leaves the section as it was
   await page.click('#chordSheetDiscard');
   await expect(dlg).toBeHidden();
-  await page.click('#chordSheetBtn');
-  await expect(page.getByLabel('Bar 1 chords')).not.toHaveValue('Dm7');
-  // type a few bars and save them all at once
-  await page.getByLabel('Bar 1 chords').fill('Dm7');
-  await page.getByLabel('Bar 2 chords').fill('Gm7');
+  await card.locator('.card-chords').click();
+  await expect(page.getByLabel(`Bar ${Number(first) + 1} chords`)).not.toHaveValue('Dm7');
+  // type two bars and save them together
+  await page.getByLabel(`Bar ${Number(first) + 1} chords`).fill('Dm7');
+  await page.getByLabel(`Bar ${Number(first) + 2} chords`).fill('Gm7');
   await page.click('#chordSheetSave');
   await expect(dlg).toBeHidden();
-  await expect(page.locator('.toast, #toast').first()).toContainText('Chords saved in 2 bars');
-  await page.click('#chordSheetBtn');
-  await expect(page.getByLabel('Bar 1 chords')).toHaveValue('Dm7');
-  await expect(page.getByLabel('Bar 2 chords')).toHaveValue('Gm7');
+  await expect(page.locator('#toast')).toContainText('Chords saved in 2 bars');
+  await card.locator('.card-chords').click();
+  await expect(page.getByLabel(`Bar ${Number(first) + 1} chords`)).toHaveValue('Dm7');
+  await expect(page.getByLabel(`Bar ${Number(first) + 2} chords`)).toHaveValue('Gm7');
+  // the boxes stop at the section's last bar
+  expect(Number(lastBar)).toBeGreaterThan(Number(first));
+  await expect(page.getByLabel(`Bar ${Number(lastBar) + 2} chords`)).toHaveCount(0);
+  await page.click('#chordSheetDiscard');
   expect(errors).toEqual([]);
 });
 

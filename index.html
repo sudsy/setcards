@@ -117,7 +117,6 @@
       <p class="fine">In the full tab, click a string in a bar, then type a fret number to add a note. Backspace removes the selected note. Save writes the changes to the file.</p>
       <ol id="sectionList" class="section-list"></ol>
       <div class="edit-actions">
-        <button id="chordSheetBtn" class="text-btn">Chords for the whole song</button>
         <button id="suggestBtn" class="text-btn">Suggest sections</button>
         <button id="findRepeatsBtn" class="text-btn">Find repeats</button>
         <button id="useMarkersBtn" class="text-btn">Use markers from file</button>
@@ -368,13 +367,13 @@
 
   <dialog id="chordSheetDlg" class="sheet chord-sheet">
     <div class="sheet-head">
-      <h2>Chords for the whole song</h2>
+      <h2 id="chordSheetTitle">Chords</h2>
       <button class="icon-btn" data-close aria-label="Close">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
     </div>
     <div class="sheet-scroll">
-      <p class="fine">One box for each bar, in order. Tab or Enter moves to the next bar. Amber marks a bar changed but not yet saved. Red marks a chord the app does not recognise.</p>
+      <p class="fine">One box for each bar of this section, in order. Tab or Enter moves to the next bar. Amber marks a bar changed but not yet saved. Red marks a chord the app does not recognise.</p>
       <label class="check"><input id="chordSheetAll" type="checkbox"> <span>Also in every repeat of a riff</span></label>
       <div id="chordSheetBody"></div>
     </div>

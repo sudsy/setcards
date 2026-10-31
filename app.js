@@ -36,7 +36,7 @@
     barChords: $('barChords'), barChordsAll: $('barChordsAll'), barChordsAllLabel: $('barChordsAllLabel'),
     chordDlg: $('chordDlg'), chordDlgTitle: $('chordDlgTitle'), chordForm: $('chordForm'), chordInput: $('chordInput'),
     chordAll: $('chordAll'), chordAllLabel: $('chordAllLabel'), chordClear: $('chordClear'), chordPreview: $('chordPreview'),
-    chordSheetBtn: $('chordSheetBtn'), chordSheetDlg: $('chordSheetDlg'), chordSheetBody: $('chordSheetBody'), chordSheetAll: $('chordSheetAll'),
+    chordSheetTitle: $('chordSheetTitle'), chordSheetDlg: $('chordSheetDlg'), chordSheetBody: $('chordSheetBody'), chordSheetAll: $('chordSheetAll'),
     chordSheetCount: $('chordSheetCount'), chordSheetDiscard: $('chordSheetDiscard'), chordSheetSave: $('chordSheetSave'),
     roleDlg: $('roleDlg'), roleList: $('roleList'),
     joinDlg: $('joinDlg'), joinTitle: $('joinTitle'), joinBtn: $('joinBtn'),
@@ -787,7 +787,6 @@
         ${layoutHtml}
         ${fills.length ? `<p class="fills">Small changes at bar${fills.length > 1 ? 's' : ''} ${fills.slice(0, 8).join(', ')}${fills.length > 8 ? '…' : ''}. Tap a section in the song order to see them.</p>` : ''}`;
       card.appendChild(noteBlock(g.key, g.name));
-
       // riffs this part uses, in order of first use
       const riffIds = [];
       occ.forEach((p) => p.units.forEach((u) => { if (!riffIds.includes(u.riff)) riffIds.push(u.riff); }));
@@ -806,6 +805,17 @@
       }
       // the whole section is written out, bar by bar, including any repeats inside it
       card.appendChild(sectionBlock(occ[0]));
+      // the section's chords, one box per bar (kept in the card body, since the heading is hidden when held upright)
+      if (!r.cues && showChords()) {
+        const chordsBtn = document.createElement('button');
+        chordsBtn.type = 'button';
+        chordsBtn.className = 'text-btn card-chords';
+        chordsBtn.textContent = 'Edit chords';
+        chordsBtn.setAttribute('aria-label', `Edit chords for ${g.name}`);
+        chordsBtn.title = `Edit chords for ${g.name}`;
+        chordsBtn.addEventListener('click', () => openChordSheet(g.name, occ[0]));
+        card.appendChild(chordsBtn);
+      }
       riffIds.forEach((id) => shown.add(id));
       // held upright, the card is only its colour and tab; a long press opens the rest
       if (isCompact()) attachPartDetail(card, g, occ, layoutHtml, fills);
@@ -2475,18 +2485,9 @@
     previewChords();
   });
 
-  /* ---------------- chords for the whole song (one box per bar) ---------------- */
-  // Each section is a row of bar boxes, so the chords for a whole song can be typed in order and saved at once.
+  /* ---------------- chords for a section, in card view (one box per bar) ---------------- */
+  // The section's bars, one box each, so its chords can be typed in order and saved together.
   // Only the boxes that were changed are written; a box keeps the chords it had if it is left alone.
-  function chordSheetGroups() {
-    const n = state.score ? state.score.masterBars.length : 0;
-    const starts = sortedSections();
-    const groups = [];
-    if (!starts.length || starts[0].start > 0) groups.push({ name: 'Start', start: 0 });
-    starts.forEach((s) => groups.push({ name: s.name, start: s.start }));
-    groups.forEach((g, i) => { g.end = (i + 1 < groups.length ? groups[i + 1].start : n) - 1; });
-    return groups.filter((g) => g.end >= g.start);
-  }
   const chordSheetBoxes = () => Array.from(els.chordSheetBody.querySelectorAll('input[data-bar]'));
   function updateChordSheet() {
     let changed = 0;
@@ -2500,47 +2501,36 @@
     els.chordSheetCount.textContent = changed ? `${changed} unsaved ${changed === 1 ? 'bar' : 'bars'}` : 'No changes';
     els.chordSheetSave.disabled = !changed;
   }
-  function openChordSheet() {
-    if (!state.score) return;
+  function openChordSheet(name, part) {
+    if (!state.score || !part) return;
+    els.chordSheetTitle.textContent = name;
     els.chordSheetBody.innerHTML = '';
-    for (const g of chordSheetGroups()) {
-      const sec = document.createElement('section');
-      sec.className = 'section';
-      const h = document.createElement('h2');
-      h.textContent = g.name;
-      const count = document.createElement('span');
-      count.className = 'muted';
-      count.textContent = `${g.end - g.start + 1} bars`;
-      h.appendChild(document.createTextNode(' '));
-      h.appendChild(count);
-      const grid = document.createElement('div');
-      grid.className = 'bars';
-      for (let b = g.start; b <= g.end; b++) {
-        const label = document.createElement('label');
-        label.className = 'bar';
-        const no = document.createElement('span');
-        no.className = 'no';
-        no.textContent = String(b + 1);
-        const box = document.createElement('input');
-        box.value = chordsAt(b).join(' ');
-        box.dataset.bar = String(b);
-        box.dataset.initial = box.value;
-        box.setAttribute('autocomplete', 'off');
-        box.setAttribute('autocapitalize', 'off');
-        box.setAttribute('aria-label', `Bar ${b + 1} chords`);
-        label.appendChild(no);
-        label.appendChild(box);
-        grid.appendChild(label);
-      }
-      sec.appendChild(h);
-      sec.appendChild(grid);
-      els.chordSheetBody.appendChild(sec);
+    const grid = document.createElement('div');
+    grid.className = 'bars';
+    for (let b = part.start; b <= part.end; b++) {
+      const label = document.createElement('label');
+      label.className = 'bar';
+      const no = document.createElement('span');
+      no.className = 'no';
+      no.textContent = String(b + 1);
+      const box = document.createElement('input');
+      box.value = chordsAt(b).join(' ');
+      box.dataset.bar = String(b);
+      box.dataset.initial = box.value;
+      box.setAttribute('autocomplete', 'off');
+      box.setAttribute('autocapitalize', 'off');
+      box.setAttribute('aria-label', `Bar ${b + 1} chords`);
+      label.appendChild(no);
+      label.appendChild(box);
+      grid.appendChild(label);
     }
+    els.chordSheetBody.appendChild(grid);
     els.chordSheetAll.checked = false;
     const repeats = chordSheetBoxes().some((b) => riffForBar(Number(b.dataset.bar)));
     els.chordSheetAll.closest('label').hidden = !repeats;
     updateChordSheet();
     els.chordSheetDlg.showModal();
+    setTimeout(() => chordSheetBoxes()[0] && chordSheetBoxes()[0].focus(), 50);
   }
   els.chordSheetBody.addEventListener('input', updateChordSheet);
   els.chordSheetBody.addEventListener('keydown', (e) => {
@@ -2559,7 +2549,6 @@
     chordsChanged();
     toast(changed.length === 1 ? 'Chords saved' : `Chords saved in ${changed.length} bars`);
   }
-  els.chordSheetBtn.addEventListener('click', openChordSheet);
   els.chordSheetSave.addEventListener('click', saveChordSheet);
   els.chordSheetDiscard.addEventListener('click', () => {
     chordSheetBoxes().forEach((b) => { b.value = b.dataset.initial; });

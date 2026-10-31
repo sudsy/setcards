@@ -895,3 +895,4 @@ body.compact .card .riff { border-top: 0; }
 .chord-sheet .bar input.clash { border-color: var(--danger); color: var(--danger); }
 .chord-sheet-bar { display: flex; gap: 10px; align-items: center; justify-content: flex-end; padding-top: 10px; border-top: 1px solid var(--line); }
 .chord-sheet-bar .fine { margin-right: auto; }
+.card > .card-chords { margin-top: 8px; font-size: 0.8rem; }
