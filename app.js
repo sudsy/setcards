@@ -1361,6 +1361,7 @@
         sideSticks: clickNotes.size,
         scroll: els.scroller ? els.scroller.scrollTop : 0,
         metronome: api.metronomeVolume,
+        groups: state.groups ? state.groups.length : 0,
         simileBars: state.score && state.score.tracks[state.trackIndex] ? state.score.tracks[state.trackIndex].staves[0].bars.filter((b) => b.simileMark).length : 0
       })
     };
@@ -2541,11 +2542,12 @@
   // Only the boxes that were changed are written; a box keeps the chords it had if it is left alone.
   function chordPanelBoxes() { return Array.from(els.chordPanelBody.querySelectorAll('input[data-bar]')); }
   function chordPanelMode() { return prefs.role === 'guitar'; }
-  // The sections are the cards': one for each part of the song, a repeated section (a chorus played three times)
-  // once, from its first played bars. A part with nothing to play has no card, so it has no boxes either.
+  // The sections are the song's parts: one for each section, a repeated section (a chorus played three times) once,
+  // from its first bars. Every section is listed, even one the chosen tab part has no notes for, so chords can be
+  // entered for any of them.
   function chordSheetGroups() {
     if (!state.score) return [];
-    return state.groups.filter((g) => !g.empty).map((g) => {
+    return state.groups.map((g) => {
       const p = state.parts[g.occ[0]];
       return { name: g.name, start: p.start, end: p.end };
     });
@@ -2642,7 +2644,7 @@
     api.changeTrackSolo([track], true);
     api.playbackRange = null;
     api.isLooping = false;
-    api.stop();
+    if (state.playing) api.stop();   // stopping what has not started throws inside alphaTab
     api.tickPosition = 0;
     api.play();
     listening = true;

@@ -338,11 +338,13 @@ test('in guitar edit mode, the chords for the whole song are typed in one box pe
   await openDemo(page);
   await chooseRole(page, 'Guitar');
   await expect(page.locator('.card-chords')).toHaveCount(0);
-  // one section in the chord panel for each card, so a repeated section is only listed once
+  // one section in the chord panel for each section of the song, a repeated section listed once
   const cardNames = await page.locator('#cards .card .card-head h2').allTextContents();
+  const songSections = await page.evaluate(() => window.setcardsTest.state().groups);
   await page.click('#editBtn');
   const panelNames = await page.locator('#chordPanelBody section.section > h2').allTextContents();
-  expect(panelNames.map((n) => n.replace(/\s*\d+ bars$/, '').trim())).toEqual(cardNames.map((n) => n.trim()));
+  expect(panelNames.length).toBe(songSections);
+  expect(panelNames.length).toBeGreaterThanOrEqual(cardNames.length);
   await expect(page.locator('#chordPanel')).toBeVisible();
   await expect(page.locator('#sectionEdit')).toBeHidden();
   await expect(page.locator('#cards')).toBeHidden();
