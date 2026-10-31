@@ -379,6 +379,29 @@ test('chords for a section are typed in one box per bar from its card, and saved
   expect(errors).toEqual([]);
 });
 
+test('the repeats box is only offered where a riff is played more than once', async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.addInitScript(() => localStorage.setItem('setcards:prefs', JSON.stringify({ mode: 'solo', role: 'guitar' })));
+  await page.goto('/');
+  await page.click('#addSongBtn');
+  await page.fill('#addTitle', 'No Repeats');
+  await page.click('#addForm button[type=submit]');
+  const alphaTab = await import('@coderline/alphatab');
+  // sixteen bars, each different, so no riff comes back
+  const bars = Array.from({ length: 16 }, (_, i) => `${i}.6.4 ${(i + 3) % 16}.5.4 ${(i + 5) % 16}.4.4 ${(i + 7) % 16}.3.4`).join(' | ');
+  const imp = new alphaTab.importer.AlphaTexImporter();
+  imp.initFromString(`\\title "No Repeats"\n.\n\\track "Nylon"\n\\instrument 24\n${bars} |`, new alphaTab.Settings());
+  const bytes = new alphaTab.exporter.Gp7Exporter().export(imp.readScore(), new alphaTab.Settings());
+  await page.locator('#attachInput').setInputFiles({ name: 'no-repeats.gp', mimeType: 'application/octet-stream', buffer: Buffer.from(bytes) });
+  await expect.poll(() => page.evaluate(() => window.setcardsTest.state().bars.length), { timeout: 20000 }).toBeGreaterThan(0);
+  const card = page.locator('.card').first();
+  await card.locator('.card-chords').click();
+  await expect(page.locator('#chordSheetDlg')).toBeVisible();
+  await expect(page.locator('#chordSheetAll').locator('xpath=..')).toBeHidden();
+  await page.click('#chordSheetDiscard');
+  expect(errors).toEqual([]);
+});
+
 test('guitar shows chord diagrams and vocals shows the cue list', async ({ page }) => {
   await openDemo(page);
   await chooseRole(page, 'Guitar');

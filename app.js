@@ -2526,7 +2526,11 @@
     }
     els.chordSheetBody.appendChild(grid);
     els.chordSheetAll.checked = false;
-    const repeats = chordSheetBoxes().some((b) => riffForBar(Number(b.dataset.bar)));
+    // only a riff that is played more than once has repeats to copy to (as in the single-bar dialog)
+    const repeats = chordSheetBoxes().some((b) => {
+      const rf = riffForBar(Number(b.dataset.bar));
+      return !!rf && riffBars(rf.riff, rf.offset).length > 1;
+    });
     els.chordSheetAll.closest('label').hidden = !repeats;
     updateChordSheet();
     els.chordSheetDlg.showModal();
