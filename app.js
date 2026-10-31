@@ -2489,6 +2489,21 @@
       logSound(`drum kit presets: ${banks.slice(0, 8).map((b) => `${b.name}@${b.bank}`).join(', ')}`);
       const d = drumTrack();
       if (d) logSound(`drum track: "${d.name}", channel ${d.playbackInfo.primaryChannel}, program ${d.playbackInfo.program}, volume ${d.playbackInfo.volume}`);
+      const mask = SM.soundfont.keysCovered(kit);
+      const covered = Array.from(mask).reduce((n, v) => n + v, 0);
+      const span = [...mask.keys()].filter((k) => mask[k]);
+      logSound(`kit keys: ${covered} keys with samples${span.length ? `, ${span[0]} to ${span[span.length - 1]}` : ''}; metronome key 33 ${mask[33] ? 'covered' : 'NOT covered'}`);
+      if (d) {
+        const outside = {};
+        let inside = 0, total = 0;
+        for (const staff of d.staves) for (const bar of staff.bars) for (const voice of bar.voices) for (const beat of voice.beats) for (const note of beat.notes) {
+          total++;
+          const key = note.realValue;
+          if (key >= 0 && key < 128 && mask[key]) inside++; else outside[key] = (outside[key] || 0) + 1;
+        }
+        const list = Object.keys(outside).map(Number).sort((a, b) => a - b).slice(0, 12).map((k) => `${k}x${outside[k]}`);
+        logSound(`drum notes: ${total} total, ${inside} on covered keys, ${total - inside} not covered${list.length ? ` (keys: ${list.join(' ')})` : ''}`);
+      }
     } catch (e) {
       logSound(`drum kit info failed: ${e && e.message}`);
     }

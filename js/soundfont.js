@@ -85,5 +85,36 @@
     return out;
   }
 
-  SM.soundfont = { asDrumKit, presetBanks, DRUM_BANK };
+  // The MIDI keys a kit has samples for: a zone with a sample covers the keys in its key range (all keys if it has none).
+  // Returns a mask with 1 for each covered key 0 to 127.
+  const GEN_KEY_RANGE = 43, GEN_SAMPLE_ID = 53, GEN_SIZE = 4, BAG_SIZE = 4, INST_SIZE = 22;
+  function keysCovered(bytes) {
+    const mask = new Uint8Array(128);
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const text = (o, n) => String.fromCharCode(...bytes.subarray(o, o + n));
+    const pdta = findPdta(bytes, view, text);
+    if (!pdta || !pdta.chunks.inst || !pdta.chunks.ibag || !pdta.chunks.igen) return mask;
+    const inst = pdta.chunks.inst, ibag = pdta.chunks.ibag, igen = pdta.chunks.igen;
+    const nBags = Math.floor(ibag.size / BAG_SIZE), nGens = Math.floor(igen.size / GEN_SIZE);
+    const bagGen = (b) => view.getUint16(ibag.start + b * BAG_SIZE, true);
+    const nInst = Math.floor(inst.size / INST_SIZE);
+    for (let i = 0; i < nInst - 1; i++) {
+      const first = view.getUint16(inst.start + i * INST_SIZE + 20, true);
+      const last = view.getUint16(inst.start + (i + 1) * INST_SIZE + 20, true);
+      for (let b = first; b < last && b + 1 < nBags; b++) {
+        const gFrom = bagGen(b), gTo = Math.min(bagGen(b + 1), nGens);
+        let hasSample = false, lo = 0, hi = 127;
+        for (let g = gFrom; g < gTo; g++) {
+          const oper = view.getUint16(igen.start + g * GEN_SIZE, true);
+          const amount = view.getUint16(igen.start + g * GEN_SIZE + 2, true);
+          if (oper === GEN_SAMPLE_ID) hasSample = true;
+          if (oper === GEN_KEY_RANGE) { lo = amount & 255; hi = amount >> 8; }
+        }
+        if (hasSample) for (let k = lo; k <= hi && k < 128; k++) mask[k] = 1;
+      }
+    }
+    return mask;
+  }
+
+  SM.soundfont = { asDrumKit, presetBanks, keysCovered, DRUM_BANK };
 })(typeof window !== 'undefined' ? window : globalThis);
