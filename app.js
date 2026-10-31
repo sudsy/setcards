@@ -1530,8 +1530,27 @@
     els.playBtn.disabled = false;
     els.playerStatus.textContent = '';
   });
+  // Keeps the screen on while a song plays, so the sound does not glitch when the screen would go off.
+  // Where the browser has no wake lock (iOS 12 and older), this does nothing.
+  let wakeLock = null;
+  async function keepScreenOn(on) {
+    if (!('wakeLock' in navigator)) return;
+    try {
+      if (on && !wakeLock) {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => { wakeLock = null; });
+      } else if (!on && wakeLock) {
+        const lock = wakeLock;
+        wakeLock = null;
+        await lock.release();
+      }
+    } catch (e) { wakeLock = null; }
+  }
+  // the browser releases the lock when the app is hidden, so it is asked for again when the app comes back
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && state.playing) keepScreenOn(true); });
   api.playerStateChanged.on((e) => {
     logSound(`player ${e.state === 1 ? 'playing' : 'stopped'}`);
+    keepScreenOn(e.state === 1);
     state.playing = e.state === 1;
     els.playBtn.classList.toggle('is-playing', state.playing);
     els.playBtn.setAttribute('aria-label', state.playing ? 'Pause' : 'Play');
