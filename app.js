@@ -115,12 +115,17 @@
   }
   const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
   // Which alphaTab engine draws the tabs: 'html5' (canvas, default) or 'svg'. ?engine=svg switches back, ?engine=html5 returns; kept on this device.
+  // iOS 12 and older (the old iPad) have little memory, and the canvas engine stopped its sound there, so they use SVG,
+  // which worked before the canvas engine became the default. ?engine=svg or ?engine=html5 still chooses.
+  const olderIos = /(iPad|iPhone|iPod)/.test(navigator.userAgent) && /OS (1[0-2])_/.test(navigator.userAgent);
   const renderEngine = (() => {
     try {
       const q = new URLSearchParams(location.search).get('engine');
       if (q === 'svg' || q === 'html5') localStorage.setItem('setcards:engine', q);
-      return localStorage.getItem('setcards:engine') === 'svg' ? 'svg' : 'html5';
-    } catch (e) { return 'html5'; }
+      const chosen = localStorage.getItem('setcards:engine');
+      if (chosen) return chosen === 'svg' ? 'svg' : 'html5';
+      return olderIos ? 'svg' : 'html5';
+    } catch (e) { return olderIos ? 'svg' : 'html5'; }
   })();
 
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
