@@ -96,15 +96,6 @@
         }));
         return id;
       },
-      // Puts a changed Guitar Pro file in place of the song's file, for notes edited in the tab.
-      async replaceTab(id, bytes, fileName) {
-        const r = await tx('readonly', (s) => s.get(id));
-        if (!r) throw new Error('Song not found on this device');
-        r.data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-        if (fileName) r.fileName = fileName;
-        r.updatedAt = Date.now();
-        await tx('readwrite', (s) => s.put(r));
-      },
       // Gives a tab-less song its Guitar Pro file; the id stays the same.
       async attachTab(id, fileName, bytes, notes) {
         const r = await tx('readonly', (s) => s.get(id));
@@ -261,20 +252,8 @@
       });
     }
 
-    // Calls made without a tap (on refresh, or when the list is read) only renew access quietly: a popup opened
-    // without a tap is blocked by the browser. When that is not possible, the sign-in button asks.
-    // Google's sign-in window is a popup, and a browser blocks a popup that no tap caused. So without a tap only an
-    // installed app (which Chrome on a computer does not count) tries a quiet renewal, and elsewhere the button asks.
-    const installed = () => (typeof matchMedia === 'function' && matchMedia('(display-mode: standalone)').matches) || !!root.navigator.standalone;
-    const canRenewQuietly = () => installed();
     async function call(url, opts = {}) {
-      let t;
-      try {
-        if (!hasToken() && !canRenewQuietly()) throw new Error('no sign-in without a tap');
-        t = await signIn(false);
-      } catch (e) {
-        throw new Error('Google needs you to sign in again. Open Songs and tap Show band songs.');
-      }
+      const t = await signIn(true);
       const r = await fetch(url, Object.assign({}, opts, { headers: Object.assign({ Authorization: 'Bearer ' + t }, opts.headers || {}) }));
       if (r.status === 401) {
         token = null;
@@ -586,82 +565,39 @@
       return lastSheetCsv;
     }
 
-    const SHEET_HEAD = ['Title', 'Artist', 'Status', 'Band key', 'Original key', 'Tempo (bpm)', 'Length', 'YouTube', 'Tab file'];
-    const sheetLine = (cells) => cells.map(csvCell).join(',');
-    const sameCells = (a, b) => JSON.stringify(a || []) === JSON.stringify(b || []);
-
-    // The sheet is only changed for one song at a time, when it is added, removed or its details change.
-    // That song's row is replaced where it is, a new song goes at the bottom, and a removed song's row is taken out.
-    // No other row moves, so the order the band chose stays as it is.
-    const pendingRows = new Map();   // song -> { song, removed, before } for changes not yet written
-    let sheetQueue = Promise.resolve();
-    const rowKey = (song) => `${rowFor(song).cells[0]}|${song.tab ? song.tab.name : ''}`;
-
-    // Finds the row of a song: by its tab file, or else by its title and artist as they were before any change.
-    function rowIndex(rows, head, song, before) {
-      const norm = (v) => String(v || '').trim().toLowerCase();
-      const [ct, ca, cf] = [head.indexOf('title'), head.indexOf('artist'), head.indexOf('tab file')];
-      const find = (test) => rows.findIndex(test);
-      let i = song.tab && cf >= 0 ? find((row) => row[cf] === song.tab.name) : -1;
-      const titles = [before, rowFor(song).cells].filter(Boolean);
-      for (const t of titles) {
-        if (i >= 0 || ct < 0) break;
-        i = find((row) => norm(row[ct]) === norm(t[0]) && (ca < 0 || norm(row[ca]) === norm(t[1])));
-      }
-      return i;
+    // songs are written in the order given (the sheet's own order, with new songs at the bottom)
+    function songListCsv(songs) {
+      const rows = songs.map(rowFor);
+      const head = ['Title', 'Artist', 'Status', 'Band key', 'Original key', 'Tempo (bpm)', 'Length', 'YouTube', 'Tab file'];
+      return [head, ...rows.map((r) => r.cells)].map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
     }
 
-    async function writeSongRow(song, change) {
+    // Writes the song list sheet if what it shows has changed. Creates it the first time.
+    async function syncSongList() {
+      clearTimeout(sheetTimer);
       filesCache = null;
-      const songs = await allSongs();   // also lists the band folder, which holds the sheet
+      const songs = await allSongs();
+      songs.forEach((s) => summaries.set(s.id, summaryOf(s)));
       const sheet = filesCache.find((x) => x.name === SHEET_NAME && x.mimeType === SHEET_TYPE);
-      const cells = rowFor(song).cells;
-      if (!sheet) {
-        if (change.removed) return false;
-        // the first time, the sheet is made with every song in the order they were added
-        const csv = [SHEET_HEAD, ...orderBySheet(songs, '').map((x) => rowFor(x).cells)].map(sheetLine).join('\r\n') + '\r\n';
+      // read it fresh each time, so rows someone has just moved stay where they put them
+      let current = '';
+      if (sheet) { try { current = await readSheet(); } catch (e) { current = lastSheetCsv || ''; } }
+      const csv = songListCsv(orderBySheet(songs, current));
+      if (sameTable(csv, current)) return false;
+      if (sheet) {
+        await call(`${UPLOAD}/files/${sheet.id}?uploadType=media&supportsAllDrives=true`, { method: 'PATCH', headers: { 'Content-Type': 'text/csv' }, body: csv });
+      } else {
         const m = multipart({ name: SHEET_NAME, parents: [folder().id], mimeType: SHEET_TYPE }, csv, 'text/csv');
         const r = await call(`${UPLOAD}/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,mimeType`, { method: 'POST', headers: { 'Content-Type': m.type }, body: m.body });
         filesCache.push(await r.json());
-        lastSheetCsv = csv;
-        return true;
       }
-      const current = await readSheet();
-      const rows = parseCsv(current);
-      const head = (rows.shift() || []).map((h) => h.trim().toLowerCase());
-      const i = rowIndex(rows, head, song, change.before);
-      if (change.removed) {
-        if (i < 0) return false;
-        rows.splice(i, 1);
-      } else if (i >= 0) {
-        if (sameCells(rows[i], cells)) return false;
-        rows[i] = cells;
-      } else {
-        rows.push(cells);
-      }
-      const csv = [SHEET_HEAD, ...rows].map(sheetLine).join('\r\n') + '\r\n';
-      if (sameTable(csv, current)) return false;
-      await call(`${UPLOAD}/files/${sheet.id}?uploadType=media&supportsAllDrives=true`, { method: 'PATCH', headers: { 'Content-Type': 'text/csv' }, body: csv });
       lastSheetCsv = csv;
       return true;
     }
-
-    // Writes the queued changes to the sheet, one after another so that two changes never overwrite each other.
-    function flushSongRows() {
-      const changes = [...pendingRows.values()];
-      pendingRows.clear();
-      sheetQueue = sheetQueue.then(async () => {
-        for (const c of changes) {
-          try { await writeSongRow(c.song, c); } catch (e) { console.error('The song list could not be updated', e); }
-        }
-      });
-      return sheetQueue;
-    }
     // Several changes in a row are written to the sheet together.
-    function changeSongRow(song, change = {}) {
-      pendingRows.set(rowKey(song), { song, removed: !!change.removed, before: change.before || null });
+    function scheduleSongList() {
       clearTimeout(sheetTimer);
-      sheetTimer = setTimeout(flushSongRows, 5000);
+      sheetTimer = setTimeout(() => { syncSongList().catch(() => {}); }, 5000);
     }
 
     const trash = (id) => call(`${API}/files/${id}?supportsAllDrives=true`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) });
@@ -673,11 +609,7 @@
       configured: () => !!cfg().clientId,
       connected: () => !!folder(),
       signedIn: hasToken,
-      // signed in on this device before (the access token itself is only kept for this session)
-      wasSignedIn: () => !!ls.get('setcards:driveSignedIn'),
-      canRenewQuietly,
-      // interactive: may open Google's sign-in; otherwise Google is asked to renew access without showing anything
-      signIn: (interactive = true) => signIn(interactive),
+      signIn: () => signIn(true),
       folder,
       available: () => !!cfg().clientId && !!folder(),
       setClient(c) { ls.set('setcards:google', c); },
@@ -753,6 +685,7 @@
         let csv = lastSheetCsv;
         try { csv = await readSheet(); } catch (e) { /* the last order read is used */ }
         songs = orderBySheet(songs, csv);
+        scheduleSongList();   // brings the sheet up to date if a change was missed (it is only rewritten if different)
         return songs.map((s, order) => ({
           order,
           id: s.id,
@@ -811,7 +744,7 @@
             song.folder.name = folderName(notes);
           } catch (e) { /* the old name still works */ }
         }
-        if (summaryOf({ ...song, notes }) !== summaries.get(id)) changeSongRow({ ...song, notes }, { before: summaries.has(id) ? JSON.parse(summaries.get(id)) : null });
+        if (summaryOf({ ...song, notes }) !== summaries.get(id)) scheduleSongList();
         // the copy on this device opens first next time, so it carries the change too
         const k = `${folder().id}:song:${id}`;
         const saved = await offline.get(k).catch(() => null);
@@ -822,52 +755,27 @@
         const songFolder = await createSongFolder(notes);
         if (!bytes) {
           const nf = await writeNotesFile(null, notes, folderName(notes), songFolder.id);
-          changeSongRow({ notes, tab: null });
+          scheduleSongList();
           return 'n:' + nf.id;
         }
         const tab = await uploadTab(fileName, bytes, songFolder.id);
         notes.tabFile = fileName;
         await writeNotesFile(null, notes, fileName, songFolder.id);
-        changeSongRow({ notes, tab: { name: fileName } });
+        scheduleSongList();
         return tab.id;
       },
       // Gives a tab-less song its Guitar Pro file. Returns the song's new id.
-      // Puts a changed Guitar Pro file in place of the song's file, for notes edited in the tab.
-      async replaceTab(id, bytes, fileName) {
-        const song = await findSong(id);
-        if (!song.tab) throw new Error('This song has no tab file');
-        const r = await call(`${UPLOAD}/files/${song.tab.id}?uploadType=media&supportsAllDrives=true&fields=id,name,modifiedTime`, { method: 'PATCH', headers: { 'Content-Type': 'application/octet-stream' }, body: bytes });
-        let updated = await r.json();
-        if (fileName && fileName !== updated.name) {
-          const named = await call(`${API}/files/${song.tab.id}?supportsAllDrives=true&fields=id,name,modifiedTime`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: fileName }) });
-          updated = await named.json();
-        }
-        song.tab.modifiedTime = updated.modifiedTime;
-        changeSongRow({ ...song, tab: { name: fileName || song.tab.name } });
-        return updated;
-      },
-      // An MP3 for a band song goes in its folder, so everyone in the band can play it.
-      async uploadAudio(id, fileName, bytes) {
-        const song = await findSong(id);
-        if (!song.folder) await moveLooseSongs([song]);
-        const m = multipart({ name: fileName, parents: [song.folder ? song.folder.id : folder().id] }, bytes, 'audio/mpeg');
-        const r = await call(`${UPLOAD}/files?uploadType=multipart&supportsAllDrives=true&fields=id`, { method: 'POST', headers: { 'Content-Type': m.type }, body: m.body });
-        return (await r.json()).id;
-      },
-      downloadAudio: (fileId) => downloadTab(fileId),
-      trashAudio: (fileId) => trash(fileId),
       async attachTab(id, fileName, bytes, notes) {
         const song = await findSong(id);
         if (!song.folder) await moveLooseSongs([song]);
         const tab = await uploadTab(fileName, bytes, song.folder ? song.folder.id : folder().id);
         notes.tabFile = fileName;
         await writeNotesFile(song, notes, fileName, song.folder ? song.folder.id : folder().id);
-        changeSongRow({ ...song, notes, tab: { name: fileName } });
+        scheduleSongList();
         return tab.id;
       },
       async remove(id) {
         const song = await findSong(id);
-        changeSongRow(song, { removed: true });
         if (song.folder) {
           await trash(song.folder.id);   // the folder and everything in it
         } else {
@@ -875,8 +783,9 @@
           if (song.notesFile) await trash(song.notesFile.id);
         }
         filesCache = null;
+        scheduleSongList();
       },
-      syncSongList: flushSongRows,
+      syncSongList,
       offlineSync,
       songListUrl() {
         const sheet = (filesCache || []).find((x) => x.name === SHEET_NAME && x.mimeType === SHEET_TYPE);
@@ -889,63 +798,8 @@
   /* ---------------- the library ---------------- */
   const sources = { local, site, drive };
 
-  // MP3s for songs, kept on this device so they play offline.
-  const audioStore = (() => {
-    let db = null;
-    const open = () => db || (db = new Promise((res, rej) => {
-      const r = indexedDB.open('setcards-audio', 1);
-      r.onupgradeneeded = () => r.result.createObjectStore('clips', { keyPath: 'k' });
-      r.onsuccess = () => res(r.result);
-      r.onerror = () => rej(r.error);
-    }));
-    const tx = (mode, fn) => open().then((d) => new Promise((res, rej) => {
-      const t = d.transaction('clips', mode);
-      const req = fn(t.objectStore('clips'));
-      t.oncomplete = () => res(req && req.result);
-      t.onerror = () => rej(t.error);
-    }));
-    return {
-      get: (k) => tx('readonly', (s) => s.get(k)),
-      put: (rec) => tx('readwrite', (s) => s.put(rec)),
-      del: (k) => tx('readwrite', (s) => s.delete(k))
-    };
-  })();
-
-  // An MP3 for a song. This device keeps a copy. A band song also keeps it in its Drive folder, so the others can play it.
-  const audio = {
-    async save(key, name, bytes) {
-      const { source, id } = library.parse(key);
-      if (!source.canWrite) throw new Error('This copy of the song is read-only here.');
-      const fileId = source.uploadAudio ? await source.uploadAudio(id, name, bytes) : null;
-      await audioStore.put({ k: key, name, fileId, bytes, type: 'audio/mpeg' });
-      return { name, fileId };
-    },
-    // The copy on this device, or the file from the band's folder when this device does not have it yet.
-    async load(key, meta) {
-      if (!meta) return null;
-      const copy = await audioStore.get(key);
-      if (copy && copy.name === meta.name && copy.fileId === (meta.fileId || null)) return copy;
-      const { source } = library.parse(key);
-      if (!meta.fileId || !source.downloadAudio) return null;
-      const rec = { k: key, name: meta.name, fileId: meta.fileId, bytes: await source.downloadAudio(meta.fileId), type: 'audio/mpeg' };
-      await audioStore.put(rec).catch(() => {});
-      return rec;
-    },
-    // Takes the file out of the band's folder (a replaced MP3 is discarded this way).
-    async discard(key, meta) {
-      if (!meta || !meta.fileId) return;
-      const { source } = library.parse(key);
-      if (source.trashAudio) await source.trashAudio(meta.fileId);
-    },
-    async remove(key, meta) {
-      await audio.discard(key, meta);
-      await audioStore.del(key).catch(() => {});
-    }
-  };
-
   const library = {
     sources,
-    audio,
     key: (sourceId, id) => `${sourceId}:${id}`,
     parse(key) { const i = key.indexOf(':'); return { source: sources[key.slice(0, i)], sourceId: key.slice(0, i), id: key.slice(i + 1) }; },
     emptyNotes,

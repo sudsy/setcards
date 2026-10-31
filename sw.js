@@ -5,7 +5,7 @@ const VERSION = '__SETCARDS_VERSION__';
 const CACHE = 'setcards-' + VERSION;
 const FILES = [
   './', 'index.html', 'styles.css', 'app.js', 'demo.js', 'config.js', 'version.js', 'icon.svg', 'manifest.webmanifest',
-  'js/analysis.js', 'js/chords.js', 'js/noteedit.js', 'js/soundfont.js', 'js/storage.js',
+  'js/analysis.js', 'js/chords.js', 'js/storage.js',
   'lib/alphaTab.min.js', 'lib/font/Bravura.woff2', 'lib/font/Bravura.woff', 'lib/font/Bravura.otf',
   'lib/soundfont/sonivox.sf2'
 ];

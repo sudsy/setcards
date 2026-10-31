@@ -320,8 +320,6 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .video-panel { padding: 8px var(--gutter-r) 8px var(--gutter-l); border-bottom: 1px solid var(--line); background: var(--surface); }
 /* the player box is 16:9, sized from the window: at most 560px wide, 28% of the window tall, and never wider than the screen */
 .video-frame { --vf-w: min(560px, calc(28vh * 16 / 9), calc(100vw - 32px)); position: relative; width: var(--vf-w); height: calc(var(--vf-w) * 9 / 16); margin: 0 auto; overflow: hidden; }
-.video-panel.audio-only .video-frame { width: 100%; max-width: 560px; height: auto; }
-.song-audio { display: block; width: 100%; }
 .video-frame iframe, .video-frame > div { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; border-radius: var(--radius); }
 
 /* ---------- tab ---------- */
@@ -484,13 +482,12 @@ dialog::backdrop { background: rgba(10, 12, 18, 0.55); }
 .seg-toggle button { border: 0; background: transparent; padding: 5px 12px; font-weight: 600; font-size: 0.82rem; }
 .seg-toggle button + button { border-left: 1px solid var(--line); }
 .seg-toggle button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
-.notice-btn { position: relative; }
-.capo-pick { flex: none; max-width: 78px; padding: 6px 2px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--ink); font-size: 0.82rem; }
-.capo-pick.on { border-color: var(--accent); }
-.song-note-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: -4px; }
-.song-note-row > .add-note, .song-note-row > .role-note { margin-bottom: 0; }
-body.upright #songView .map-top { display: none; }
-.notice-btn::after { content: ""; position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent-fill); }
+.banner {
+  padding: 6px var(--gutter-r) 6px var(--gutter-l);
+  background: color-mix(in srgb, var(--accent-fill) 18%, var(--bg));
+  font-size: 0.82rem;
+  border-bottom: 1px solid var(--line);
+}
 @media (max-width: 420px) {
   .topbar { gap: 4px; }
   .role-btn, .topbar .text-btn { padding: 6px 9px; }
@@ -759,7 +756,6 @@ body.no-tab .tab-only { display: none !important; }
 .step.rest { background: transparent; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--seg) 45%, var(--line)); color: var(--muted); }
 body.paged #songView .topbar { padding: 4px var(--gutter-r) 0 var(--gutter-l); }
 body.paged #songView .topbar > :not(.song-id) { display: none; }
-body.paged #songView .topbar > #noticeBtn:not([hidden]) { display: grid; }
 body.paged #songView .song-title { font-size: 1rem; }
 body.paged #songView .song-meta { display: none; }
 body.paged #songView .map { padding-top: 2px; padding-bottom: 6px; }
@@ -769,7 +765,7 @@ body.paged #songView .structure::-webkit-scrollbar { display: none; }
 body.paged #songView .step { flex: none; }
 body.paged #songView .step.whole { display: none; }
 body.paged #songView .step.in-view:not(.rest) { background: var(--seg); color: var(--chip-ink); }
-body.paged #songView .playerbar, body.paged #songView body.paged #songView #sectionHead, body.paged #songView #videoPanel { display: none; }
+body.paged #songView .playerbar, body.paged #songView #banner, body.paged #songView #sectionHead, body.paged #songView #videoPanel { display: none; }
 body.paged #scroller { overflow: hidden; padding: 0; }
 /* cards flow down a column and on to the next, a screen wide: two short parts share a screen */
 body.paged #cards {
@@ -847,6 +843,7 @@ body.compact .card.single-riff .riff-head { display: none; }
 body.compact .card-head .head-play { margin-left: auto; width: 34px; height: 34px; }
 
 /* held upright: the view switch lives in the title bar, and the song order is just the parts */
+body.upright #songView .map-top { display: none; }
 body:not(.upright) #songView .top-view { display: none; }
 body.upright #songView .top-view { margin: 0; align-self: center; flex: none; }
 body.upright #songView .step.whole { display: none; }
