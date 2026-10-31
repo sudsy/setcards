@@ -400,6 +400,9 @@ body.editing .at-surface { outline: 1px dashed color-mix(in srgb, var(--accent-f
 dialog.sheet {
   width: min(520px, calc(100vw - 24px));
   max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 14px 16px 18px;
