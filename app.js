@@ -618,6 +618,8 @@
       t.classList.toggle('same', !!(cur && i >= 0 && i !== state.view && state.parts[i].group === cur.group));
       t.classList.toggle('playing', i >= 0 && i === state.playingPart);
     });
+    const playingGroup = state.playingPart >= 0 && state.parts[state.playingPart] ? state.parts[state.playingPart].group.key : null;
+    els.cards.querySelectorAll('.card').forEach((c) => c.classList.toggle('playing', !!playingGroup && c.dataset.group === playingGroup));
   }
 
 
@@ -1213,10 +1215,13 @@
   }
 
   /* ---------------- views ---------------- */
+  // The full tab follows the playing bar. The cards share alphaTab's scroller, so there only the person scrolls.
+  const followScroll = () => { if (api.settings) api.settings.player.scrollMode = prefs.view === 'tab' ? AT.ScrollMode.Continuous : AT.ScrollMode.Off; };
   function setView(v) {
     if (v === prefs.view) return;
     prefs.view = v;
     savePrefs();
+    followScroll();
     applyViewChrome();
     if (v === 'tab') {
       destroyMinis();
@@ -2279,6 +2284,7 @@
   els.playBtn.addEventListener('click', () => {
     if (els.playBtn.disabled) { toast(soundProblem || 'Sounds are still loading'); return; }
     applyDrumKit();
+    followScroll();
     if (prefs.view === 'tab' || state.playing) { api.playPause(); return; }
     applyPlaybackRange();
     api.playPause();

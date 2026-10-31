@@ -484,6 +484,7 @@ dialog::backdrop { background: rgba(10, 12, 18, 0.55); }
 .seg-toggle button { border: 0; background: transparent; padding: 5px 12px; font-weight: 600; font-size: 0.82rem; }
 .seg-toggle button + button { border-left: 1px solid var(--line); }
 .seg-toggle button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.card.playing { box-shadow: 0 0 0 2px var(--accent); }
 .notice-btn { position: relative; }
 .capo-pick { flex: none; max-width: 78px; padding: 6px 2px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--ink); font-size: 0.82rem; }
 .capo-pick.on { border-color: var(--accent); }
