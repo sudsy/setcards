@@ -411,6 +411,8 @@ dialog.sheet {
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
 }
 dialog.sheet.small { width: min(420px, calc(100vw - 24px)); }
+/* the settings are longer than a small screen: they scroll inside the sheet, under its heading */
+.sheet-scroll { max-height: calc(100vh - 150px); overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
 dialog::backdrop { background: rgba(10, 12, 18, 0.55); }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .sheet-head h2 { margin: 0; font-family: var(--font-display); font-size: 1.5rem; font-weight: 700; letter-spacing: 0.01em; text-wrap: balance; }
