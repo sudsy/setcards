@@ -342,6 +342,14 @@ test('in guitar edit mode, the chords for the whole song are typed in one box pe
   await expect(page.locator('#chordPanel')).toBeVisible();
   await expect(page.locator('#sectionEdit')).toBeHidden();
   await expect(page.locator('#cards')).toBeHidden();
+  // the chord sheet fills the screen below the header and above the play bar
+  const fill = await page.evaluate(() => {
+    const panel = document.getElementById('editPanel').getBoundingClientRect();
+    const bar = document.querySelector('.playerbar');
+    return { panel: panel.height, screen: window.innerHeight, bar: bar && bar.getBoundingClientRect().top };
+  });
+  expect(fill.panel).toBeGreaterThan(fill.screen * 0.6);
+  if (fill.bar) expect(fill.panel).toBeLessThanOrEqual(fill.bar + 1);
   await expect(page.locator('#chordPanelSave')).toBeDisabled();
   // Enter moves on to the next bar
   await page.getByLabel('Bar 1 chords').fill('Dm7');

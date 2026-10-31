@@ -910,3 +910,7 @@ body.compact .card .riff { border-top: 0; }
 }
 .capo-pick { min-height: 36px; min-width: 64px; max-width: none; }
 body.chord-editing #cards { display: none; }
+/* the chord sheet takes the whole screen below the header while it is open */
+body.chord-editing #scroller { display: none; }
+body.chord-editing #editPanel { flex: 1; min-height: 0; max-height: none; overflow-y: auto; }
+body.chord-editing #chordPanel { padding-bottom: 12px; }
