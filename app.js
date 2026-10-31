@@ -82,6 +82,7 @@
   };
 
   let updateWaiting = false;   // a new version of the app is ready and will load at the next good moment
+  let swRegistration = null;   // the app's service worker, so the refresh icon can look for a new version
   let ytPlayer = null;
   let ytReady = false;
   let ytApi = null;
@@ -1481,7 +1482,12 @@
   };
   els.roleBtn.addEventListener('click', openRoles);
   els.homeRoleBtn.addEventListener('click', openRoles);
-  els.syncBtn.addEventListener('click', () => { if (!syncTasks.has('songs')) renderHome(); });
+  // The refresh icon reloads the songs, and looks for a new version of the app: when one is ready, the page reloads onto it.
+  els.syncBtn.addEventListener('click', () => {
+    if (updateWaiting) { refreshForUpdate(); return; }
+    if (swRegistration) swRegistration.update().catch(() => {}).then(() => { if (updateWaiting && els.homeView.hidden === false) refreshForUpdate(); });
+    if (!syncTasks.has('songs')) renderHome();
+  });
 
   /* ---------------- loading songs ---------------- */
   function resetDisplay() {
@@ -2891,6 +2897,7 @@
     });
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('sw.js').then((reg) => {
+        swRegistration = reg;
         // a new version downloading: say so until it takes over (and the page refreshes)
         reg.addEventListener('updatefound', () => {
           const sw = reg.installing;
