@@ -207,6 +207,7 @@ test('song settings offer the default drum kit, and adding one', async ({ page }
   await page.click('#settingsBtn');
   await expect(page.locator('#kitSel option').first()).toHaveText('Default kit');
   await expect(page.locator('#kitSel option').last()).toHaveText('Add a drum kit…');
+  await expect(page.locator('#kitSel option').nth(1)).toHaveText('Built-in drums (no kit)');
   await page.keyboard.press('Escape');
 });
 
