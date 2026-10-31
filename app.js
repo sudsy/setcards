@@ -2261,6 +2261,8 @@
   // so the app stays responsive, and it is added to the sounds between songs (never while playing).
   // Until it is ready, the built-in drums play.
   const DRUM_KIT_URL = 'kits/drums-default.sf2';
+  // iOS 12 and older (the old iPad) stopped playing once the kit was added, so they keep the built-in synth.
+  const oldIos = /(iPad|iPhone|iPod)/.test(navigator.userAgent) && /OS (1[0-2])_/.test(navigator.userAgent);
   let drumKitBytes = null;
   let drumKitApplied = false;
   function applyDrumKit() {
@@ -2268,7 +2270,7 @@
     drumKitApplied = true;
     api.loadSoundFont(drumKitBytes, true);
   }
-  setTimeout(() => {
+  if (!oldIos) setTimeout(() => {
     fetch(DRUM_KIT_URL)
       .then((r) => { if (!r.ok) throw new Error(`The drum kit is missing (${r.status})`); return r.arrayBuffer(); })
       .then((buf) => { drumKitBytes = SM.soundfont.asDrumKit(new Uint8Array(buf)); applyDrumKit(); })
