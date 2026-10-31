@@ -38,6 +38,7 @@
     chordAll: $('chordAll'), chordAllLabel: $('chordAllLabel'), chordClear: $('chordClear'), chordPreview: $('chordPreview'),
     chordPanel: $('chordPanel'), chordPanelBody: $('chordPanelBody'), chordPanelCount: $('chordPanelCount'),
     chordPanelDiscard: $('chordPanelDiscard'), chordPanelSave: $('chordPanelSave'), chordPanelDone: $('chordPanelDone'), sectionEdit: $('sectionEdit'),
+    tabPartList: $('tabPartList'), listenBtn: $('listenBtn'), fillFromTabBtn: $('fillFromTabBtn'),
     roleDlg: $('roleDlg'), roleList: $('roleList'),
     joinDlg: $('joinDlg'), joinTitle: $('joinTitle'), joinBtn: $('joinBtn'),
     toast: $('toast')
@@ -64,6 +65,9 @@
   // Chord names are hidden for bass unless turned on; everyone else sees them.
   const showChords = () => (prefs.chords[prefs.role] ?? (role().chords !== false));
 
+  // the track picked in the chord panel's tab part list (null: the track on screen), and whether it is being listened to
+  let tabPart = null;
+  let listening = false;
   const state = {
     song: null,         // { key, title, artist, fileName, canShare, localOnly }
     notes: null,        // shared notes: sections, chords, youtubeUrl
@@ -2534,14 +2538,14 @@
   // Only the boxes that were changed are written; a box keeps the chords it had if it is left alone.
   function chordPanelBoxes() { return Array.from(els.chordPanelBody.querySelectorAll('input[data-bar]')); }
   function chordPanelMode() { return prefs.role === 'guitar'; }
+  // The sections are the cards': one for each part of the song, a repeated section (a chorus played three times)
+  // once, from its first played bars. A part with nothing to play has no card, so it has no boxes either.
   function chordSheetGroups() {
-    const n = state.score ? state.score.masterBars.length : 0;
-    const starts = sortedSections();
-    const groups = [];
-    if (!starts.length || starts[0].start > 0) groups.push({ name: 'Start', start: 0 });
-    starts.forEach((s) => groups.push({ name: s.name, start: s.start }));
-    groups.forEach((g, i) => { g.end = (i + 1 < groups.length ? groups[i + 1].start : n) - 1; });
-    return groups.filter((g) => g.end >= g.start);
+    if (!state.score) return [];
+    return state.groups.filter((g) => !g.empty).map((g) => {
+      const p = state.parts[g.occ[0]];
+      return { name: g.name, start: p.start, end: p.end };
+    });
   }
   function updateChordPanel() {
     let changed = 0;
@@ -2601,8 +2605,89 @@
     els.sectionEdit.hidden = chords;
     // while the chords are typed in the sheet, the cards below are not shown
     document.body.classList.toggle('chord-editing', chords);
-    if (chords) buildChordPanel();
+    if (chords) { buildChordPanel(); renderTabParts(); } else stopListening();
   }
+  /* ---------- chords from a tab part: listen to a track, then fill the boxes from its notes ---------- */
+  const tabPartIndex = () => {
+    const n = state.score ? state.score.tracks.length : 0;
+    if (tabPart !== null && tabPart >= 0 && tabPart < n) return tabPart;
+    return state.trackIndex >= 0 && state.trackIndex < n ? state.trackIndex : 0;
+  };
+  function renderTabParts() {
+    els.tabPartList.innerHTML = '';
+    if (!state.score) return;
+    const picked = tabPartIndex();
+    state.score.tracks.forEach((t, i) => {
+      if (t.isPercussion) return;
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip tab-part';
+      b.dataset.index = String(i);
+      b.setAttribute('aria-pressed', String(i === picked));
+      b.textContent = t.name || `Track ${i + 1}`;
+      b.addEventListener('click', () => { tabPart = i; if (listening) stopListening(); renderTabParts(); });
+      els.tabPartList.appendChild(b);
+    });
+    els.listenBtn.setAttribute('aria-pressed', String(listening));
+    els.listenBtn.textContent = listening ? 'Stop' : 'Listen';
+  }
+  // Plays the song with only this part, from the start, so the chords can be checked by ear.
+  function startListening() {
+    if (!state.score) return;
+    unlockAudio();
+    const track = state.score.tracks[tabPartIndex()];
+    api.changeTrackSolo([track], true);
+    api.playbackRange = null;
+    api.isLooping = false;
+    api.stop();
+    api.tickPosition = 0;
+    api.play();
+    listening = true;
+    renderTabParts();
+  }
+  function stopListening() {
+    if (!listening) return;
+    listening = false;
+    const track = state.score && state.score.tracks[tabPartIndex()];
+    if (track) api.changeTrackSolo([track], false);
+    if (state.playing) api.stop();
+    renderTabParts();
+  }
+  // The notes of a track, bar by bar, as the chord inference reads them.
+  function tabPartBars(track) {
+    const staff = track.staves[0];
+    return state.score.masterBars.map((mb, i) => {
+      const bar = staff && staff.bars[i];
+      const events = [];
+      let t = 0;
+      const beats = bar && bar.voices[0] ? bar.voices[0].beats : [];
+      beats.forEach((beat) => {
+        const dur = beat.calculateDuration ? beat.calculateDuration() : SM.chordInfer.BEAT;
+        beat.notes.forEach((note) => { if (!note.isTieDestination) events.push({ pitch: note.realValue, start: t, dur }); });
+        t += dur;
+      });
+      return { events };
+    });
+  }
+  // Fills the boxes from the chords of the picked part. Only bars with a chord found are changed; the rest keep theirs.
+  function fillChordsFromTab() {
+    if (!state.score) return;
+    const track = state.score.tracks[tabPartIndex()];
+    const names = SM.chordInfer.inferBars(tabPartBars(track), { spell: (pc) => SM.chords.transposeName('C', pc) });
+    let filled = 0;
+    names.forEach((name, bar) => {
+      if (!name) return;
+      const box = chordPanelBoxes().find((b) => Number(b.dataset.bar) === bar);
+      if (!box) return;
+      // the boxes show the shapes to play, so the sounding name is moved down by any capo
+      box.value = SM.chords.transposeName(name, -capoOf());
+      filled++;
+    });
+    updateChordPanel();
+    toast(filled ? `Filled ${filled} ${filled === 1 ? 'bar' : 'bars'}. Check them, then Save chords.` : 'No chords could be found in that part');
+  }
+  els.listenBtn.addEventListener('click', () => { if (listening) stopListening(); else startListening(); });
+  els.fillFromTabBtn.addEventListener('click', fillChordsFromTab);
   els.chordPanelBody.addEventListener('input', updateChordPanel);
   els.chordPanelBody.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' || !e.target.matches('input[data-bar]')) return;

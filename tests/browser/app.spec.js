@@ -338,7 +338,11 @@ test('in guitar edit mode, the chords for the whole song are typed in one box pe
   await openDemo(page);
   await chooseRole(page, 'Guitar');
   await expect(page.locator('.card-chords')).toHaveCount(0);
+  // one section in the chord panel for each card, so a repeated section is only listed once
+  const cardNames = await page.locator('#cards .card .card-head h2').allTextContents();
   await page.click('#editBtn');
+  const panelNames = await page.locator('#chordPanelBody section.section > h2').allTextContents();
+  expect(panelNames.map((n) => n.replace(/\s*\d+ bars$/, '').trim())).toEqual(cardNames.map((n) => n.trim()));
   await expect(page.locator('#chordPanel')).toBeVisible();
   await expect(page.locator('#sectionEdit')).toBeHidden();
   await expect(page.locator('#cards')).toBeHidden();
@@ -932,4 +936,26 @@ test('going back to the band list does not redraw it when nothing has changed', 
   await page.click('#backBtn');
   await page.waitForTimeout(1000);
   expect(await page.locator('.song-row').first().evaluate((el) => el.keptMarker === true)).toBe(true);
+});
+
+test('in guitar edit mode, the chords can be filled from a tab part and saved', async ({ page }) => {
+  const errors = watchErrors(page);
+  await openDemo(page);
+  await chooseRole(page, 'Guitar');
+  await page.click('#editBtn');
+  await expect(page.locator('#tabPartList .tab-part').first()).toBeVisible();
+  await expect(page.locator('#tabPartList .tab-part[aria-pressed="true"]')).toHaveCount(1);
+  await expect(page.locator('#chordPanelSave')).toBeDisabled();
+  await page.click('#fillFromTabBtn');
+  await expect(page.locator('#chordPanelCount')).toContainText('unsaved');
+  const filled = await page.evaluate(() => Array.from(document.querySelectorAll('#chordPanelBody input[data-bar]')).filter((i) => i.value.trim()).length);
+  expect(filled).toBeGreaterThan(4);
+  await page.click('#chordPanelSave');
+  await expect(page.locator('#toast')).toContainText('Chords saved');
+  // listening plays the picked part, and Stop puts the song back
+  await page.click('#listenBtn');
+  await expect(page.locator('#listenBtn')).toHaveAttribute('aria-pressed', 'true');
+  await page.click('#listenBtn');
+  await expect(page.locator('#listenBtn')).toHaveAttribute('aria-pressed', 'false');
+  expect(errors).toEqual([]);
 });

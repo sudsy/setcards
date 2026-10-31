@@ -914,3 +914,8 @@ body.chord-editing #cards { display: none; }
 body.chord-editing #scroller { display: none; }
 body.chord-editing #editPanel { flex: 1; min-height: 0; max-height: none; overflow-y: auto; }
 body.chord-editing #chordPanel { padding-bottom: 12px; }
+/* the chord panel's own buttons: spaced out, and wrapping onto a second line on a narrow screen */
+.chord-panel-bar { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; justify-content: flex-end; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.chord-panel-bar #chordPanelCount { flex: 1 1 100%; margin: 0; }
+@media (min-width: 560px) { .chord-panel-bar #chordPanelCount { flex: 1 1 auto; } }
+.chord-panel-bar .text-btn { margin: 0; }

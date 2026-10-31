@@ -110,6 +110,14 @@
     <section id="editPanel" class="edit-panel" hidden aria-label="Edit sections">
       <div id="chordPanel" class="chord-panel" hidden>
         <h2 class="chord-panel-title">Chords for the whole song</h2>
+        <div class="tab-source">
+          <p class="fine">Pick a tab part, listen to it, then fill the chords from its notes. Filled chords are not saved until you press Save chords.</p>
+          <div id="tabPartList" class="tab-part-list"></div>
+          <div class="tab-part-actions">
+            <button id="listenBtn" class="text-btn" type="button" aria-pressed="false">Listen</button>
+            <button id="fillFromTabBtn" class="text-btn" type="button">Fill chords from this part</button>
+          </div>
+        </div>
         <p class="fine">One box for each bar, in order. Tab or Enter moves to the next bar. Amber marks a bar changed but not yet saved. Red marks a chord the app does not recognise.</p>
         <div id="chordPanelBody"></div>
         <div class="chord-panel-bar">
@@ -416,6 +424,7 @@
   <script src="js/analysis.js"></script>
   <script src="js/chords.js"></script>
   <script src="js/noteedit.js"></script>
+  <script src="js/chordinfer.js"></script>
   <script src="js/soundfont.js"></script>
   <script src="js/storage.js"></script>
   <script src="demo.js"></script>
