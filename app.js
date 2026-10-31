@@ -1587,10 +1587,15 @@
     clickBar = i;
     return i;
   }
+  // The click sounds on the first beat of a drum-free bar only: alphaTab clicks on every beat, so the volume is
+  // turned on for the start of the bar (a quarter note's worth of ticks) and off for the rest of it.
+  const FIRST_BEAT_TICKS = 960;
   function updateClick(tick) {
     if (!clickBars) return;
     const c = clickSetup();
-    const level = c.click && clickBars[barAtTick(tick)] ? clickLevel() : 0;
+    const bar = barAtTick(tick);
+    const onFirstBeat = tick - state.score.masterBars[bar].start < FIRST_BEAT_TICKS;
+    const level = c.click && clickBars[bar] && onFirstBeat ? clickLevel() : 0;
     if (api.metronomeVolume !== level) api.metronomeVolume = level;
   }
   function applyClick() {
@@ -2445,8 +2450,8 @@
   }
   // Gives the synth the drum kit this song uses. A change of kit first reloads the built-in sounds, since a second kit
   // would otherwise be added on top of the first.
-  // Drum kits are paused while the sound is being fixed: a song with a kit selected went silent. The built-in drums play.
-  const KIT_PLAYBACK = false;
+  // Drum kit playback. Turned off while a silence was being found; set to false to use the built-in drums only.
+  const KIT_PLAYBACK = true;
   async function applyDrumKit() {
     if (!KIT_PLAYBACK || oldIos) { logSound('drum kit: not used for playback, the built-in drums play'); return; }
     if (!state.score || !drumTrack() || applying) return;
