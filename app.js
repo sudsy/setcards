@@ -2498,7 +2498,8 @@
         let inside = 0, total = 0;
         for (const staff of d.staves) for (const bar of staff.bars) for (const voice of bar.voices) for (const beat of voice.beats) for (const note of beat.notes) {
           total++;
-          const key = note.realValue;
+          // a drum note's real value is its string and fret, so its MIDI key comes from the track's drum list
+          const key = note.isPercussion ? ((d.percussionArticulations[note.percussionArticulation] || {}).outputMidiNumber ?? -1) : note.realValue;
           if (key >= 0 && key < 128 && mask[key]) inside++; else outside[key] = (outside[key] || 0) + 1;
         }
         const list = Object.keys(outside).map(Number).sort((a, b) => a - b).slice(0, 12).map((k) => `${k}x${outside[k]}`);
