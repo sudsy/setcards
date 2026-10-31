@@ -1565,9 +1565,9 @@
   // Count-in and click, set for each song. The click plays only in bars where the drums have no notes, so a song
   // whose drums come in late keeps its time without the click sitting on top of the drums.
   const clickSetup = () => { const c = (state.notes && state.notes.click) || {}; return { countIn: !!c.countIn, click: !!c.click }; };
-  // the volumes are kept on this device (percent, up to 150)
-  const clickLevel = () => (Number.isFinite(prefs.clickLevel) ? prefs.clickLevel : 60) / 100;
-  const countInLevel = () => (Number.isFinite(prefs.countInLevel) ? prefs.countInLevel : 80) / 100;
+  // the volumes are kept on this device (percent; 100 is the synth's full level)
+  const clickLevel = () => (Number.isFinite(prefs.clickLevel) ? prefs.clickLevel : 100) / 100;
+  const countInLevel = () => (Number.isFinite(prefs.countInLevel) ? prefs.countInLevel : 100) / 100;
   let clickBars = null;   // per bar: true when the drums have no notes in it (no drum track counts as no drums)
   let clickBar = 0;
   function computeClickBars() {
@@ -3437,9 +3437,9 @@
     const c = clickSetup();
     els.countIn.checked = c.countIn;
     els.clickBars.checked = c.click;
-    els.clickLevel.value = String(Number.isFinite(prefs.clickLevel) ? prefs.clickLevel : 60);
+    els.clickLevel.value = String(Number.isFinite(prefs.clickLevel) ? prefs.clickLevel : 100);
     els.clickLevelOut.textContent = `${els.clickLevel.value}%`;
-    els.countInLevel.value = String(Number.isFinite(prefs.countInLevel) ? prefs.countInLevel : 80);
+    els.countInLevel.value = String(Number.isFinite(prefs.countInLevel) ? prefs.countInLevel : 100);
     els.countInLevelOut.textContent = `${els.countInLevel.value}%`;
     els.drumFeelOut.textContent = `${feel.ms} ms`;
     fillKitSelect();
