@@ -1735,6 +1735,8 @@
     return bass >= 0 ? bass : 0;
   }
   function useTrack(i) {
+    // a track the score does not have cannot be drawn (alphaTab fails on it), so it is ignored
+    if (!state.score || !state.score.tracks[i]) { logSound(`track ${i} is not in this song`); return; }
     state.trackIndex = i;
     deriveParts();
     applyAnnotations();
@@ -1986,7 +1988,7 @@
 
   // alphaTab renders the track passed to load(); switch to the role's track once the score is known.
   api.scoreLoaded.on((score) => {
-    if (api.tracks && api.tracks.length && api.tracks[0] !== score.tracks[state.trackIndex]) {
+    if (score.tracks[state.trackIndex] && api.tracks && api.tracks.length && api.tracks[0] !== score.tracks[state.trackIndex]) {
       setTimeout(() => api.renderTracks([score.tracks[state.trackIndex]]), 0);
     }
   });
@@ -3239,6 +3241,7 @@
   });
   els.trackSel.addEventListener('change', () => {
     const i = Number(els.trackSel.value);
+    if (!Number.isInteger(i) || !state.score || !state.score.tracks[i]) return;
     prefs.tracks[state.song.key] = Object.assign({}, prefs.tracks[state.song.key], { [prefs.role]: i });
     savePrefs();
     state.partMissing = false;
