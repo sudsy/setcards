@@ -1461,8 +1461,39 @@
   // alphaTab does not report a failed sound load to the page, so a long wait is named instead
   let soundReady = false;
   setTimeout(() => { if (!soundReady && !soundProblem) { logSound('no sound ready after 20 seconds'); reportSound('The sounds have not loaded after 20 seconds, so playback may be off on this device.'); } }, 20000);
+  // alphaTab's audio context, found in its player. On iPads it starts suspended and only runs after a tap.
+  function audioContext() {
+    const seen = new Set();
+    const find = (o, depth) => {
+      if (!o || typeof o !== 'object' || seen.has(o) || depth > 4) return null;
+      seen.add(o);
+      if ('state' in o && 'sampleRate' in o && typeof o.resume === 'function') return o;
+      for (const k of Object.keys(o)) {
+        let v;
+        try { v = o[k]; } catch (e) { continue; }
+        if (v && typeof v === 'object' && !(v instanceof Element)) { const f = find(v, depth + 1); if (f) return f; }
+      }
+      return null;
+    };
+    try { return find(api.player, 0); } catch (e) { return null; }
+  }
+  // Starts the audio if the browser has it suspended (it has to be started from a tap).
+  function unlockAudio() {
+    const ctx = audioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') {
+      logSound('audio was suspended: resuming it');
+      ctx.resume().then(() => logSound(`audio ${ctx.state}`)).catch((e) => logSound(`audio could not resume: ${e.message}`));
+    }
+  }
   api.playerReady.on(() => {
     logSound('player ready');
+    const ctx = audioContext();
+    logSound(`audio ${ctx ? ctx.state : 'context not found'}`);
+    if (api.player && api.player.soundFontLoaded && api.player.soundFontLoadFailed) {
+      api.player.soundFontLoaded.on(() => logSound('sound font loaded'));
+      api.player.soundFontLoadFailed.on((e) => logSound(`sound font FAILED: ${e && (e.message || e)}`));
+    }
     soundReady = true;
     soundProblem = null;
     els.playBtn.disabled = false;
@@ -2346,6 +2377,7 @@
 
   els.playBtn.addEventListener('click', () => {
     if (els.playBtn.disabled) { toast(soundProblem || 'Sounds are still loading'); return; }
+    unlockAudio();
     applyDrumKit();
     followScroll();
     if (prefs.view === 'tab' || state.playing) { api.playPause(); return; }
