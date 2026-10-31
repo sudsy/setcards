@@ -419,10 +419,10 @@ test('for bass in the tab view, a section can show repeated bars as %, and the n
   await page.click('#simileBtn');
   await expect(page.locator('#simileBtn')).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(() => page.evaluate(() => window.setcardsTest.state().simileBars)).toBeGreaterThan(0);
-  // the section keeps its % in the whole-song tab, and the button is only offered for a section
+  // the whole-song tab keeps every bar as written (the % would crowd the lyrics), and the button is only offered for a section
   await page.click('#prevBtn');
   await expect(page.locator('#simileBtn')).toBeHidden();
-  await expect.poll(() => page.evaluate(() => window.setcardsTest.state().simileBars)).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(() => window.setcardsTest.state().simileBars)).toBe(0);
   await page.click('#nextBtn');
   await expect(page.locator('#simileBtn')).toHaveAttribute('aria-pressed', 'true');
   await page.click('#simileBtn');

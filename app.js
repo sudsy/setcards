@@ -622,10 +622,10 @@
       els.sectionName.textContent = p.label;
       els.sectionBars.textContent = bits.join(' · ');
     }
-    const cur = state.view >= 0 ? state.parts[state.view] : null;
-    els.simileBtn.hidden = !(simileOn() && cur);
-    if (cur) {
-      const on = simileStarts().includes(cur.start);
+    const cur = currentSection();
+    els.simileBtn.hidden = !(simileOn() && cur !== null);
+    if (cur !== null) {
+      const on = simileStarts().includes(cur);
       els.simileBtn.setAttribute('aria-pressed', String(on));
       els.simileBtn.classList.toggle('is-on', on);
     }
@@ -1292,6 +1292,7 @@
     const d = api.settings.display;
     if (index === -1) { d.startBar = 1; d.barCount = -1; } else { d.startBar = state.parts[index].start + 1; d.barCount = state.parts[index].bars; }
     api.updateSettings();
+    applySimileMarks();
     api.render();
     els.scroller.scrollTop = 0;
     applyPlaybackRange();
@@ -2588,6 +2589,8 @@
   const originalSimile = new Map();   // bar -> the mark it came with, for the bars shown with %
   const simileOn = () => prefs.role === 'bass' && prefs.view === 'tab';
   const simileStarts = () => (state.notes && state.notes.simile) || [];
+  // the section on screen (its first bar), or null for the whole song, where the % marks are never shown
+  const currentSection = () => (state.view >= 0 && state.parts[state.view] ? sectionBarRange(state.parts[state.view].start)[0] : null);
   function restoreSimile() {
     originalSimile.forEach((mark, bar) => { bar.simileMark = mark; });
   }
@@ -2601,7 +2604,8 @@
       const ta = SM.analysis.barTokens(state.score, state.trackIndex, a);
       return ta.length > 0 && JSON.stringify(ta) === JSON.stringify(SM.analysis.barTokens(state.score, state.trackIndex, b));
     };
-    simileStarts().forEach((start) => {
+    const shown = currentSection();
+    simileStarts().filter((start) => start === shown).forEach((start) => {
       const [a, b] = sectionBarRange(start);
       for (let i = a + 1; i <= b; i++) {
         const bar = staff.bars[i];
@@ -2612,11 +2616,11 @@
     });
   }
   els.simileBtn.addEventListener('click', () => {
-    const p = state.parts[state.view];
-    if (!p || !state.notes) return;
+    const start = currentSection();
+    if (start === null || !state.notes) return;
     const list = simileStarts().slice();
-    const i = list.indexOf(p.start);
-    if (i >= 0) list.splice(i, 1); else list.push(p.start);
+    const i = list.indexOf(start);
+    if (i >= 0) list.splice(i, 1); else list.push(start);
     state.notes.simile = list;
     saveNotes();
     applySimileMarks();
