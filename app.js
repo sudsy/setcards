@@ -1402,6 +1402,7 @@
     fillTrackSelect();
     applyPlaybackRange();
     els.drumsBtn.hidden = !drumTrack();
+    applyDrumKit();
     if (state.drumsOnly) setDrumsOnly(true);
     if (prefs.view === 'cards') { renderCards(); doneSwitching(); }
     if (suggested) toast(`This file had no sections, so Setcards suggested ${state.notes.sections.length}. Rename them in Edit.`);
@@ -2256,22 +2257,26 @@
   });
 
   /* ---------------- player controls ---------------- */
-  // The drum kit is a SoundFont with its own drum sounds. It is loaded the first time a song with drums is played.
-  // If the kit cannot be loaded, the built-in drums play.
+  // The drum kit is a SoundFont with its own drum sounds. It is downloaded in the background after the app starts,
+  // so the app stays responsive, and it is added to the sounds between songs (never while playing).
+  // Until it is ready, the built-in drums play.
   const DRUM_KIT_URL = 'kits/drums-default.sf2';
-  let drumKitLoad = null;
-  function loadDrumKit() {
-    if (!drumKitLoad) {
-      drumKitLoad = fetch(DRUM_KIT_URL)
-        .then((r) => { if (!r.ok) throw new Error(`The drum kit is missing (${r.status})`); return r.arrayBuffer(); })
-        .then((buf) => api.loadSoundFont(SM.soundfont.asDrumKit(new Uint8Array(buf)), true))
-        .catch((e) => { console.error(e); drumKitLoad = null; toast('The drum kit could not be loaded, so the built-in drums play'); });
-    }
-    return drumKitLoad;
+  let drumKitBytes = null;
+  let drumKitApplied = false;
+  function applyDrumKit() {
+    if (!drumKitBytes || drumKitApplied || state.playing || !state.score || !drumTrack()) return;
+    drumKitApplied = true;
+    api.loadSoundFont(drumKitBytes, true);
   }
+  setTimeout(() => {
+    fetch(DRUM_KIT_URL)
+      .then((r) => { if (!r.ok) throw new Error(`The drum kit is missing (${r.status})`); return r.arrayBuffer(); })
+      .then((buf) => { drumKitBytes = SM.soundfont.asDrumKit(new Uint8Array(buf)); applyDrumKit(); })
+      .catch((e) => console.error('The drum kit could not be loaded, so the built-in drums play', e));
+  }, 3000);
   els.playBtn.addEventListener('click', () => {
     if (els.playBtn.disabled) { toast(soundProblem || 'Sounds are still loading'); return; }
-    if (drumTrack() && !state.drumKitReady) { state.drumKitReady = true; loadDrumKit(); }
+    applyDrumKit();
     if (prefs.view === 'tab' || state.playing) { api.playPause(); return; }
     applyPlaybackRange();
     api.playPause();
