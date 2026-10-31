@@ -341,6 +341,7 @@ test('in guitar edit mode, the chords for the whole song are typed in one box pe
   await page.click('#editBtn');
   await expect(page.locator('#chordPanel')).toBeVisible();
   await expect(page.locator('#sectionEdit')).toBeHidden();
+  await expect(page.locator('#cards')).toBeHidden();
   await expect(page.locator('#chordPanelSave')).toBeDisabled();
   // Enter moves on to the next bar
   await page.getByLabel('Bar 1 chords').fill('Dm7');
@@ -364,6 +365,7 @@ test('in guitar edit mode, the chords for the whole song are typed in one box pe
   // the saved chords are there after leaving and coming back to edit
   await page.click('#chordPanelDone');
   await expect(page.locator('#chordPanel')).toBeHidden();
+  await expect(page.locator('#cards')).toBeVisible();
   await page.click('#editBtn');
   await expect(page.getByLabel('Bar 1 chords')).toHaveValue('Dm7');
   await expect(page.getByLabel('Bar 2 chords')).toHaveValue('Gm7');

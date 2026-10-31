@@ -2599,6 +2599,8 @@
     const chords = state.editing && chordPanelMode();
     els.chordPanel.hidden = !chords;
     els.sectionEdit.hidden = chords;
+    // while the chords are typed in the sheet, the cards below are not shown
+    document.body.classList.toggle('chord-editing', chords);
     if (chords) buildChordPanel();
   }
   els.chordPanelBody.addEventListener('input', updateChordPanel);

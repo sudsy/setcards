@@ -909,3 +909,4 @@ body.compact .card .riff { border-top: 0; }
   .capo-pick { min-width: 72px; min-height: 44px; }
 }
 .capo-pick { min-height: 36px; min-width: 64px; max-width: none; }
+body.chord-editing #cards { display: none; }
