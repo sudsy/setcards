@@ -759,12 +759,15 @@
     }
 
     const shown = new Set();   // riffs already drawn on an earlier card
+    // A part with no notes for this instrument has a card only where its chords are shown, so the chords entered
+    // for it (in the chord sheet) can be seen; otherwise its chip in the song order says how many bars to wait.
+    const chordOnly = (g) => g.empty && !r.cues && showChords();
     state.groups.forEach((g) => {
-      if (g.empty) return;   // its chip in the song order says how many bars to wait
+      if (g.empty && !chordOnly(g)) return;
       const occ = g.occ.map((i) => state.parts[i]);
       // in landscape or upright, a part with almost nothing to play (mostly rests, or no tab for this instrument)
       // gets no card of its own: fewer than a quarter of its bars have notes. Its chip stays in the song order.
-      if (isPaged() || isCompact()) {
+      if ((isPaged() || isCompact()) && !chordOnly(g)) {
         let bars = 0;
         let withNotes = 0;
         occ.forEach((p) => p.units.forEach((u) => {
@@ -820,7 +823,7 @@
         card.querySelector('.card-head').appendChild(play);
       }
       // the whole section is written out, bar by bar, including any repeats inside it
-      card.appendChild(sectionBlock(occ[0]));
+      card.appendChild(sectionBlock(occ[0], !g.empty));
       // the card's controls, under its bars: for bass, its repeats as % (an experiment)
       const actions = document.createElement('div');
       actions.className = 'card-actions';
@@ -903,7 +906,7 @@
   }
 
   // A part written out in full: every bar of the section in order, so repeats are shown in place.
-  function sectionBlock(p) {
+  function sectionBlock(p, withTab = true) {
     const div = document.createElement('div');
     div.className = 'riff section-block';
     const chordCells = [];
@@ -924,7 +927,7 @@
       ${showChords() ? `<div class="chord-row">${chordCells.join('<span class="bar-sep">|</span>')}</div>` : ''}`;
     div.querySelectorAll('.chord-cell').forEach((b) => b.addEventListener('click', () => openChordDialog(Number(b.dataset.bar), b.dataset.riff, Number(b.dataset.offset))));
     div.querySelector('.riff-play').addEventListener('click', () => playRange(p.start, p.end));
-    if (showTabInCards()) {
+    if (withTab && showTabInCards()) {
       const holder = document.createElement('div');
       holder.className = 'mini-tab';
       holder.dataset.start = p.start;

@@ -344,7 +344,8 @@ test('in guitar edit mode, the chords for the whole song are typed in one box pe
   await page.click('#editBtn');
   const panelNames = await page.locator('#chordPanelBody section.section > h2').allTextContents();
   expect(panelNames.length).toBe(songSections);
-  expect(panelNames.length).toBeGreaterThanOrEqual(cardNames.length);
+  // the cards show every section too, so chords entered for a section can be seen on its card
+  expect(cardNames.length).toBe(panelNames.length);
   await expect(page.locator('#chordPanel')).toBeVisible();
   await expect(page.locator('#sectionEdit')).toBeHidden();
   await expect(page.locator('#cards')).toBeHidden();
@@ -380,6 +381,8 @@ test('in guitar edit mode, the chords for the whole song are typed in one box pe
   await page.click('#chordPanelDone');
   await expect(page.locator('#chordPanel')).toBeHidden();
   await expect(page.locator('#cards')).toBeVisible();
+  // the saved chords show on the cards
+  await expect(page.locator('#cards')).toContainText('Dm7');
   await page.click('#editBtn');
   await expect(page.getByLabel('Bar 1 chords')).toHaveValue('Dm7');
   await expect(page.getByLabel('Bar 2 chords')).toHaveValue('Gm7');
