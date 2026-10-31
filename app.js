@@ -13,8 +13,9 @@
     prevBtn: $('prevBtn'), nextBtn: $('nextBtn'),
     editBtn: $('editBtn'), editPanel: $('editPanel'), sectionList: $('sectionList'),
     findRepeatsBtn: $('findRepeatsBtn'), suggestBtn: $('suggestBtn'), useMarkersBtn: $('useMarkersBtn'), doneEditBtn: $('doneEditBtn'),
-    syncBtn: $('syncBtn'), scroller: $('scroller'), tab: $('tab'), cards: $('cards'), loading: $('loading'), drop: $('drop'), banner: $('banner'),
-    playBtn: $('playBtn'), loopBtn: $('loopBtn'), speedSel: $('speedSel'),
+    syncBtn: $('syncBtn'), scroller: $('scroller'), tab: $('tab'), cards: $('cards'), loading: $('loading'), drop: $('drop'),
+    noticeBtn: $('noticeBtn'), noticeDlg: $('noticeDlg'), noticeText: $('noticeText'),
+    playBtn: $('playBtn'), loopBtn: $('loopBtn'), drumsBtn: $('drumsBtn'), speedSel: $('speedSel'),
     videoBtn: $('videoBtn'), videoPanel: $('videoPanel'), playerStatus: $('playerStatus'),
     homeView: $('homeView'), songView: $('songView'), backBtn: $('backBtn'), bandName: $('bandName'), homeRoleBtn: $('homeRoleBtn'),
     bandBtn: $('bandBtn'), bandDlg: $('bandDlg'), driveBox: $('driveBox'), modeBox: $('modeBox'),
@@ -22,13 +23,14 @@
     fileInput: $('fileInput'), shareUpload: $('shareUpload'), shareUploadWrap: $('shareUploadWrap'),
     originalKeyInput: $('originalKeyInput'), bandKeyInput: $('bandKeyInput'), tabKeyInput: $('tabKeyInput'), keyInfo: $('keyInfo'),
     bandTrDown: $('bandTrDown'), bandTrUp: $('bandTrUp'), bandTrOut: $('bandTrOut'), matchKeyBtn: $('matchKeyBtn'),
+    noteEditBar: $('noteEditBar'), noteEditCount: $('noteEditCount'), noteDiscard: $('noteDiscard'), noteSave: $('noteSave'),
     myTrDown: $('myTrDown'), myTrUp: $('myTrUp'), myTrOut: $('myTrOut'), myTrReset: $('myTrReset'),
     tempoInput: $('tempoInput'), statusSel: $('statusSel'), noTab: $('noTab'),
     addSongBtn: $('addSongBtn'), addDlg: $('addDlg'), addForm: $('addForm'), addTitle: $('addTitle'), addArtist: $('addArtist'),
     addYt: $('addYt'), addStatus: $('addStatus'),
     noteDlg: $('noteDlg'), noteTitle: $('noteTitle'), noteHint: $('noteHint'), noteForm: $('noteForm'), noteText: $('noteText'), noteClear: $('noteClear'),
     settingsBtn: $('settingsBtn'), settingsDlg: $('settingsDlg'), trackSel: $('trackSel'),
-    zoomRange: $('zoomRange'), zoomOut: $('zoomOut'), ytInput: $('ytInput'), exportBtn: $('exportBtn'), showTabCards: $('showTabCards'), showChords: $('showChords'),
+    zoomRange: $('zoomRange'), zoomOut: $('zoomOut'), ytInput: $('ytInput'), exportBtn: $('exportBtn'), showTabCards: $('showTabCards'), showChords: $('showChords'), audioInput: $('audioInput'), audioRemove: $('audioRemove'), kitSel: $('kitSel'), kitInput: $('kitInput'), soundLogText: $('soundLogText'), soundLogCopy: $('soundLogCopy'),
     barDlg: $('barDlg'), barDlgTitle: $('barDlgTitle'), barDlgText: $('barDlgText'),
     presetRow: $('presetRow'), barForm: $('barForm'), barName: $('barName'), barSubmit: $('barSubmit'), barRemove: $('barRemove'),
     barChords: $('barChords'), barChordsAll: $('barChordsAll'), barChordsAllLabel: $('barChordsAllLabel'),
@@ -81,9 +83,24 @@
     chordEdit: null
   };
 
+  let silentSignInTried = false;   // one quiet sign-in attempt per visit, before asking with the button
   let updateWaiting = false;   // a new version of the app is ready and will load at the next good moment
+  let swRegistration = null;   // the app's service worker, so the refresh icon can look for a new version
   let ytPlayer = null;
   let ytReady = false;
+  let audioEl = null;     // an MP3 for the song, in place of the YouTube video
+  let audioUrl = null;
+  let audioSeq = 0;
+  // The media for the song is an MP3 (audioEl) or a YouTube video (ytPlayer). These read and drive whichever is in use.
+  const media = {
+    ready: () => (audioEl ? audioEl.readyState >= 1 : !!(ytPlayer && ytReady)),
+    time: () => (audioEl ? audioEl.currentTime : ytPlayer.getCurrentTime()),
+    seek: (t) => { if (audioEl) audioEl.currentTime = t; else ytPlayer.seekTo(t, true); },
+    playing: () => (audioEl ? !audioEl.paused : !!(ytPlayer && ytReady && ytPlayer.getPlayerState() === 1)),
+    rate: (v) => { if (audioEl) audioEl.playbackRate = v; else if (ytPlayer && ytReady) ytPlayer.setPlaybackRate(v); }
+  };
+  const mediaKey = (n) => (n ? `${n.youtubeUrl || ''}|${n.audio ? n.audio.name + (n.audio.fileId || '') : ''}` : '');
+
   let ytApi = null;
   let minis = [];       // small alphaTab renderers inside the cards
   let drawSeq = 0;
@@ -99,12 +116,17 @@
   }
   const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
   // Which alphaTab engine draws the tabs: 'html5' (canvas, default) or 'svg'. ?engine=svg switches back, ?engine=html5 returns; kept on this device.
+  // iOS 12 and older (the old iPad) have little memory, and the canvas engine stopped its sound there, so they use SVG,
+  // which worked before the canvas engine became the default. ?engine=svg or ?engine=html5 still chooses.
+  const olderIos = /(iPad|iPhone|iPod)/.test(navigator.userAgent) && /OS (1[0-2])_/.test(navigator.userAgent);
   const renderEngine = (() => {
     try {
       const q = new URLSearchParams(location.search).get('engine');
       if (q === 'svg' || q === 'html5') localStorage.setItem('setcards:engine', q);
-      return localStorage.getItem('setcards:engine') === 'svg' ? 'svg' : 'html5';
-    } catch (e) { return 'html5'; }
+      const chosen = localStorage.getItem('setcards:engine');
+      if (chosen) return chosen === 'svg' ? 'svg' : 'html5';
+      return olderIos ? 'svg' : 'html5';
+    } catch (e) { return olderIos ? 'svg' : 'html5'; }
   })();
 
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -217,9 +239,12 @@
     if (s && s.offline) msgs.push('Offline: this is the copy saved on this phone. Changes are kept here and sent to the band when you’re back online.');
     else if (s && s.localOnly) msgs.push('Your changes to this song are saved in this browser only. Add the song to a band folder to share them.');
     if (s && state.score && state.partMissing) msgs.push(missingPartText());
-    els.banner.hidden = !msgs.length;
-    els.banner.textContent = msgs.join(' ');
+    // notices sit behind a button in the top bar, so they never move the tab while it is played
+    els.noticeBtn.hidden = !msgs.length;
+    els.noticeText.textContent = msgs.join(' ');
+    if (!msgs.length) closeDialog(els.noticeDlg);
   }
+  els.noticeBtn.addEventListener('click', () => els.noticeDlg.showModal());
   function missingPartText() {
     const tracks = state.score.tracks;
     const t = tracks[state.trackIndex];
@@ -251,6 +276,8 @@
   const myTranspose = () => (state.song ? prefs.transpose[state.song.key] : undefined);
   const transposeSemis = () => (myTranspose() ?? bandTranspose());
   const signed = (n) => (n > 0 ? `+${n}` : String(n));
+  // The capo fret for this song (0 for none), kept with the song so the band sees it. It changes only the chord names shown.
+  const capoOf = () => (state.notes && Number(state.notes.capo)) || 0;
 
   // Plain words about the keys: how the band's key compares with the recording and the tab.
   function keyInfoText() {
@@ -316,10 +343,13 @@
   }
 
   // Chords are stored in the tab's own key and shown in the key the tab is transposed to.
+  // With a capo, the names are the shapes to play: a capo at 2 shows the chord a tone below what sounds.
   function chordsAt(bar) {
     const own = state.notes && state.notes.chords && state.notes.chords[bar];
-    if (own != null) return own === '-' ? [] : SM.chords.split(own).map((c) => SM.chords.transposeName(c, transposeSemis()));
-    return (state.fileChords[bar] || []).map((c) => c.name);
+    const sounding = own != null
+      ? (own === '-' ? [] : SM.chords.split(own).map((c) => SM.chords.transposeName(c, transposeSemis())))
+      : (state.fileChords[bar] || []).map((c) => c.name);
+    return capoOf() ? sounding.map((c) => SM.chords.transposeName(c, -capoOf())) : sounding;
   }
   function songChordNames() {
     const seen = [];
@@ -594,6 +624,8 @@
       t.classList.toggle('same', !!(cur && i >= 0 && i !== state.view && state.parts[i].group === cur.group));
       t.classList.toggle('playing', i >= 0 && i === state.playingPart);
     });
+    const playingGroup = state.playingPart >= 0 && state.parts[state.playingPart] ? state.parts[state.playingPart].group.key : null;
+    els.cards.querySelectorAll('.card').forEach((c) => c.classList.toggle('playing', !!playingGroup && c.dataset.group === playingGroup));
   }
 
 
@@ -620,6 +652,32 @@
   }
 
   // A note, or a small button to add one. partKey null means the note for the whole song.
+  // The whole-song note, with the capo beside it: the capo shows the chord shapes, so it is chosen where the cards are.
+  function songNoteRow() {
+    const row = document.createElement('div');
+    row.className = 'song-note-row';
+    row.appendChild(capoPicker());
+    row.appendChild(noteBlock(null));
+    return row;
+  }
+  function capoPicker() {
+    const sel = document.createElement('select');
+    sel.className = 'capo-pick' + (capoOf() ? ' on' : '');
+    sel.setAttribute('aria-label', 'Capo fret');
+    sel.title = 'Capo: the chord shapes shown are for this fret';
+    sel.innerHTML = '<option value="0">No capo</option>' + Array.from({ length: 12 }, (_, i) => `<option value="${i + 1}">Capo ${i + 1}</option>`).join('');
+    sel.value = String(capoOf());
+    sel.addEventListener('change', () => {
+      const fret = Number(sel.value);
+      if (fret) state.notes.capo = fret; else delete state.notes.capo;
+      saveNotes();
+      // only the chord names change, so the tab and the rest of the song stay as they are
+      applyAnnotations();
+      if (prefs.view === 'tab') api.render(); else renderCards();
+    });
+    return sel;
+  }
+
   function noteBlock(partKey, partName) {
     const text = getNote(partKey);
     const label = `${role().label} note`;
@@ -666,7 +724,7 @@
     const frag = document.createDocumentFragment();
 
     frag.appendChild(songKeysBlock());
-    frag.appendChild(noteBlock(null));
+    frag.appendChild(songNoteRow());
 
     if (r.cues) {
       frag.appendChild(cueSheet());
@@ -1014,7 +1072,7 @@
   function partKey(display) {
     const cs = getComputedStyle(document.documentElement);
     const colours = ['--ink', '--muted', '--surface'].map((v) => cs.getPropertyValue(v).trim()).join();
-    return ['v3', state.song.key, state.source.hash, transposeSemis(), state.trackIndex, colours, JSON.stringify(display)].join('|');
+    return ['v3', state.song.key, state.source.hash, transposeSemis(), capoOf(), state.trackIndex, colours, JSON.stringify(display)].join('|');
   }
 
   // The settings a part is drawn with, from its size on the card.
@@ -1163,10 +1221,13 @@
   }
 
   /* ---------------- views ---------------- */
+  // The full tab follows the playing bar. The cards share alphaTab's scroller, so there only the person scrolls.
+  const followScroll = () => { if (api.settings) api.settings.player.scrollMode = prefs.view === 'tab' ? AT.ScrollMode.Continuous : AT.ScrollMode.Off; };
   function setView(v) {
     if (v === prefs.view) return;
     prefs.view = v;
     savePrefs();
+    followScroll();
     applyViewChrome();
     if (v === 'tab') {
       destroyMinis();
@@ -1243,7 +1304,7 @@
 
   /* ---------------- alphaTab ---------------- */
   const api = new AT.AlphaTabApi(els.tab, {
-    core: { fontDirectory: 'lib/font/', engine: renderEngine, logLevel: 'warning' },
+    core: { fontDirectory: 'lib/font/', engine: renderEngine, logLevel: 'warning', includeNoteBounds: true },
     display: { scale: prefs.zoom, layoutMode: AT.LayoutMode.Page, staveProfile: STAVES[prefs.stave] ?? AT.StaveProfile.Tab },
     notation: { rhythmMode: AT.TabRhythmMode.ShowWithBars },
     player: {
@@ -1351,6 +1412,9 @@
     renderMap();
     fillTrackSelect();
     applyPlaybackRange();
+    els.drumsBtn.hidden = !drumTrack();
+    applyDrumKit();
+    if (state.drumsOnly) setDrumsOnly(true);
     if (prefs.view === 'cards') { renderCards(); doneSwitching(); }
     if (suggested) toast(`This file had no sections, so Setcards suggested ${state.notes.sections.length}. Rename them in Edit.`);
   });
@@ -1359,6 +1423,7 @@
   api.renderFinished.on(() => {
     els.loading.hidden = true;
     doneSwitching();
+    drawSelection();
     // alphaTab's credit line is shown in the play bar instead, so it is left out of the tab (set once the size is settled)
     setTimeout(() => { const credit = creditLine(els.tab); if (credit) credit.style.display = 'none'; }, 200);
   });
@@ -1366,9 +1431,22 @@
   [els.tab, els.cards].forEach((box) => new MutationObserver(() => addNumberHalos(box)).observe(box, { childList: true, subtree: true }));
   api.error.on((e) => {
     els.loading.hidden = true;
+    logSound(`error: ${e && (e.message || e.name || e)}`);
     console.error(e);
     toast('That file could not be read. Try exporting it again from Guitar Pro.');
   });
+  // A short record of what the sound does on this device, shown in Song settings so a fault can be reported with it.
+  const soundLog = [];
+  const logSound = (what) => {
+    soundLog.push(`${new Date().toLocaleTimeString()} ${what}`);
+    if (soundLog.length > 60) soundLog.shift();
+    els.soundLogText.textContent = soundLog.join('\n');
+  };
+  logSound(`device: ${navigator.userAgent.replace(/^.*?\((.*?)\).*$/, '$1')}`);
+  logSound(`audio: ${window.AudioContext ? 'AudioContext' : (window.webkitAudioContext ? 'webkitAudioContext' : 'none')}`);
+  fetch('lib/soundfont/sonivox.sf2', { method: 'HEAD' })
+    .then((r) => logSound(`sound file: status ${r.status}, ${r.headers.get('content-length') || 'unknown'} bytes`))
+    .catch((e) => logSound(`sound file: could not be checked (${e.message})`));
   // Why sound is not available is shown, so a missing synthesizer does not fail silently.
   let soundProblem = (window.AudioContext || window.webkitAudioContext) ? null : 'This browser has no audio support, so there is no playback.';
   const reportSound = (reason) => {
@@ -1377,23 +1455,29 @@
     els.playerStatus.textContent = reason;
   };
   if (soundProblem) reportSound(soundProblem);
+  let lastLoadLogged = -1;
   api.soundFontLoad.on((e) => {
-    if (e.total) els.playerStatus.textContent = `Loading sounds ${Math.round((e.loaded / e.total) * 100)}%`;
+    if (!e.total) return;
+    const pct = Math.round((e.loaded / e.total) * 100);
+    els.playerStatus.textContent = `Loading sounds ${pct}%`;
+    if (pct >= lastLoadLogged + 25 || pct === 100) { lastLoadLogged = pct; logSound(`sound font loading ${pct}%`); }
   });
   // alphaTab does not report a failed sound load to the page, so a long wait is named instead
   let soundReady = false;
-  setTimeout(() => { if (!soundReady && !soundProblem) reportSound('The sounds have not loaded after 20 seconds, so playback may be off on this device.'); }, 20000);
+  setTimeout(() => { if (!soundReady && !soundProblem) { logSound('no sound ready after 20 seconds'); reportSound('The sounds have not loaded after 20 seconds, so playback may be off on this device.'); } }, 20000);
   api.playerReady.on(() => {
+    logSound('player ready');
     soundReady = true;
     soundProblem = null;
     els.playBtn.disabled = false;
     els.playerStatus.textContent = '';
   });
   api.playerStateChanged.on((e) => {
+    logSound(`player ${e.state === 1 ? 'playing' : 'stopped'}`);
     state.playing = e.state === 1;
     els.playBtn.classList.toggle('is-playing', state.playing);
     els.playBtn.setAttribute('aria-label', state.playing ? 'Pause' : 'Play');
-    if (!state.playing && !(ytPlayer && ytReady)) setPlayingPart(-1);
+    if (!state.playing && !media.ready()) setPlayingPart(-1);
   });
   api.playerPositionChanged.on((e) => {
     if (!state.score || !state.playing) return;
@@ -1411,9 +1495,189 @@
     const surface = els.tab.querySelector('.at-surface');
     if (!surface) return;
     const r = surface.getBoundingClientRect();
-    const beat = api.boundsLookup.getBeatAtPos(e.clientX - r.left, e.clientY - r.top);
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    const target = noteEditBlock() ? null : editTargetAt(x, y);
+    if (target) {
+      state.edit.sel = target;
+      state.edit.typing = null;
+      drawSelection();
+      return;
+    }
+    const beat = api.boundsLookup.getBeatAtPos(x, y);
     if (beat) openBarDialog(beat.voice.bar.index);
+    if (beat && noteEditBlock()) toast(noteEditBlock());
   });
+
+  /* ---------------- notes edited in the full tab (desktop) ---------------- */
+  // The changes are kept as steps and shown on the tab straight away. Save writes them into the file, which is read again.
+  const EDIT_FRET_MAX = 24;
+  state.edit = { ops: [], sel: null, typing: null };
+  const newNote = (beat, string) => {
+    const n = new AT.model.Note();
+    n.beat = beat;
+    n.string = string;
+    n.fret = 0;
+    n.isDead = false;
+    n.isStringed = true;
+    return n;
+  };
+  // Why notes cannot be edited here, or null when they can.
+  function noteEditBlock() {
+    if (!state.song || !state.song.hasTab || !state.source || state.source.tex || !state.source.bytes) return 'Notes can only be edited in a Guitar Pro or MusicXML file.';
+    if (transposeSemis()) return 'Set the key back to the file’s key to edit notes, so the saved file keeps its notes.';
+    if (!SM.library.parse(state.song.key).source.replaceTab) return 'This copy of the song is read-only here.';
+    return null;
+  }
+  // Where the strings of the staff are, worked out from the note heads drawn on it (at least two strings are needed).
+  function staffLines(bb) {
+    const sys = api.boundsLookup.staffSystems.find((x) => x.bars.some((mb) => mb.bars.some((sb) => sb.beats.includes(bb))));
+    if (!sys) return null;
+    const pts = [];
+    sys.bars.forEach((mb) => mb.bars.forEach((sb) => sb.beats.forEach((b) => (b.notes || []).forEach((nb) => {
+      pts.push({ s: nb.note.string, y: nb.noteHeadBounds.y + nb.noteHeadBounds.h / 2 });
+    }))));
+    if (new Set(pts.map((p) => p.s)).size < 2) return null;
+    const n = pts.length;
+    const ms = pts.reduce((a, p) => a + p.s, 0) / n;
+    const my = pts.reduce((a, p) => a + p.y, 0) / n;
+    const slope = pts.reduce((a, p) => a + (p.s - ms) * (p.y - my), 0) / pts.reduce((a, p) => a + (p.s - ms) ** 2, 0);
+    const base = my - slope * ms;
+    return { yOf: (s) => base + slope * s, stringAt: (y) => Math.round((y - base) / slope) };
+  }
+  // The note under the click, or the string nearest the click on the beat it is in.
+  function editTargetAt(x, y) {
+    const bl = api.boundsLookup;
+    const beat = bl.getBeatAtPos(x, y);
+    if (!beat) return null;
+    const key = SM.noteEdit.beatKey(beat);
+    const onNote = bl.getNoteAtPos(beat, x, y);
+    if (onNote) return { key, beat, string: onNote.string, note: onNote };
+    const bb = (bl.findBeats(beat) || [])[0];
+    const lines = bb && staffLines(bb);
+    if (!lines) return null;
+    const strings = state.score.tracks[state.trackIndex].staves[0].tuning.length;
+    const spacing = Math.abs(lines.yOf(2) - lines.yOf(1)) || 1;
+    if (y < lines.yOf(1) - spacing / 2 || y > lines.yOf(strings) + spacing / 2) return null;
+    const string = Math.min(strings, Math.max(1, lines.stringAt(y)));
+    return { key, beat, string, note: beat.notes.find((n) => n.string === string) || null };
+  }
+  // The box around the selected note, or the place where a note would go.
+  function selectionRect(sel) {
+    const bl = api.boundsLookup;
+    const bb = (bl.findBeats(sel.beat) || [])[0];
+    if (!bb) return null;
+    const nb = sel.note && (bb.notes || []).find((x) => x.note === sel.note);
+    if (nb) return { x: nb.noteHeadBounds.x, y: nb.noteHeadBounds.y, w: nb.noteHeadBounds.w, h: nb.noteHeadBounds.h };
+    const lines = staffLines(bb);
+    const vb = bb.visualBounds;
+    if (!lines || !vb) return null;
+    const h = Math.abs(lines.yOf(2) - lines.yOf(1)) * 0.8;
+    return { x: vb.x, y: lines.yOf(sel.string) - h / 2, w: vb.w, h };
+  }
+  function drawSelection() {
+    const surface = els.tab.querySelector('.at-surface');
+    if (!surface) return;
+    surface.querySelectorAll('.note-sel').forEach((el) => el.remove());
+    const sel = state.edit.sel;
+    if (!state.editing || !sel) return;
+    const rect = selectionRect(sel);
+    if (!rect) return;
+    const box = document.createElement('div');
+    box.className = 'note-sel';
+    box.style.cssText = `left:${rect.x}px;top:${rect.y}px;width:${rect.w}px;height:${rect.h}px`;
+    surface.appendChild(box);
+  }
+  function updateNoteBar() {
+    const n = state.edit.ops.length;
+    els.noteEditBar.hidden = !n;
+    els.noteEditCount.textContent = `${n} unsaved ${n === 1 ? 'change' : 'changes'} to the notes`;
+  }
+  // Shows the change on the tab, and records it.
+  function recordStep(op, continuing) {
+    const ops = state.edit.ops;
+    const last = ops[ops.length - 1];
+    if (continuing && last && last.op === 'set' && op.op === 'set' && last.beat === op.beat && last.string === op.string) last.fret = op.fret;
+    else ops.push(op);
+    SM.noteEdit.applyOps(state.score, state.trackIndex, [op], newNote);
+    refreshEdited();
+  }
+  function refreshEdited() {
+    updateNoteBar();
+    api.render();
+  }
+  function typeDigit(d) {
+    const sel = state.edit.sel;
+    if (!sel) { toast('Click a string in a bar first, then type the fret number'); return; }
+    const t = state.edit.typing;
+    const continuing = !!t && t.key === sel.key && t.string === sel.string && Date.now() - t.at < 1200;
+    const typed = continuing ? Number(t.buffer + d) : Number(d);
+    const fret = typed <= EDIT_FRET_MAX ? typed : Number(d);
+    state.edit.typing = { key: sel.key, string: sel.string, buffer: String(fret), at: Date.now() };
+    recordStep({ op: 'set', beat: sel.key, string: sel.string, fret }, continuing);
+    sel.note = sel.beat.notes.find((n) => n.string === sel.string) || null;
+    drawSelection();
+  }
+  function deleteSelected() {
+    const sel = state.edit.sel;
+    if (!sel || !sel.note) return;
+    recordStep({ op: 'delete', beat: sel.key, string: sel.string }, false);
+    state.edit.typing = null;
+    sel.note = null;
+    drawSelection();
+  }
+  document.addEventListener('keydown', (e) => {
+    if (!state.editing || prefs.view !== 'tab' || els.songView.hidden || document.querySelector('dialog[open]')) return;
+    if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+    if (/^[0-9]$/.test(e.key)) { e.preventDefault(); if (!noteEditBlock()) typeDigit(e.key); else toast(noteEditBlock()); }
+    else if (e.key === 'Backspace' || e.key === 'Delete') { if (state.edit.sel && state.edit.sel.note) { e.preventDefault(); deleteSelected(); } }
+    else if (e.key === 'Escape') { state.edit.sel = null; state.edit.typing = null; drawSelection(); }
+  });
+  // Nothing is written until Save; leaving the edit with changes asks first.
+  function confirmNoteEdits() {
+    return !state.edit.ops.length || confirm('Discard the note changes you have not saved?');
+  }
+  function discardNoteEdits() {
+    state.edit.ops = [];
+    state.edit.sel = null;
+    state.edit.typing = null;
+    updateNoteBar();
+    if (state.song && state.source) loadSource();
+  }
+  async function saveNoteEdits() {
+    if (!state.edit.ops.length) return;
+    const blocked = noteEditBlock();
+    if (blocked) { toast(blocked); return; }
+    try {
+      const settings = api.settings;
+      // the file as it was read, with the changes applied, written out and read back to check it holds exactly those notes
+      const score = AT.importer.ScoreLoader.loadScoreFromBytes(state.source.bytes, settings);
+      SM.noteEdit.applyOps(score, state.trackIndex, state.edit.ops, newNote);
+      const expected = SM.noteEdit.notesText(score, state.trackIndex);
+      const bytes = new Uint8Array(new AT.exporter.Gp7Exporter().export(score, settings));
+      const check = AT.importer.ScoreLoader.loadScoreFromBytes(bytes, settings);
+      const same = check.masterBars.length === score.masterBars.length &&
+        JSON.stringify(SM.noteEdit.notesText(check, state.trackIndex)) === JSON.stringify(expected);
+      if (!same) { toast('The notes could not be saved safely, so nothing was changed'); return; }
+      const { source, id } = SM.library.parse(state.song.key);
+      const name = `${(state.song.fileName || 'Song').replace(/\.(gp[345]?|gpx|xml|musicxml|mxl|capx)$/i, '')}.gp`;
+      toast('Saving the notes…');
+      await source.replaceTab(id, bytes, name);
+      state.song.fileName = name;
+      state.source = { bytes, tex: null, hash: fingerprint(bytes) };
+      state.edit.ops = [];
+      state.edit.sel = null;
+      state.edit.typing = null;
+      updateNoteBar();
+      loadSource();
+      toast('Notes saved to the file');
+    } catch (e) {
+      console.error(e);
+      toast(e.message || 'The notes could not be saved');
+    }
+  }
+  els.noteSave.addEventListener('click', saveNoteEdits);
+  els.noteDiscard.addEventListener('click', discardNoteEdits);
 
   /* ---------------- tracks and roles ---------------- */
   function trackMatches(t, roleId) {
@@ -1481,7 +1745,12 @@
   };
   els.roleBtn.addEventListener('click', openRoles);
   els.homeRoleBtn.addEventListener('click', openRoles);
-  els.syncBtn.addEventListener('click', () => { if (!syncTasks.has('songs')) renderHome(); });
+  // The refresh icon reloads the songs, and looks for a new version of the app: when one is ready, the page reloads onto it.
+  els.syncBtn.addEventListener('click', () => {
+    if (updateWaiting) { refreshForUpdate(); return; }
+    if (swRegistration) swRegistration.update().catch(() => {}).then(() => { if (updateWaiting && els.homeView.hidden === false) refreshForUpdate(); });
+    if (!syncTasks.has('songs')) renderHome();
+  });
 
   /* ---------------- loading songs ---------------- */
   function resetDisplay() {
@@ -1504,7 +1773,7 @@
     els.songView.classList.add('switching');
     els.songTitle.textContent = title || '';
     els.songMeta.textContent = '';
-    els.banner.hidden = true;
+    els.noticeBtn.hidden = true;
     els.loading.hidden = false;
   }
   const doneSwitching = () => els.songView.classList.remove('switching');
@@ -1551,7 +1820,7 @@
   }
 
   function applySong(key, song, refresh) {
-    const prevVideo = state.notes && state.notes.youtubeUrl;
+    const prevVideo = mediaKey(state.notes);
     if (state.playing) api.stop();
     destroyMinis();
     state.song = { key, title: song.notes.title || song.title || (song.fileName || 'Untitled').replace(SM.SONG_EXT, ''), artist: song.notes.artist || song.artist || '', fileName: song.fileName, canShare: song.canShare, localOnly: song.localOnly, offline: !!song.offline };
@@ -1560,6 +1829,10 @@
     // changes kept in this browser while the page was closing are sent on to where the song lives
     if (song.fromOverlay && song.canShare) saveNotes();
     state.score = null;
+    state.drumsOnly = false;
+    els.drumsBtn.setAttribute('aria-pressed', 'false');
+    state.edit = { ops: [], sel: null, typing: null };
+    updateNoteBar();
     state.playingPart = -1;
     prefs.last = key;
     savePrefs();
@@ -1571,7 +1844,7 @@
     if (state.editing) setEditing(false);
     // a song's video is not shown until it is asked for
     if (!refresh) state.videoOn = false;
-    if (!refresh || song.notes.youtubeUrl !== prevVideo) setupVideo();
+    if (!refresh || mediaKey(song.notes) !== prevVideo) setupVideo();
     const hasTab = !!(song.bytes || song.tex);
     state.song.hasTab = hasTab;
     document.body.classList.toggle('no-tab', !hasTab);
@@ -1718,6 +1991,8 @@
 
   /* ---------------- edit mode ---------------- */
   function setEditing(on) {
+    if (!on && !confirmNoteEdits()) return;
+    if (!on && state.edit.ops.length) discardNoteEdits();
     state.editing = on;
     document.body.classList.toggle('editing', on);
     els.editBtn.setAttribute('aria-pressed', String(on));
@@ -1760,7 +2035,7 @@
       li.textContent = 'No sections yet.';
       els.sectionList.appendChild(li);
     }
-    const videoReady = !!(ytPlayer && ytReady);
+    const videoReady = media.ready();
     list.forEach((s) => {
       const p = state.parts.find((x) => x.ref === s);
       const li = document.createElement('li');
@@ -1817,7 +2092,7 @@
       const nowBtn = li.querySelector('.now-btn');
       if (nowBtn) {
         nowBtn.addEventListener('click', () => {
-          s.videoTime = Math.round(ytPlayer.getCurrentTime() * 10) / 10;
+          s.videoTime = Math.round(media.time() * 10) / 10;
           timeIn.value = fmtTime(s.videoTime);
           saveNotes();
         });
@@ -1861,7 +2136,8 @@
     });
     // chords for this bar
     const rf = riffForBar(bar);
-    els.barChords.value = (state.notes.chords[bar] != null ? state.notes.chords[bar] : chordsAt(bar).join(' '));
+    const own = state.notes.chords[bar];
+    els.barChords.value = own === '-' ? '-' : chordsAt(bar).join(' ');
     els.barChords.dataset.initial = els.barChords.value;
     const times = rf ? riffBars(rf.riff, rf.offset).length : 1;
     els.barChordsAllLabel.hidden = !(rf && times > 1);
@@ -1873,8 +2149,8 @@
   function setChords(bar, text, everywhere) {
     const rf = riffForBar(bar);
     const bars = everywhere && rf ? riffBars(rf.riff, rf.offset) : [bar];
-    // entered in the key shown; stored in the tab's own key
-    const value = SM.chords.transposeText(text.trim(), -transposeSemis());
+    // entered as the shapes shown (with any capo); stored in the tab's own key
+    const value = SM.chords.transposeText(text.trim(), capoOf() - transposeSemis());
     bars.forEach((b) => {
       if (value) state.notes.chords[b] = value;
       else if (state.fileChords[b]) state.notes.chords[b] = '-';
@@ -2016,8 +2292,61 @@
   });
 
   /* ---------------- player controls ---------------- */
+  // The drum kit is a SoundFont with its own drum sounds. Each song uses its own kit, or the default one. Kits are
+  // read in the background, and the synth takes a kit between songs, never while playing. Until a kit is ready, the
+  // built-in drums play. iOS 12 and older (the old iPad) stopped playing once a kit was added, so they keep the built-in synth.
+  const DRUM_KIT_URL = 'kits/drums-default.sf2';
+  const SYNTH_URL = 'lib/soundfont/sonivox.sf2';
+  const oldIos = /(iPad|iPhone|iPod)/.test(navigator.userAgent) && /OS (1[0-2])_/.test(navigator.userAgent);
+  const kitReads = new Map();   // kit id -> the kit, ready for the synth (or the failure)
+  let synthBytes = null;
+  let appliedKit = null;        // the kit the synth has now; null while only the built-in sounds are loaded
+  let applying = false;
+  const kitMeta = () => (state.notes && state.notes.drumKit) || null;
+  const kitId = (meta) => (meta ? (meta.fileId || meta.name) : 'default');
+  function readKit(meta) {
+    const id = kitId(meta);
+    if (!kitReads.has(id)) {
+      const got = meta
+        ? SM.library.kits.load(state.song.key, meta)
+        : fetch(DRUM_KIT_URL).then((r) => { if (!r.ok) throw new Error(`The default drum kit is missing (${r.status})`); return r.arrayBuffer(); }).then((b) => new Uint8Array(b));
+      const read = Promise.resolve(got).then((bytes) => { if (!bytes) throw new Error('This drum kit is not on this device'); return SM.soundfont.asDrumKit(bytes); });
+      read.catch(() => kitReads.delete(id));
+      kitReads.set(id, read);
+    }
+    return kitReads.get(id);
+  }
+  function readSynth() {
+    if (!synthBytes) synthBytes = fetch(SYNTH_URL).then((r) => r.arrayBuffer()).then((b) => new Uint8Array(b));
+    return synthBytes;
+  }
+  // Gives the synth the drum kit this song uses. A change of kit first reloads the built-in sounds, since a second kit
+  // would otherwise be added on top of the first.
+  async function applyDrumKit() {
+    if (oldIos || !state.score || !drumTrack() || state.playing || applying) return;
+    const meta = kitMeta();
+    const want = kitId(meta);
+    if (appliedKit === want) return;
+    applying = true;
+    try {
+      const kit = await readKit(meta);
+      if (state.playing || kitId(kitMeta()) !== want) return;   // playback or the song changed meanwhile
+      if (appliedKit !== null) api.loadSoundFont(await readSynth(), false);
+      api.loadSoundFont(kit, true);
+      appliedKit = want;
+    } catch (e) {
+      console.error(e);
+      toast('That drum kit could not be loaded, so the built-in drums play');
+    } finally {
+      applying = false;
+    }
+  }
+  setTimeout(() => { if (!oldIos) readKit(null).catch((e) => console.error(e)); }, 3000);
+
   els.playBtn.addEventListener('click', () => {
     if (els.playBtn.disabled) { toast(soundProblem || 'Sounds are still loading'); return; }
+    applyDrumKit();
+    followScroll();
     if (prefs.view === 'tab' || state.playing) { api.playPause(); return; }
     applyPlaybackRange();
     api.playPause();
@@ -2027,10 +2356,19 @@
     els.loopBtn.setAttribute('aria-pressed', String(state.loop));
     api.isLooping = state.loop && !!api.playbackRange;
   });
+  // Plays only the drum track, as backing for practice: every other track is silenced while it is on.
+  const drumTrack = () => (state.score ? state.score.tracks.find((t) => trackMatches(t, 'drums')) : null);
+  function setDrumsOnly(on) {
+    const drums = drumTrack();
+    state.drumsOnly = !!on && !!drums;
+    els.drumsBtn.setAttribute('aria-pressed', String(state.drumsOnly));
+    if (drums) api.changeTrackSolo([drums], state.drumsOnly);
+  }
+  els.drumsBtn.addEventListener('click', () => setDrumsOnly(!state.drumsOnly));
   els.speedSel.addEventListener('change', () => {
     const v = Number(els.speedSel.value);
     api.playbackSpeed = v;
-    if (ytPlayer && ytReady) ytPlayer.setPlaybackRate(v);
+    media.rate(v);
   });
   els.prevBtn.addEventListener('click', () => selectView(state.view - 1));
   els.nextBtn.addEventListener('click', () => selectView(state.view + 1));
@@ -2060,15 +2398,55 @@
     return ytApi;
   }
 
+  // Empties the video panel, ready for a YouTube video or an MP3.
+  function resetFrame() {
+    audioSeq++;
+    if (ytPlayer) { ytPlayer.destroy(); ytPlayer = null; ytReady = false; }
+    if (audioEl) audioEl.pause();
+    audioEl = null;
+    if (audioUrl) URL.revokeObjectURL(audioUrl);
+    audioUrl = null;
+    els.videoPanel.classList.remove('audio-only');
+    const holder = document.createElement('div');
+    holder.id = 'ytPlayer';
+    els.videoPanel.querySelector('.video-frame').replaceChildren(holder);
+  }
+
+  // The MP3 is read from this device, or from the band's Drive folder when this device does not have it yet.
+  function playAudio() {
+    const key = state.song.key;
+    const meta = state.notes.audio;
+    const seq = audioSeq;
+    SM.library.audio.load(key, meta).then((clip) => {
+      if (seq !== audioSeq || !state.song || state.song.key !== key) return;
+      if (!clip) { toast('This MP3 is not on this device yet. Open the song when you are online.'); return; }
+      audioUrl = URL.createObjectURL(new Blob([clip.bytes], { type: clip.type }));
+      audioEl = document.createElement('audio');
+      audioEl.controls = true;
+      audioEl.preload = 'auto';
+      audioEl.className = 'song-audio';
+      audioEl.src = audioUrl;
+      audioEl.playbackRate = Number(els.speedSel.value) || 1;
+      els.videoPanel.querySelector('.video-frame').replaceChildren(audioEl);
+    }).catch((e) => { console.error(e); toast('The MP3 could not be opened'); });
+  }
+
   function setupVideo() {
     const id = youtubeId(state.notes && state.notes.youtubeUrl);
-    els.videoBtn.hidden = !id;
+    const hasAudio = !!(state.notes && state.notes.audio);
+    els.videoBtn.hidden = !id && !hasAudio;
+    if (hasAudio) {
+      resetFrame();
+      els.videoPanel.classList.add('audio-only');
+      els.videoPanel.hidden = !state.videoOn;
+      els.videoBtn.setAttribute('aria-pressed', String(state.videoOn));
+      playAudio();
+      return;
+    }
+    if (audioEl) resetFrame();
     if (!id) {
       els.videoPanel.hidden = true;
-      if (ytPlayer) { ytPlayer.destroy(); ytPlayer = null; ytReady = false; }
-      const holder = document.createElement('div');
-      holder.id = 'ytPlayer';
-      els.videoPanel.querySelector('.video-frame').replaceChildren(holder);
+      resetFrame();
       return;
     }
     els.videoPanel.hidden = !state.videoOn;
@@ -2084,28 +2462,128 @@
   }
 
   function seekVideoToView() {
-    if (!ytPlayer || !ytReady || state.view === -1) return;
+    if (!media.ready() || state.view === -1) return;
     const t = state.parts[state.view].ref && state.parts[state.view].ref.videoTime;
-    if (t != null) ytPlayer.seekTo(t, true);
+    if (t != null) media.seek(t);
   }
 
-  // Loops the video inside the selected section and lights up the section the video is in.
+  // Loops the media inside the selected section and lights up the section it is playing.
   setInterval(() => {
-    if (!ytPlayer || !ytReady || !state.parts.length || typeof ytPlayer.getPlayerState !== 'function') return;
-    if (ytPlayer.getPlayerState() !== 1) return;
-    const t = ytPlayer.getCurrentTime();
+    if (!media.ready() || !state.parts.length || !media.playing()) return;
+    const t = media.time();
     // a section's video time is where it is first played
     const timed = state.parts.map((p, i) => ({ i, t: !p.again && p.ref && p.ref.start === p.start ? p.ref.videoTime : null })).filter((x) => x.t != null);
     if (!timed.length) return;
     if (state.view !== -1 && state.loop) {
       const start = state.parts[state.view].ref && state.parts[state.view].ref.videoTime;
       const next = timed.find((x) => x.t > (start ?? Infinity));
-      if (start != null && next && t >= next.t) { ytPlayer.seekTo(start, true); return; }
+      if (start != null && next && t >= next.t) { media.seek(start); return; }
     }
     let cur = -1;
     timed.forEach((x) => { if (x.t <= t) cur = x.i; });
     setPlayingPart(cur);
   }, 250);
+
+  // An MP3 plays in place of the YouTube video, with the same section start times.
+  async function attachAudio(file) {
+    if (!file || !state.song) return;
+    const key = state.song.key;
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      toast('Adding the MP3…');
+      const old = state.notes.audio;
+      const meta = await SM.library.audio.save(key, file.name, bytes);
+      if (old && old.fileId && old.fileId !== meta.fileId) await SM.library.audio.discard(key, old).catch((e) => console.error(e));
+      if (!state.song || state.song.key !== key) return;
+      state.notes.audio = meta;
+      saveNotes();
+      setupVideo();
+      toast('MP3 added. It plays where the video plays.');
+    } catch (e) {
+      console.error(e);
+      toast(e.message && /read-only|Google|Drive/.test(e.message) ? e.message : 'The MP3 could not be added');
+    }
+  }
+  els.audioInput.addEventListener('change', (e) => { attachAudio(e.target.files[0]); e.target.value = ''; });
+
+  // The drum kit this song uses: the default, a kit in the band folder (or on this device), or a new one.
+  const ADD_KIT = '__add';
+  async function fillKitSelect() {
+    if (!state.song) return;
+    const key = state.song.key;
+    const list = await SM.library.kits.list(key).catch(() => []);
+    if (!state.song || state.song.key !== key) return;
+    const current = kitId(kitMeta());
+    els.kitSel.innerHTML = '';
+    els.kitSel.appendChild(new Option('Default kit', 'default', false, current === 'default'));
+    list.forEach((k) => els.kitSel.appendChild(new Option(k.name, k.fileId || k.name, false, current === (k.fileId || k.name))));
+    els.kitSel.appendChild(new Option('Add a drum kit…', ADD_KIT, false, false));
+  }
+  els.soundLogCopy.addEventListener('click', async () => {
+    const text = els.soundLogText.textContent;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('Sound log copied');
+    } catch (e) {
+      const r = document.createRange();
+      r.selectNodeContents(els.soundLogText);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
+      toast('Sound log selected: copy it from here');
+    }
+  });
+  els.kitSel.addEventListener('change', async () => {
+    const v = els.kitSel.value;
+    if (v === ADD_KIT) { els.kitInput.click(); return; }
+    if (v === 'default') delete state.notes.drumKit;
+    else {
+      const list = await SM.library.kits.list(state.song.key).catch(() => []);
+      const k = list.find((x) => (x.fileId || x.name) === v);
+      if (!k) return;
+      state.notes.drumKit = { name: k.name, fileId: k.fileId };
+    }
+    saveNotes();
+    applyDrumKit();
+  });
+  els.kitInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file || !state.song) return;
+    const key = state.song.key;
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      SM.soundfont.asDrumKit(bytes);   // refuses a file that is not a SoundFont with presets
+      const list = await SM.library.kits.list(key).catch(() => []);
+      const base = file.name.replace(/\.sf2$/i, '');
+      let name = base;
+      for (let n = 2; list.some((k) => k.name === name); n++) name = `${base} ${n}`;
+      toast('Adding the drum kit…');
+      const meta = await SM.library.kits.add(key, name, bytes);
+      if (state.song.key !== key) return;
+      state.notes.drumKit = meta;
+      saveNotes();
+      fillKitSelect();
+      applyDrumKit();
+      toast(`Drum kit “${name}” added${meta.fileId ? ' to the band folder' : ' on this device'}`);
+    } catch (err) {
+      console.error(err);
+      toast(err.message && /SoundFont|read-only/.test(err.message) ? err.message : 'That file is not a drum kit (SoundFont .sf2)');
+    }
+  });
+  els.audioRemove.addEventListener('click', async () => {
+    const key = state.song.key;
+    try {
+      await SM.library.audio.remove(key, state.notes.audio);
+    } catch (e) {
+      console.error(e);
+      toast('The MP3 could not be removed from the band folder');
+    }
+    delete state.notes.audio;
+    saveNotes();
+    setupVideo();
+    toast('MP3 removed');
+  });
 
   els.videoBtn.addEventListener('click', () => {
     state.videoOn = !state.videoOn;
@@ -2129,6 +2607,8 @@
 
   async function showHome() {
     if (updateWaiting) { refreshForUpdate(); return; }
+    if (!confirmNoteEdits()) return;
+    if (state.edit.ops.length) discardNoteEdits();
     if (state.playing) api.stop();
     destroyMinis();
     if (state.editing) setEditing(false);
@@ -2140,15 +2620,23 @@
     renderHome();
   }
 
+  // Opening a song adds a step to the browser's history, so the back gesture returns to the list instead of leaving the app.
   function showSongView() {
+    if (!els.homeView.hidden) history.pushState({ setcardsSong: true }, '');
     els.homeView.hidden = true;
     els.songView.hidden = false;
   }
+  // Back from a song: the step taken to open it is undone, and the list is shown when the browser goes back.
+  function backToList() {
+    if (history.state && history.state.setcardsSong) history.back();
+    else showHome();
+  }
+  window.addEventListener('popstate', () => { if (!els.songView.hidden) showHome(); });
 
   async function openFromList(key, title) {
     showSongView();
     const ok = await openSong(key, title);
-    if (!ok) showHome();
+    if (!ok) backToList();
   }
 
   const STATUS_LABELS = { proposed: 'Proposed', learning: 'Learning', ready: 'Ready' };
@@ -2333,6 +2821,12 @@
       } else if (!drive.connected()) {
         renderBandBox();
       } else if (!drive.signedIn()) {
+        // A phone's app icon starts a new session each time, so the token from last time is gone. Google can often
+        // renew access without asking, so that is tried first; the songs appear by themselves if it works.
+        if (drive.wasSignedIn() && drive.canRenewQuietly() && !silentSignInTried) {
+          silentSignInTried = true;
+          drive.signIn(false).then(() => renderHome(), () => {});
+        }
         const box = els.bandBox;
         box.hidden = false;
         box.innerHTML = `<p>Sign in to Google to see <strong></strong>’s songs.</p><button class="text-btn primary" id="homeSignIn" type="button">Show band songs</button>`;
@@ -2609,7 +3103,7 @@
   }
 
   els.bandBtn.addEventListener('click', () => { renderBandDialog(); els.bandDlg.showModal(); });
-  els.backBtn.addEventListener('click', showHome);
+  els.backBtn.addEventListener('click', backToList);
 
   // Opening the app from an invite link (?band=<folder id>&name=<folder name>) offers to join that folder.
   function checkInvite() {
@@ -2696,6 +3190,8 @@
     els.zoomRange.value = prefs.zoom;
     els.zoomOut.textContent = `${Math.round(prefs.zoom * 100)}%`;
     els.ytInput.value = state.notes.youtubeUrl || '';
+    els.audioRemove.hidden = !state.notes.audio;
+    fillKitSelect();
     const m = state.notes.meta || {};
     els.statusSel.value = songStatus(state.notes, state.song.hasTab);
     fillKeySettings();
@@ -2891,6 +3387,7 @@
     });
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('sw.js').then((reg) => {
+        swRegistration = reg;
         // a new version downloading: say so until it takes over (and the page refreshes)
         reg.addEventListener('updatefound', () => {
           const sw = reg.installing;

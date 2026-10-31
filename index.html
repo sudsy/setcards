@@ -75,6 +75,9 @@
         <button id="viewCardsTop" aria-pressed="true">Cards</button>
         <button id="viewTabTop" aria-pressed="false">Full tab</button>
       </div>
+      <button id="noticeBtn" class="icon-btn notice-btn" aria-label="Notices" title="Notices" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.5"/></svg>
+      </button>
       <button id="settingsBtn" class="icon-btn" aria-label="Song settings" title="Song settings">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
       </button>
@@ -91,8 +94,6 @@
       <div id="structure" class="structure"></div>
     </nav>
 
-    <div id="banner" class="banner" hidden></div>
-
     <div id="sectionHead" class="section-head" hidden>
       <button id="prevBtn" class="step-btn" aria-label="Previous section">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
@@ -108,6 +109,12 @@
 
     <section id="editPanel" class="edit-panel" hidden aria-label="Edit sections">
       <p class="edit-hint">Tap any bar in the tab to start a section there or set its chords. Sections run until the next one starts, and sections with the same name count as one part.</p>
+      <div id="noteEditBar" class="note-edit-bar" hidden>
+        <span id="noteEditCount" class="fine"></span>
+        <button id="noteDiscard" class="text-btn" type="button">Discard</button>
+        <button id="noteSave" class="text-btn primary" type="button">Save notes to the file</button>
+      </div>
+      <p class="fine">In the full tab, click a string in a bar, then type a fret number to add a note. Backspace removes the selected note. Save writes the changes to the file.</p>
       <ol id="sectionList" class="section-list"></ol>
       <div class="edit-actions">
         <button id="suggestBtn" class="text-btn">Suggest sections</button>
@@ -135,6 +142,7 @@
         <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3v14H7zM14 5h3v14h-3z"/></svg>
       </button>
       <button id="loopBtn" class="toggle" aria-pressed="true" title="Loop the selected section or riff">Loop</button>
+      <button id="drumsBtn" class="toggle" aria-pressed="false" title="Play only the drums, as backing" hidden>Drums only</button>
       <label class="speed">
         <span>Speed</span>
         <select id="speedSel">
@@ -208,6 +216,16 @@
     </form>
   </dialog>
 
+  <dialog id="noticeDlg" class="sheet small">
+    <div class="sheet-head">
+      <h2>Notices</h2>
+      <button class="icon-btn" data-close aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <p id="noticeText" class="fine"></p>
+  </dialog>
+
   <dialog id="settingsDlg" class="sheet">
     <div class="sheet-head">
       <h2>Song settings</h2>
@@ -273,6 +291,18 @@
       <input id="ytInput" type="url" inputmode="url" placeholder="https://www.youtube.com/watch?v=…">
     </label>
     <p class="fine">With a video linked, give each section a start time in Edit. Picking a section then jumps the video there.</p>
+    <label class="field"><span>Drum kit for this song</span><select id="kitSel" aria-label="Drum kit for this song"></select></label>
+    <input id="kitInput" type="file" accept=".sf2" hidden>
+    <p class="fine">A drum kit is a SoundFont (.sf2). In a band song, kits added here are kept in the band folder for everyone.</p>
+    <label class="file-btn"><input id="audioInput" type="file" accept="audio/mpeg,audio/mp3,.mp3"> Add an MP3 for this song</label>
+    <button id="audioRemove" class="text-btn danger" hidden>Remove the MP3</button>
+    <p class="fine">An MP3 plays in place of the YouTube video, with the same section start times. In a band song, the MP3 is kept in the band folder.</p>
+    <details class="sound-log">
+      <summary>Sound log</summary>
+      <p class="fine">What the sound did on this device, for reporting a fault.</p>
+      <pre id="soundLogText" class="sound-log-text"></pre>
+      <button id="soundLogCopy" class="text-btn" type="button">Copy the sound log</button>
+    </details>
     <button id="exportBtn" class="text-btn">Download annotated .gp file</button>
     <p class="fine">A copy of the Guitar Pro file with the sections, riff letters and chord names written in, so they also show in Guitar Pro.</p>
   </dialog>
@@ -354,6 +384,8 @@
   <script src="config.js"></script>
   <script src="js/analysis.js"></script>
   <script src="js/chords.js"></script>
+  <script src="js/noteedit.js"></script>
+  <script src="js/soundfont.js"></script>
   <script src="js/storage.js"></script>
   <script src="demo.js"></script>
   <script src="app.js"></script>

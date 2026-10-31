@@ -86,6 +86,8 @@ test('first visit asks once how Setcards will be used', async ({ page }) => {
 test('the song list is home, and shows key, tempo and length once a song is opened', async ({ page }) => {
   await openDemo(page);
   await expect(page.locator('#songTitle')).toHaveText('Low Road (demo)');
+  // the details are saved once the song has been read, so wait for its first card before going back
+  await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
   await page.click('#backBtn');
   await expect(page.locator('#homeView')).toBeVisible();
   await expect(page.locator('.song-row .details').first()).toHaveText(/\?? · 104 bpm · 2:28 · 10 sections/);
@@ -156,6 +158,61 @@ test('chords entered on a riff apply to every repeat and survive a reload', asyn
   await page.reload();
   await page.locator('.song-row .song-open').first().click();
   await expect(page.locator('.card[data-group="verse"] .chord-cell').first()).toHaveText('Em');
+});
+
+test('going back from a song returns to the list, and does not leave the app', async ({ page }) => {
+  await openDemo(page);
+  await expect(page.locator('#songView')).toBeVisible();
+  // the browser's back gesture: back to the list, still in the app
+  await page.goBack();
+  await expect(page.locator('#homeView')).toBeVisible();
+  await expect(page.locator('#songView')).toBeHidden();
+  expect(new URL(page.url()).pathname).toBe('/');
+  // the in-app back button does the same, and the song opens again
+  await page.locator('.song-row .song-open', { hasText: 'Low Road (demo)' }).click();
+  await expect(page.locator('#songView')).toBeVisible();
+  await page.click('#backBtn');
+  await expect(page.locator('#homeView')).toBeVisible();
+});
+
+test('song settings offer the default drum kit, and adding one', async ({ page }) => {
+  await openDemo(page);
+  await page.click('#settingsBtn');
+  await expect(page.locator('#kitSel option').first()).toHaveText('Default kit');
+  await expect(page.locator('#kitSel option').last()).toHaveText('Add a drum kit…');
+  await page.keyboard.press('Escape');
+});
+
+test('the drums-only button is hidden for a song without a drum track', async ({ page }) => {
+  await openDemo(page);
+  // the demo has only a bass track, so there is nothing to solo
+  await expect(page.locator('#drumsBtn')).toBeHidden();
+});
+
+test('a capo is chosen at the top of the song, and shows the chord shapes to play', async ({ page }) => {
+  await openDemo(page);
+  await chooseRole(page, 'Guitar');
+  // a chord on the first bar, then the capo changes the shape shown for it
+  const first = page.locator('.chord-cell').first();
+  await first.click();
+  await page.fill('#chordInput', 'Dm7');
+  await page.click('#chordForm button[type=submit]');
+  await expect(first).toHaveText('Dm7');
+  const before = await first.textContent();
+  await page.selectOption('.capo-pick', '2');
+  await expect(first).not.toHaveText(before);
+  await expect(page.locator('.capo-pick')).toHaveValue('2');
+  await expect(page.locator('#songMeta')).not.toContainText('Capo');
+  // the capo is kept with the song: it is still set after going back to the list and in the full tab
+  await page.click('#backBtn');
+  await page.locator('.song-row .song-open', { hasText: 'Low Road (demo)' }).click();
+  await expect(page.locator('.capo-pick')).toHaveValue('2');
+  await page.selectOption('.capo-pick', '0');
+  await expect(first).toHaveText(before);
+  // the capo is chosen with the cards, so the full tab has no capo control
+  await page.selectOption('.capo-pick', '2');
+  await page.click('#viewTab:visible, #viewTabTop:visible');
+  await expect(page.locator('.capo-pick')).toHaveCount(0);
 });
 
 test('guitar shows chord diagrams and vocals shows the cue list', async ({ page }) => {
@@ -348,7 +405,7 @@ test('a song can be added with just a name, then given its tab later', async ({ 
   await page.locator('#attachInput').setInputFiles(await demoGpFile());
   await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
   await expect(page.locator('#songMeta')).toContainText('Proposed');
-  await expect(page.locator('.cards > .role-note .role-note-text')).toHaveText('Check the key with the singer');
+  await expect(page.locator('.song-note-row > .role-note .role-note-text')).toHaveText('Check the key with the singer');
   await page.click('#backBtn');
   // still proposed until the band decides it is being learnt
   await expect(page.locator('.list-section', { hasText: 'Proposed' })).toHaveCount(1);
@@ -476,7 +533,8 @@ test('a tab without a bass part says so in the bass view', async ({ page }) => {
   const bytes = new alphaTab.exporter.Gp7Exporter().export(imp.readScore(), new alphaTab.Settings());
   await page.locator('#attachInput').setInputFiles({ name: 'guitar-only.gp', mimeType: 'application/octet-stream', buffer: Buffer.from(bytes) });
   await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
-  await expect(page.locator('#banner')).toHaveText('This tab only has the guitar part, with no bass part, so that is what’s shown here.');
+  await page.click('#noticeBtn');
+  await expect(page.locator('#noticeText')).toHaveText('This tab only has the guitar part, with no bass part, so that is what’s shown here.');
   expect(errors).toEqual([]);
 });
 
@@ -607,9 +665,10 @@ test('going back to the band list does not redraw it when nothing has changed', 
   });
   await page.goto('/');
   await expect(page.locator('.song-row')).toHaveCount(2);
-  // a marker on the row: it survives only if the list is not redrawn
-  await page.locator('.song-row').first().evaluate((el) => { el.dataset.marker = 'kept'; });
+  // a marker on the row element (not in its HTML, which would count as a change): it survives only if the list is not redrawn
+  await page.locator('.song-row').first().evaluate((el) => { el.keptMarker = true; });
   await page.locator('.song-row .song-open', { hasText: 'Bravo' }).click();
   await page.click('#backBtn');
-  await expect(page.locator('.song-row').first()).toHaveAttribute('data-marker', 'kept');
+  await page.waitForTimeout(1000);
+  expect(await page.locator('.song-row').first().evaluate((el) => el.keptMarker === true)).toBe(true);
 });
