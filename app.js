@@ -30,7 +30,7 @@
     addYt: $('addYt'), addStatus: $('addStatus'),
     noteDlg: $('noteDlg'), noteTitle: $('noteTitle'), noteHint: $('noteHint'), noteForm: $('noteForm'), noteText: $('noteText'), noteClear: $('noteClear'),
     settingsBtn: $('settingsBtn'), settingsDlg: $('settingsDlg'), trackSel: $('trackSel'),
-    zoomRange: $('zoomRange'), zoomOut: $('zoomOut'), ytInput: $('ytInput'), exportBtn: $('exportBtn'), showTabCards: $('showTabCards'), showChords: $('showChords'), audioInput: $('audioInput'), audioRemove: $('audioRemove'), kitSel: $('kitSel'), kitInput: $('kitInput'), drumFeel: $('drumFeel'), drumFeelOut: $('drumFeelOut'), soundLogText: $('soundLogText'), soundLogCopy: $('soundLogCopy'), appVersion: $('appVersion'),
+    zoomRange: $('zoomRange'), zoomOut: $('zoomOut'), ytInput: $('ytInput'), exportBtn: $('exportBtn'), showTabCards: $('showTabCards'), showChords: $('showChords'), audioInput: $('audioInput'), audioRemove: $('audioRemove'), kitSel: $('kitSel'), kitInput: $('kitInput'), drumFeel: $('drumFeel'), drumFeelOut: $('drumFeelOut'), drumLoud: $('drumLoud'), drumSwell: $('drumSwell'), soundLogText: $('soundLogText'), soundLogCopy: $('soundLogCopy'), appVersion: $('appVersion'),
     barDlg: $('barDlg'), barDlgTitle: $('barDlgTitle'), barDlgText: $('barDlgText'),
     presetRow: $('presetRow'), barForm: $('barForm'), barName: $('barName'), barSubmit: $('barSubmit'), barRemove: $('barRemove'),
     barChords: $('barChords'), barChordsAll: $('barChordsAll'), barChordsAllLabel: $('barChordsAllLabel'),
@@ -2452,28 +2452,61 @@
   }
 
   // Drum feel: each drum hit is moved a little early or late, by an amount that is the same every time the song plays,
-  // so the feel can be compared. Only playback changes; the file does not.
+  // and its loudness can vary, and a roll can swell. Only playback changes; the file does not.
   const feelStraight = new WeakMap();   // beat -> its own playback start, before any feel
+  const feelLoudness = new WeakMap();   // beat -> its own dynamic (loudness), before any feel
   let feelApplied = null;               // what the feel was last applied for
-  function hitOffset(key, maxTicks) {
-    let h = 2166136261;
+  const DYN_MIN = 0, DYN_MAX = 7;       // ppp .. fff
+  // A number for a key that is the same every time: the same hit always gets the same feel.
+  function hashOf(key, seed) {
+    let h = 2166136261 ^ seed;
     for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619);
-    return Math.round((((h >>> 0) % 2001) / 1000 - 1) * maxTicks);
+    return h >>> 0;
+  }
+  function hitOffset(key, maxTicks) {
+    return Math.round((((hashOf(key, 0) % 2001) / 1000) - 1) * maxTicks);
   }
   function applyDrumFeel() {
     if (!state.score) return;
     const ms = Number(prefs.drumFeel) || 0;
+    const loud = !!prefs.drumLoudness;
+    const swell = !!prefs.drumSwell;
     const song = state.song && state.song.key;
-    const tag = `${song}|${ms}|${state.trackIndex}`;
+    const tag = `${song}|${ms}|${loud ? 1 : 0}|${swell ? 1 : 0}|${state.trackIndex}`;
     if (feelApplied === tag) return;
     const drums = drumTrack();
     if (drums) {
       const ticksPerMs = (960 * (state.score.tempo || 120)) / 60000;
-      drums.staves[0].bars.forEach((bar) => bar.voices.forEach((v) => v.beats.forEach((b) => {
-        if (!feelStraight.has(b)) feelStraight.set(b, b.playbackStart);
-        const key = `${bar.index}.${v.index}.${b.index}`;
-        b.playbackStart = feelStraight.get(b) + (ms ? hitOffset(key, ms * ticksPerMs) : 0);
-      })));
+      drums.staves[0].bars.forEach((bar) => bar.voices.forEach((v) => {
+        // timing: every beat, straight or moved by a fixed amount
+        v.beats.forEach((b) => {
+          if (!feelStraight.has(b)) feelStraight.set(b, b.playbackStart);
+          const key = `${bar.index}.${v.index}.${b.index}`;
+          b.playbackStart = feelStraight.get(b) + (ms ? hitOffset(key, ms * ticksPerMs) : 0);
+        });
+        // loudness: the hits (beats with notes), each at its own level; a roll (a run of repeated hits) can swell
+        const hits = v.beats.filter((b) => b.notes.length);
+        hits.forEach((b) => { if (!feelLoudness.has(b)) feelLoudness.set(b, b.dynamics); });
+        const runStart = new Map();
+        for (let k = 0; k < hits.length; k++) {
+          if (k > 0 && hits[k].duration === hits[k - 1].duration) runStart.set(hits[k], runStart.get(hits[k - 1]));
+          else runStart.set(hits[k], k);
+        }
+        hits.forEach((b, k) => {
+          const start = runStart.get(b);
+          let end = k;
+          while (end + 1 < hits.length && runStart.get(hits[end + 1]) === start) end++;
+          const runLength = end - start + 1;
+          let d = 0;
+          if (loud) d += (hashOf(`${bar.index}.${v.index}.${b.index}`, 1) % 3) - 1;
+          if (swell && runLength >= 4) {
+            // builds to the middle of the roll and fades back: -1, 0 or +1 level
+            const t = 1 - Math.abs((2 * (k - start)) / (runLength - 1) - 1);
+            d += Math.round(2 * t - 1);
+          }
+          b.dynamics = Math.min(DYN_MAX, Math.max(DYN_MIN, feelLoudness.get(b) + d));
+        });
+      }));
       api.loadMidiForScore();
     }
     feelApplied = tag;
@@ -2634,6 +2667,15 @@
     els.kitSel.appendChild(new Option('Add a drum kit…', ADD_KIT, false, false));
   }
   els.drumFeel.addEventListener('input', () => { els.drumFeelOut.textContent = `${els.drumFeel.value} ms`; });
+  const feelChanged = () => {
+    prefs.drumFeel = Number(els.drumFeel.value) || 0;
+    prefs.drumLoudness = els.drumLoud.checked;
+    prefs.drumSwell = els.drumSwell.checked;
+    savePrefs();
+    changeSound(() => applyDrumFeel());
+  };
+  els.drumLoud.addEventListener('change', feelChanged);
+  els.drumSwell.addEventListener('change', feelChanged);
   els.drumFeel.addEventListener('change', () => {
     prefs.drumFeel = Number(els.drumFeel.value) || 0;
     savePrefs();
@@ -3313,6 +3355,8 @@
     els.ytInput.value = state.notes.youtubeUrl || '';
     els.audioRemove.hidden = !state.notes.audio;
     els.drumFeel.value = String(prefs.drumFeel || 0);
+    els.drumLoud.checked = !!prefs.drumLoudness;
+    els.drumSwell.checked = !!prefs.drumSwell;
     els.drumFeelOut.textContent = `${prefs.drumFeel || 0} ms`;
     fillKitSelect();
     const m = state.notes.meta || {};

@@ -294,6 +294,8 @@
     <p class="fine">With a video linked, give each section a start time in Edit. Picking a section then jumps the video there.</p>
     <label class="field"><span>Drum feel: a little looser, by a fixed amount for each hit <output id="drumFeelOut">0 ms</output></span>
       <input id="drumFeel" type="range" min="0" max="60" step="1" value="0"></label>
+    <label class="check"><input id="drumLoud" type="checkbox"> <span>Vary the loudness of each hit</span></label>
+    <label class="check"><input id="drumSwell" type="checkbox"> <span>Swell the repeated hits of a roll</span></label>
     <p class="fine">0 is straight. Changes only how the drums play, not the file.</p>
     <label class="field"><span>Drum kit for this song</span><select id="kitSel" aria-label="Drum kit for this song"></select></label>
     <input id="kitInput" type="file" accept=".sf2" hidden>
