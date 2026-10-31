@@ -333,6 +333,40 @@ test('the click in drum-free bars is a side stick on the first beat, and is left
   expect(errors).toEqual([]);
 });
 
+test('chords for the whole song are typed in one box per bar and saved together', async ({ page }) => {
+  const errors = watchErrors(page);
+  await openDemo(page);
+  await page.click('#editBtn');
+  await page.click('#chordSheetBtn');
+  const dlg = page.locator('#chordSheetDlg');
+  await expect(dlg).toBeVisible();
+  await expect(dlg.locator('input[data-bar]').first()).toBeVisible();
+  // Enter moves on to the next bar
+  await page.getByLabel('Bar 1 chords').fill('Dm7');
+  await page.getByLabel('Bar 1 chords').press('Enter');
+  await expect(page.getByLabel('Bar 2 chords')).toBeFocused();
+  await page.getByLabel('Bar 2 chords').fill('Gm7');
+  await page.getByLabel('Bar 3 chords').fill('Xq');
+  await expect(page.locator('#chordSheetCount')).toHaveText('3 unsaved bars');
+  await expect(page.getByLabel('Bar 3 chords')).toHaveClass(/clash/);
+  await expect(page.getByLabel('Bar 1 chords')).toHaveClass(/changed/);
+  // discard puts the boxes back and leaves the song as it was
+  await page.click('#chordSheetDiscard');
+  await expect(dlg).toBeHidden();
+  await page.click('#chordSheetBtn');
+  await expect(page.getByLabel('Bar 1 chords')).not.toHaveValue('Dm7');
+  // type a few bars and save them all at once
+  await page.getByLabel('Bar 1 chords').fill('Dm7');
+  await page.getByLabel('Bar 2 chords').fill('Gm7');
+  await page.click('#chordSheetSave');
+  await expect(dlg).toBeHidden();
+  await expect(page.locator('.toast, #toast').first()).toContainText('Chords saved in 2 bars');
+  await page.click('#chordSheetBtn');
+  await expect(page.getByLabel('Bar 1 chords')).toHaveValue('Dm7');
+  await expect(page.getByLabel('Bar 2 chords')).toHaveValue('Gm7');
+  expect(errors).toEqual([]);
+});
+
 test('guitar shows chord diagrams and vocals shows the cue list', async ({ page }) => {
   await openDemo(page);
   await chooseRole(page, 'Guitar');

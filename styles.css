@@ -884,3 +884,14 @@ body.compact .card > .role-note { margin-top: 2px; }
 .part-detail .detail-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
 .part-detail .detail-actions .role-note, .part-detail .detail-actions .add-note { margin: 0; }
 body.compact .card .riff { border-top: 0; }
+
+/* chords for the whole song: one box per bar */
+.chord-sheet .sheet-scroll { padding-bottom: 8px; }
+.chord-sheet .bars { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+.chord-sheet .bar { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.chord-sheet .bar .no { font-size: 0.72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.chord-sheet .bar input { width: 100%; min-width: 0; box-sizing: border-box; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink); font: inherit; }
+.chord-sheet .bar input.changed { border-color: var(--accent-fill); box-shadow: inset 0 0 0 1px var(--accent-fill); }
+.chord-sheet .bar input.clash { border-color: var(--danger); color: var(--danger); }
+.chord-sheet-bar { display: flex; gap: 10px; align-items: center; justify-content: flex-end; padding-top: 10px; border-top: 1px solid var(--line); }
+.chord-sheet-bar .fine { margin-right: auto; }
