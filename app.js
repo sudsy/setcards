@@ -9,7 +9,7 @@
     songTitle: $('songTitle'), songMeta: $('songMeta'),
     structure: $('structure'),
     viewCards: $('viewCards'), viewTab: $('viewTab'), viewCardsTop: $('viewCardsTop'), viewTabTop: $('viewTabTop'), roleBtn: $('roleBtn'),
-    sectionHead: $('sectionHead'), sectionName: $('sectionName'), sectionBars: $('sectionBars'),
+    sectionHead: $('sectionHead'), sectionName: $('sectionName'), sectionBars: $('sectionBars'), simileBtn: $('simileBtn'),
     prevBtn: $('prevBtn'), nextBtn: $('nextBtn'),
     editBtn: $('editBtn'), editPanel: $('editPanel'), sectionList: $('sectionList'),
     findRepeatsBtn: $('findRepeatsBtn'), suggestBtn: $('suggestBtn'), useMarkersBtn: $('useMarkersBtn'), doneEditBtn: $('doneEditBtn'),
@@ -621,6 +621,13 @@
       bits.push(p.summary);
       els.sectionName.textContent = p.label;
       els.sectionBars.textContent = bits.join(' · ');
+    }
+    const cur = state.view >= 0 ? state.parts[state.view] : null;
+    els.simileBtn.hidden = !(simileOn() && cur);
+    if (cur) {
+      const on = simileStarts().includes(cur.start);
+      els.simileBtn.setAttribute('aria-pressed', String(on));
+      els.simileBtn.classList.toggle('is-on', on);
     }
     els.prevBtn.disabled = state.view <= -1;
     els.nextBtn.disabled = state.view >= state.parts.length - 1;
@@ -1253,6 +1260,8 @@
     if (v === 'tab') {
       destroyMinis();
       els.cards.innerHTML = '';
+      applySimileMarks();
+      updateHeader();
       api.render();
     } else {
       renderCards();
@@ -1337,7 +1346,8 @@
         range: api.playbackRange ? { start: api.playbackRange.startTick, end: api.playbackRange.endTick } : null,
         parts: state.parts.map((p) => ({ start: p.playStart, end: p.playEnd })),
         bars: state.score ? state.score.masterBars.slice(0, 12).map((m) => m.start) : [],
-        sideSticks: clickNotes.size
+        sideSticks: clickNotes.size,
+        simileBars: state.score && state.score.tracks[state.trackIndex] ? state.score.tracks[state.trackIndex].staves[0].bars.filter((b) => b.simileMark).length : 0
       })
     };
   }
@@ -1430,6 +1440,7 @@
     state.score = score;
     feelApplied = null;   // a new score has its own timing, so the drum feel is applied again
     applyClick();
+    applySimileMarks();
     original.text.clear();
     original.chord.clear();
     // details are read from the tab as written, then it is moved to the key chosen for the band or this device
@@ -1635,7 +1646,12 @@
   }
   function withoutClickNotes(fn) {
     hideClickNotes();
-    try { return fn(); } finally { showClickNotes(); }
+    const marked = Array.from(originalSimile.keys()).map((bar) => [bar, bar.simileMark]);
+    restoreSimile();
+    try { return fn(); } finally {
+      showClickNotes();
+      marked.forEach(([bar, mark]) => { bar.simileMark = mark; });
+    }
   }
   function syncClickNotes() {
     const had = clickNotes.size;
@@ -1925,6 +1941,8 @@
     els.roleBtn.textContent = role().label;
     els.homeRoleBtn.textContent = role().label;
     if (!state.score) return;
+    applySimileMarks();
+    updateHeader();
     const i = pickTrack(state.score);
     updateBanner();
     if (i !== state.trackIndex) useTrack(i);
@@ -2562,6 +2580,48 @@
   els.chordSheetDiscard.addEventListener('click', () => {
     chordSheetBoxes().forEach((b) => { b.value = b.dataset.initial; });
     closeDialog(els.chordSheetDlg);
+  });
+
+  /* ---------------- repeated bars as % (an experiment: bass, tab view, one section at a time) ---------------- */
+  // In a section that is switched on, a bar exactly like the one before it is drawn with a % sign. The notes stay in
+  // the score, so playback and the saved file are unchanged; the marks are put back while a file is written.
+  const originalSimile = new Map();   // bar -> the mark it came with, for the bars shown with %
+  const simileOn = () => prefs.role === 'bass' && prefs.view === 'tab';
+  const simileStarts = () => (state.notes && state.notes.simile) || [];
+  function restoreSimile() {
+    originalSimile.forEach((mark, bar) => { bar.simileMark = mark; });
+  }
+  function applySimileMarks() {
+    if (!state.score) return;
+    restoreSimile();
+    originalSimile.clear();
+    const staff = state.score.tracks[state.trackIndex] && state.score.tracks[state.trackIndex].staves[0];
+    if (!staff || !simileOn()) return;
+    const same = (a, b) => {
+      const ta = SM.analysis.barTokens(state.score, state.trackIndex, a);
+      return ta.length > 0 && JSON.stringify(ta) === JSON.stringify(SM.analysis.barTokens(state.score, state.trackIndex, b));
+    };
+    simileStarts().forEach((start) => {
+      const [a, b] = sectionBarRange(start);
+      for (let i = a + 1; i <= b; i++) {
+        const bar = staff.bars[i];
+        if (!bar || !same(i - 1, i)) continue;
+        originalSimile.set(bar, bar.simileMark);
+        bar.simileMark = AT.model.SimileMark.Simple;
+      }
+    });
+  }
+  els.simileBtn.addEventListener('click', () => {
+    const p = state.parts[state.view];
+    if (!p || !state.notes) return;
+    const list = simileStarts().slice();
+    const i = list.indexOf(p.start);
+    if (i >= 0) list.splice(i, 1); else list.push(p.start);
+    state.notes.simile = list;
+    saveNotes();
+    applySimileMarks();
+    updateHeader();
+    api.render();
   });
 
   /* ---------------- player controls ---------------- */

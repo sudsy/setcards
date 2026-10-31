@@ -407,6 +407,55 @@ test('the repeats option is only offered where a riff is played more than once',
   expect(errors).toEqual([]);
 });
 
+test('for bass in the tab view, a section can show repeated bars as %, and the notes are unchanged', async ({ page }) => {
+  const errors = watchErrors(page);
+  await openDemo(page);
+  await chooseRole(page, 'Bass');
+  await page.click('#viewTab:visible, #viewTabTop:visible');
+  await page.click('#nextBtn');
+  await expect(page.locator('#simileBtn')).toBeVisible();
+  await expect(page.locator('#simileBtn')).toHaveAttribute('aria-pressed', 'false');
+  expect(await page.evaluate(() => window.setcardsTest.state().simileBars)).toBe(0);
+  await page.click('#simileBtn');
+  await expect(page.locator('#simileBtn')).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(() => page.evaluate(() => window.setcardsTest.state().simileBars)).toBeGreaterThan(0);
+  // the section keeps its % in the whole-song tab, and the button is only offered for a section
+  await page.click('#prevBtn');
+  await expect(page.locator('#simileBtn')).toBeHidden();
+  await expect.poll(() => page.evaluate(() => window.setcardsTest.state().simileBars)).toBeGreaterThan(0);
+  await page.click('#nextBtn');
+  await expect(page.locator('#simileBtn')).toHaveAttribute('aria-pressed', 'true');
+  await page.click('#simileBtn');
+  await expect(page.locator('#simileBtn')).toHaveAttribute('aria-pressed', 'false');
+  await expect.poll(() => page.evaluate(() => window.setcardsTest.state().simileBars)).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test('an export made while bars show as % has the same notes as the song', async ({ page }) => {
+  await openDemo(page);
+  await chooseRole(page, 'Bass');
+  await page.click('#viewTab:visible, #viewTabTop:visible');
+  await page.click('#nextBtn');
+  await page.click('#simileBtn');
+  await expect.poll(() => page.evaluate(() => window.setcardsTest.state().simileBars)).toBeGreaterThan(0);
+  await page.click('#settingsBtn');
+  const download = page.waitForEvent('download');
+  await page.click('#exportBtn');
+  const fs = require('fs');
+  const alphaTab = await import('@coderline/alphatab');
+  const count = (bytes) => {
+    const score = alphaTab.importer.ScoreLoader.loadScoreFromBytes(new Uint8Array(bytes), new alphaTab.Settings());
+    let notes = 0;
+    score.tracks.forEach((t) => t.staves.forEach((st) => st.bars.forEach((b) => b.voices.forEach((v) => v.beats.forEach((x) => { notes += x.notes.length; })))));
+    return { notes, bars: score.masterBars.length, marks: score.tracks.reduce((n, t) => n + t.staves.reduce((m, st) => m + st.bars.filter((b) => b.simileMark).length, 0), 0) };
+  };
+  const exported = count(fs.readFileSync(await (await download).path()));
+  const original = count((await demoGpFile()).buffer);
+  expect(exported.notes).toBe(original.notes);
+  expect(exported.bars).toBe(original.bars);
+  expect(exported.marks).toBe(0);
+});
+
 test('guitar shows chord diagrams and vocals shows the cue list', async ({ page }) => {
   await openDemo(page);
   await chooseRole(page, 'Guitar');
