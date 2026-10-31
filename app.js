@@ -15,7 +15,7 @@
     findRepeatsBtn: $('findRepeatsBtn'), suggestBtn: $('suggestBtn'), useMarkersBtn: $('useMarkersBtn'), doneEditBtn: $('doneEditBtn'),
     syncBtn: $('syncBtn'), scroller: $('scroller'), tab: $('tab'), cards: $('cards'), loading: $('loading'), drop: $('drop'),
     noticeBtn: $('noticeBtn'), noticeDlg: $('noticeDlg'), noticeText: $('noticeText'),
-    playBtn: $('playBtn'), loopBtn: $('loopBtn'), speedSel: $('speedSel'),
+    playBtn: $('playBtn'), loopBtn: $('loopBtn'), drumsBtn: $('drumsBtn'), speedSel: $('speedSel'),
     videoBtn: $('videoBtn'), videoPanel: $('videoPanel'), playerStatus: $('playerStatus'),
     homeView: $('homeView'), songView: $('songView'), backBtn: $('backBtn'), bandName: $('bandName'), homeRoleBtn: $('homeRoleBtn'),
     bandBtn: $('bandBtn'), bandDlg: $('bandDlg'), driveBox: $('driveBox'), modeBox: $('modeBox'),
@@ -1401,6 +1401,8 @@
     renderMap();
     fillTrackSelect();
     applyPlaybackRange();
+    els.drumsBtn.hidden = !drumTrack();
+    if (state.drumsOnly) setDrumsOnly(true);
     if (prefs.view === 'cards') { renderCards(); doneSwitching(); }
     if (suggested) toast(`This file had no sections, so Setcards suggested ${state.notes.sections.length}. Rename them in Edit.`);
   });
@@ -1791,6 +1793,8 @@
     // changes kept in this browser while the page was closing are sent on to where the song lives
     if (song.fromOverlay && song.canShare) saveNotes();
     state.score = null;
+    state.drumsOnly = false;
+    els.drumsBtn.setAttribute('aria-pressed', 'false');
     state.edit = { ops: [], sel: null, typing: null };
     updateNoteBar();
     state.playingPart = -1;
@@ -2263,6 +2267,15 @@
     els.loopBtn.setAttribute('aria-pressed', String(state.loop));
     api.isLooping = state.loop && !!api.playbackRange;
   });
+  // Plays only the drum track, as backing for practice: every other track is silenced while it is on.
+  const drumTrack = () => (state.score ? state.score.tracks.find((t) => trackMatches(t, 'drums')) : null);
+  function setDrumsOnly(on) {
+    const drums = drumTrack();
+    state.drumsOnly = !!on && !!drums;
+    els.drumsBtn.setAttribute('aria-pressed', String(state.drumsOnly));
+    if (drums) api.changeTrackSolo([drums], state.drumsOnly);
+  }
+  els.drumsBtn.addEventListener('click', () => setDrumsOnly(!state.drumsOnly));
   els.speedSel.addEventListener('change', () => {
     const v = Number(els.speedSel.value);
     api.playbackSpeed = v;

@@ -173,6 +173,12 @@ test('going back from a song returns to the list, and does not leave the app', a
   await expect(page.locator('#homeView')).toBeVisible();
 });
 
+test('the drums-only button is hidden for a song without a drum track', async ({ page }) => {
+  await openDemo(page);
+  // the demo has only a bass track, so there is nothing to solo
+  await expect(page.locator('#drumsBtn')).toBeHidden();
+});
+
 test('a capo is chosen at the top of the song, and shows the chord shapes to play', async ({ page }) => {
   await openDemo(page);
   await chooseRole(page, 'Guitar');
