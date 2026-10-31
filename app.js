@@ -30,7 +30,7 @@
     addYt: $('addYt'), addStatus: $('addStatus'),
     noteDlg: $('noteDlg'), noteTitle: $('noteTitle'), noteHint: $('noteHint'), noteForm: $('noteForm'), noteText: $('noteText'), noteClear: $('noteClear'),
     settingsBtn: $('settingsBtn'), settingsDlg: $('settingsDlg'), trackSel: $('trackSel'),
-    zoomRange: $('zoomRange'), zoomOut: $('zoomOut'), ytInput: $('ytInput'), exportBtn: $('exportBtn'), showTabCards: $('showTabCards'), showChords: $('showChords'), audioInput: $('audioInput'), audioRemove: $('audioRemove'), kitSel: $('kitSel'), kitInput: $('kitInput'), drumFeel: $('drumFeel'), drumFeelOut: $('drumFeelOut'), drumLoud: $('drumLoud'), drumSwell: $('drumSwell'), soundLogText: $('soundLogText'), soundLogCopy: $('soundLogCopy'), appVersion: $('appVersion'),
+    zoomRange: $('zoomRange'), zoomOut: $('zoomOut'), ytInput: $('ytInput'), exportBtn: $('exportBtn'), showTabCards: $('showTabCards'), showChords: $('showChords'), audioInput: $('audioInput'), audioRemove: $('audioRemove'), kitSel: $('kitSel'), kitInput: $('kitInput'), drumFeel: $('drumFeel'), drumFeelOut: $('drumFeelOut'), drumLoud: $('drumLoud'), drumSwell: $('drumSwell'), countIn: $('countIn'), clickBars: $('clickBars'), soundLogText: $('soundLogText'), soundLogCopy: $('soundLogCopy'), appVersion: $('appVersion'),
     barDlg: $('barDlg'), barDlgTitle: $('barDlgTitle'), barDlgText: $('barDlgText'),
     presetRow: $('presetRow'), barForm: $('barForm'), barName: $('barName'), barSubmit: $('barSubmit'), barRemove: $('barRemove'),
     barChords: $('barChords'), barChordsAll: $('barChordsAll'), barChordsAllLabel: $('barChordsAllLabel'),
@@ -1310,7 +1310,8 @@
         tick: api.tickPosition,
         playing: state.playing,
         range: api.playbackRange ? { start: api.playbackRange.startTick, end: api.playbackRange.endTick } : null,
-        parts: state.parts.map((p) => ({ start: p.playStart, end: p.playEnd }))
+        parts: state.parts.map((p) => ({ start: p.playStart, end: p.playEnd })),
+        bars: state.score ? state.score.masterBars.slice(0, 12).map((m) => m.start) : []
       })
     };
   }
@@ -1402,6 +1403,7 @@
   api.scoreLoaded.on((score) => {
     state.score = score;
     feelApplied = null;   // a new score has its own timing, so the drum feel is applied again
+    applyClick();
     original.text.clear();
     original.chord.clear();
     // details are read from the tab as written, then it is moved to the key chosen for the band or this device
@@ -1538,7 +1540,45 @@
   api.playerPositionChanged.on((e) => {
     if (!state.score || !state.playing) return;
     setPlayingPart(partIndexForTick(e.currentTick));
+    updateClick(e.currentTick);
   });
+
+  // Count-in and click, set for each song. The click plays only in bars where the drums have no notes, so a song
+  // whose drums come in late keeps its time without the click sitting on top of the drums.
+  const clickSetup = () => { const c = (state.notes && state.notes.click) || {}; return { countIn: !!c.countIn, click: !!c.click }; };
+  const CLICK_LEVEL = 0.6, COUNT_IN_LEVEL = 0.8;
+  let clickBars = null;   // per bar: true when the drums have no notes in it (no drum track counts as no drums)
+  let clickBar = 0;
+  function computeClickBars() {
+    if (!state.score) { clickBars = null; return; }
+    const drums = drumTrack();
+    const st = drums ? drums.staves[0] : null;
+    clickBars = state.score.masterBars.map((mb, i) => {
+      const sb = st && st.bars[i];
+      return !(sb && sb.voices.some((v) => v.beats.some((b) => b.notes.length)));
+    });
+  }
+  function barAtTick(tick) {
+    const mbs = state.score.masterBars;
+    let i = Math.min(clickBar, mbs.length - 1);
+    while (i > 0 && tick < mbs[i].start) i--;
+    while (i + 1 < mbs.length && tick >= mbs[i + 1].start) i++;
+    clickBar = i;
+    return i;
+  }
+  function updateClick(tick) {
+    if (!clickBars) return;
+    const c = clickSetup();
+    const level = c.click && clickBars[barAtTick(tick)] ? CLICK_LEVEL : 0;
+    if (api.metronomeVolume !== level) api.metronomeVolume = level;
+  }
+  function applyClick() {
+    if (!state.score) return;
+    computeClickBars();
+    const c = clickSetup();
+    api.countInVolume = c.countIn ? COUNT_IN_LEVEL : 0;
+    updateClick(api.tickPosition || 0);
+  }
   function setPlayingPart(i) {
     if (i === state.playingPart) return;
     state.playingPart = i;
@@ -2681,6 +2721,14 @@
     saveNotes();
     changeSound(() => applyDrumFeel());
   };
+  const clickChanged = () => {
+    if (!state.notes) return;
+    state.notes.click = { countIn: els.countIn.checked, click: els.clickBars.checked };
+    saveNotes();
+    applyClick();
+  };
+  els.countIn.addEventListener('change', clickChanged);
+  els.clickBars.addEventListener('change', clickChanged);
   els.drumLoud.addEventListener('change', feelChanged);
   els.drumSwell.addEventListener('change', feelChanged);
   els.drumFeel.addEventListener('change', feelChanged);
@@ -3361,6 +3409,9 @@
     els.drumFeel.value = String(feel.ms);
     els.drumLoud.checked = feel.loud;
     els.drumSwell.checked = feel.swell;
+    const c = clickSetup();
+    els.countIn.checked = c.countIn;
+    els.clickBars.checked = c.click;
     els.drumFeelOut.textContent = `${feel.ms} ms`;
     fillKitSelect();
     const m = state.notes.meta || {};
