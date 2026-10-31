@@ -1437,7 +1437,7 @@
     applyPlaybackRange();
     els.drumsBtn.hidden = !drumTrack();
     applyDrumKit();
-    if (state.drumsOnly) setDrumsOnly(true);
+    setDrumsOnly(prefs.drumsOnly);
     if (prefs.view === 'cards') { renderCards(); doneSwitching(); }
     if (suggested) toast(`This file had no sections, so Setcards suggested ${state.notes.sections.length}. Rename them in Edit.`);
   });
@@ -1892,8 +1892,6 @@
     // changes kept in this browser while the page was closing are sent on to where the song lives
     if (song.fromOverlay && song.canShare) saveNotes();
     state.score = null;
-    state.drumsOnly = false;
-    els.drumsBtn.setAttribute('aria-pressed', 'false');
     state.edit = { ops: [], sel: null, typing: null };
     updateNoteBar();
     state.playingPart = -1;
@@ -2364,6 +2362,8 @@
   let synthBytes = null;
   let appliedKit = null;        // the kit the synth has now; null while only the built-in sounds are loaded
   let applying = false;
+  // iOS 12 and older (the old iPad) crashed after a few bars once the 23 MB kit was loaded, so they keep the built-in drums.
+  const oldIos = /(iPad|iPhone|iPod)/.test(navigator.userAgent) && /OS (1[0-2])_/.test(navigator.userAgent);
   const kitMeta = () => (state.notes && state.notes.drumKit) || null;
   const kitId = (meta) => (meta && meta.builtin ? 'builtin' : (meta ? (meta.fileId || meta.name) : 'default'));
   function readKit(meta) {
@@ -2385,6 +2385,7 @@
   // Gives the synth the drum kit this song uses. A change of kit first reloads the built-in sounds, since a second kit
   // would otherwise be added on top of the first.
   async function applyDrumKit() {
+    if (oldIos) { logSound('drum kit: off on this device, the built-in drums play'); return; }
     if (!state.score || !drumTrack() || applying) return;
     const meta = kitMeta();
     const want = kitId(meta);
@@ -2409,7 +2410,7 @@
       applying = false;
     }
   }
-  setTimeout(() => readKit(null).catch((e) => console.error(e)), 3000);
+  setTimeout(() => { if (!oldIos) readKit(null).catch((e) => console.error(e)); }, 3000);
 
   els.playBtn.addEventListener('click', () => {
     if (els.playBtn.disabled) { toast(soundProblem || 'Sounds are still loading'); return; }
@@ -2430,6 +2431,8 @@
   const drumTrack = () => (state.score ? state.score.tracks.find((t) => trackMatches(t, 'drums')) : null);
   function setDrumsOnly(on) {
     const drums = drumTrack();
+    prefs.drumsOnly = !!on;
+    savePrefs();
     state.drumsOnly = !!on && !!drums;
     els.drumsBtn.setAttribute('aria-pressed', String(state.drumsOnly));
     if (drums) api.changeTrackSolo([drums], state.drumsOnly);
@@ -2466,14 +2469,19 @@
   function hitOffset(key, maxTicks) {
     return Math.round((((hashOf(key, 0) % 2001) / 1000) - 1) * maxTicks);
   }
+  // The drum feel of this song: kept in its notes, so it goes to the band folder with the song.
+  const drumFeelOf = () => {
+    const f = (state.notes && state.notes.drumFeel) || {};
+    return { ms: Number(f.ms) || 0, loud: !!f.loud, swell: !!f.swell };
+  };
   function applyDrumFeel() {
     if (!state.score) return;
-    const ms = Number(prefs.drumFeel) || 0;
-    const loud = !!prefs.drumLoudness;
-    const swell = !!prefs.drumSwell;
+    const { ms, loud, swell } = drumFeelOf();
     const song = state.song && state.song.key;
     const tag = `${song}|${ms}|${loud ? 1 : 0}|${swell ? 1 : 0}|${state.trackIndex}`;
     if (feelApplied === tag) return;
+    // nothing set: the straight drums are already what plays, so nothing needs rebuilding
+    if (!ms && !loud && !swell && feelApplied === null) { feelApplied = tag; return; }
     const drums = drumTrack();
     if (drums) {
       const ticksPerMs = (960 * (state.score.tempo || 120)) / 60000;
@@ -2668,19 +2676,14 @@
   }
   els.drumFeel.addEventListener('input', () => { els.drumFeelOut.textContent = `${els.drumFeel.value} ms`; });
   const feelChanged = () => {
-    prefs.drumFeel = Number(els.drumFeel.value) || 0;
-    prefs.drumLoudness = els.drumLoud.checked;
-    prefs.drumSwell = els.drumSwell.checked;
-    savePrefs();
+    if (!state.notes) return;
+    state.notes.drumFeel = { ms: Number(els.drumFeel.value) || 0, loud: els.drumLoud.checked, swell: els.drumSwell.checked };
+    saveNotes();
     changeSound(() => applyDrumFeel());
   };
   els.drumLoud.addEventListener('change', feelChanged);
   els.drumSwell.addEventListener('change', feelChanged);
-  els.drumFeel.addEventListener('change', () => {
-    prefs.drumFeel = Number(els.drumFeel.value) || 0;
-    savePrefs();
-    changeSound(() => applyDrumFeel());
-  });
+  els.drumFeel.addEventListener('change', feelChanged);
   els.soundLogCopy.addEventListener('click', async () => {
     const text = els.soundLogText.textContent;
     try {
@@ -3354,10 +3357,11 @@
     els.zoomOut.textContent = `${Math.round(prefs.zoom * 100)}%`;
     els.ytInput.value = state.notes.youtubeUrl || '';
     els.audioRemove.hidden = !state.notes.audio;
-    els.drumFeel.value = String(prefs.drumFeel || 0);
-    els.drumLoud.checked = !!prefs.drumLoudness;
-    els.drumSwell.checked = !!prefs.drumSwell;
-    els.drumFeelOut.textContent = `${prefs.drumFeel || 0} ms`;
+    const feel = drumFeelOf();
+    els.drumFeel.value = String(feel.ms);
+    els.drumLoud.checked = feel.loud;
+    els.drumSwell.checked = feel.swell;
+    els.drumFeelOut.textContent = `${feel.ms} ms`;
     fillKitSelect();
     const m = state.notes.meta || {};
     els.statusSel.value = songStatus(state.notes, state.song.hasTab);
