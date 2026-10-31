@@ -30,7 +30,7 @@
     addYt: $('addYt'), addStatus: $('addStatus'),
     noteDlg: $('noteDlg'), noteTitle: $('noteTitle'), noteHint: $('noteHint'), noteForm: $('noteForm'), noteText: $('noteText'), noteClear: $('noteClear'),
     settingsBtn: $('settingsBtn'), settingsDlg: $('settingsDlg'), trackSel: $('trackSel'),
-    zoomRange: $('zoomRange'), zoomOut: $('zoomOut'), ytInput: $('ytInput'), exportBtn: $('exportBtn'), showTabCards: $('showTabCards'), showChords: $('showChords'), audioInput: $('audioInput'), audioRemove: $('audioRemove'), kitSel: $('kitSel'), kitInput: $('kitInput'), soundLogText: $('soundLogText'), soundLogCopy: $('soundLogCopy'), appVersion: $('appVersion'),
+    zoomRange: $('zoomRange'), zoomOut: $('zoomOut'), ytInput: $('ytInput'), exportBtn: $('exportBtn'), showTabCards: $('showTabCards'), showChords: $('showChords'), audioInput: $('audioInput'), audioRemove: $('audioRemove'), kitSel: $('kitSel'), kitInput: $('kitInput'), drumFeel: $('drumFeel'), drumFeelOut: $('drumFeelOut'), soundLogText: $('soundLogText'), soundLogCopy: $('soundLogCopy'), appVersion: $('appVersion'),
     barDlg: $('barDlg'), barDlgTitle: $('barDlgTitle'), barDlgText: $('barDlgText'),
     presetRow: $('presetRow'), barForm: $('barForm'), barName: $('barName'), barSubmit: $('barSubmit'), barRemove: $('barRemove'),
     barChords: $('barChords'), barChordsAll: $('barChordsAll'), barChordsAllLabel: $('barChordsAllLabel'),
@@ -1401,6 +1401,7 @@
 
   api.scoreLoaded.on((score) => {
     state.score = score;
+    feelApplied = null;   // a new score has its own timing, so the drum feel is applied again
     original.text.clear();
     original.chord.clear();
     // details are read from the tab as written, then it is moved to the key chosen for the band or this device
@@ -2413,6 +2414,7 @@
   els.playBtn.addEventListener('click', () => {
     if (els.playBtn.disabled) { toast(soundProblem || 'Sounds are still loading'); return; }
     unlockAudio();
+    if (!state.playing) applyDrumFeel();
     applyDrumKit();
     followScroll();
     if (prefs.view === 'tab' || state.playing) { api.playPause(); return; }
@@ -2433,6 +2435,34 @@
     if (drums) api.changeTrackSolo([drums], state.drumsOnly);
   }
   els.drumsBtn.addEventListener('click', () => setDrumsOnly(!state.drumsOnly));
+
+  // Drum feel: each drum hit is moved a little early or late, by an amount that is the same every time the song plays,
+  // so the feel can be compared. Only playback changes; the file does not.
+  const feelStraight = new WeakMap();   // beat -> its own playback start, before any feel
+  let feelApplied = null;               // what the feel was last applied for
+  function hitOffset(key, maxTicks) {
+    let h = 2166136261;
+    for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619);
+    return Math.round((((h >>> 0) % 2001) / 1000 - 1) * maxTicks);
+  }
+  function applyDrumFeel() {
+    if (!state.score) return;
+    const ms = Number(prefs.drumFeel) || 0;
+    const song = state.song && state.song.key;
+    const tag = `${song}|${ms}|${state.trackIndex}`;
+    if (feelApplied === tag) return;
+    const drums = drumTrack();
+    if (drums) {
+      const ticksPerMs = (960 * (state.score.tempo || 120)) / 60000;
+      drums.staves[0].bars.forEach((bar) => bar.voices.forEach((v) => v.beats.forEach((b) => {
+        if (!feelStraight.has(b)) feelStraight.set(b, b.playbackStart);
+        const key = `${bar.index}.${v.index}.${b.index}`;
+        b.playbackStart = feelStraight.get(b) + (ms ? hitOffset(key, ms * ticksPerMs) : 0);
+      })));
+      api.loadMidiForScore();
+    }
+    feelApplied = tag;
+  }
   els.speedSel.addEventListener('change', () => {
     const v = Number(els.speedSel.value);
     api.playbackSpeed = v;
@@ -2588,6 +2618,12 @@
     list.forEach((k) => els.kitSel.appendChild(new Option(k.name, k.fileId || k.name, false, current === (k.fileId || k.name))));
     els.kitSel.appendChild(new Option('Add a drum kit…', ADD_KIT, false, false));
   }
+  els.drumFeel.addEventListener('input', () => { els.drumFeelOut.textContent = `${els.drumFeel.value} ms`; });
+  els.drumFeel.addEventListener('change', () => {
+    prefs.drumFeel = Number(els.drumFeel.value) || 0;
+    savePrefs();
+    if (!state.playing) applyDrumFeel();
+  });
   els.soundLogCopy.addEventListener('click', async () => {
     const text = els.soundLogText.textContent;
     try {
@@ -3261,6 +3297,8 @@
     els.zoomOut.textContent = `${Math.round(prefs.zoom * 100)}%`;
     els.ytInput.value = state.notes.youtubeUrl || '';
     els.audioRemove.hidden = !state.notes.audio;
+    els.drumFeel.value = String(prefs.drumFeel || 0);
+    els.drumFeelOut.textContent = `${prefs.drumFeel || 0} ms`;
     fillKitSelect();
     const m = state.notes.meta || {};
     els.statusSel.value = songStatus(state.notes, state.song.hasTab);

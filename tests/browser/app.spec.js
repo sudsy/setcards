@@ -211,6 +211,16 @@ test('song settings offer the default drum kit, and adding one', async ({ page }
   await page.keyboard.press('Escape');
 });
 
+test('the drum feel setting is kept', async ({ page }) => {
+  await openDemo(page);
+  await page.click('#settingsBtn');
+  await page.locator('#drumFeel').fill('8');
+  await page.locator('#drumFeel').dispatchEvent('change');
+  await expect(page.locator('#drumFeelOut')).toHaveText('8 ms');
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('setcards:prefs')).drumFeel)).toBe(8);
+  await page.keyboard.press('Escape');
+});
+
 test('the drums-only button is hidden for a song without a drum track', async ({ page }) => {
   await openDemo(page);
   // the demo has only a bass track, so there is nothing to solo
