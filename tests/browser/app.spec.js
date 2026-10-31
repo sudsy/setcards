@@ -955,7 +955,10 @@ test('in guitar edit mode, the chords can be filled from a tab part and saved', 
   // listening plays the picked part, and Stop puts the song back
   await page.click('#listenBtn');
   await expect(page.locator('#listenBtn')).toHaveAttribute('aria-pressed', 'true');
+  // the metronome clicks while the part is listened to
+  await expect.poll(() => page.evaluate(() => window.setcardsTest.state().metronome)).toBeGreaterThan(0);
   await page.click('#listenBtn');
   await expect(page.locator('#listenBtn')).toHaveAttribute('aria-pressed', 'false');
+  await expect.poll(() => page.evaluate(() => window.setcardsTest.state().metronome)).toBe(0);
   expect(errors).toEqual([]);
 });

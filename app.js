@@ -1360,6 +1360,7 @@
         bars: state.score ? state.score.masterBars.slice(0, 12).map((m) => m.start) : [],
         sideSticks: clickNotes.size,
         scroll: els.scroller ? els.scroller.scrollTop : 0,
+        metronome: api.metronomeVolume,
         simileBars: state.score && state.score.tracks[state.trackIndex] ? state.score.tracks[state.trackIndex].staves[0].bars.filter((b) => b.simileMark).length : 0
       })
     };
@@ -1634,7 +1635,9 @@
   }
   // alphaTab's own metronome is kept silent: the click is the side sticks in drum-free bars (see syncClickNotes)
   function updateClick() {
-    if (api.metronomeVolume !== 0) api.metronomeVolume = 0;
+    // while a tab part is being listened to, the metronome clicks every beat so the part can be followed
+    const level = listening ? clickLevel() : 0;
+    if (api.metronomeVolume !== level) api.metronomeVolume = level;
   }
   // The click in drum-free bars: a side stick on the first beat of each such bar, added to the score in memory so it
   // is played at its exact place in the song. It is shown in the notation, and left out of any file that is saved or
@@ -2643,6 +2646,7 @@
     api.tickPosition = 0;
     api.play();
     listening = true;
+    updateClick();
     renderTabParts();
   }
   function stopListening() {
@@ -2651,6 +2655,7 @@
     const track = state.score && state.score.tracks[tabPartIndex()];
     if (track) api.changeTrackSolo([track], false);
     if (state.playing) api.stop();
+    updateClick();
     renderTabParts();
   }
   // The notes of a track, bar by bar, as the chord inference reads them.
@@ -2675,6 +2680,7 @@
     const track = state.score.tracks[tabPartIndex()];
     const names = SM.chordInfer.inferBars(tabPartBars(track), { spell: (pc) => SM.chords.transposeName('C', pc) });
     let filled = 0;
+    const filledBars = new Set();
     names.forEach((name, bar) => {
       if (!name) return;
       const box = chordPanelBoxes().find((b) => Number(b.dataset.bar) === bar);
@@ -2682,9 +2688,26 @@
       // the boxes show the shapes to play, so the sounding name is moved down by any capo
       box.value = SM.chords.transposeName(name, -capoOf());
       filled++;
+      filledBars.add(bar);
+    });
+    // a part is often only written for some sections; the sections it has no notes for are marked
+    const groups = chordSheetGroups();
+    const sections = Array.from(els.chordPanelBody.querySelectorAll('section.section'));
+    const missing = [];
+    groups.forEach((g, i) => {
+      const covered = [];
+      for (let b = g.start; b <= g.end; b++) covered.push(filledBars.has(b));
+      const has = covered.some((x) => x);
+      if (!has && sections[i]) missing.push(g.name);
+      const h = sections[i] && sections[i].querySelector('h2');
+      if (h) h.querySelectorAll('.no-notes').forEach((x) => x.remove());
+      if (!has && h) { const note = document.createElement('span'); note.className = 'no-notes fine'; note.textContent = ' no notes in this part'; h.appendChild(note); }
     });
     updateChordPanel();
-    toast(filled ? `Filled ${filled} ${filled === 1 ? 'bar' : 'bars'}. Check them, then Save chords.` : 'No chords could be found in that part');
+    const from = `${filled} ${filled === 1 ? 'bar' : 'bars'}`;
+    if (!filled) toast('No chords could be found in that part');
+    else if (missing.length) toast(`Filled ${from}. This part has no notes for ${missing.join(', ')}. Pick another part for those.`);
+    else toast(`Filled ${from}. Check them, then Save chords.`);
   }
   els.listenBtn.addEventListener('click', () => { if (listening) stopListening(); else startListening(); });
   els.fillFromTabBtn.addEventListener('click', fillChordsFromTab);
