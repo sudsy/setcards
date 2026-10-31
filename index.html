@@ -291,6 +291,9 @@
       <input id="ytInput" type="url" inputmode="url" placeholder="https://www.youtube.com/watch?v=…">
     </label>
     <p class="fine">With a video linked, give each section a start time in Edit. Picking a section then jumps the video there.</p>
+    <label class="field"><span>Drum kit for this song</span><select id="kitSel" aria-label="Drum kit for this song"></select></label>
+    <input id="kitInput" type="file" accept=".sf2" hidden>
+    <p class="fine">A drum kit is a SoundFont (.sf2). In a band song, kits added here are kept in the band folder for everyone.</p>
     <label class="file-btn"><input id="audioInput" type="file" accept="audio/mpeg,audio/mp3,.mp3"> Add an MP3 for this song</label>
     <button id="audioRemove" class="text-btn danger" hidden>Remove the MP3</button>
     <p class="fine">An MP3 plays in place of the YouTube video, with the same section start times. In a band song, the MP3 is kept in the band folder.</p>

@@ -173,6 +173,14 @@ test('going back from a song returns to the list, and does not leave the app', a
   await expect(page.locator('#homeView')).toBeVisible();
 });
 
+test('song settings offer the default drum kit, and adding one', async ({ page }) => {
+  await openDemo(page);
+  await page.click('#settingsBtn');
+  await expect(page.locator('#kitSel option').first()).toHaveText('Default kit');
+  await expect(page.locator('#kitSel option').last()).toHaveText('Add a drum kit…');
+  await page.keyboard.press('Escape');
+});
+
 test('the drums-only button is hidden for a song without a drum track', async ({ page }) => {
   await openDemo(page);
   // the demo has only a bass track, so there is nothing to solo

@@ -30,7 +30,7 @@
     addYt: $('addYt'), addStatus: $('addStatus'),
     noteDlg: $('noteDlg'), noteTitle: $('noteTitle'), noteHint: $('noteHint'), noteForm: $('noteForm'), noteText: $('noteText'), noteClear: $('noteClear'),
     settingsBtn: $('settingsBtn'), settingsDlg: $('settingsDlg'), trackSel: $('trackSel'),
-    zoomRange: $('zoomRange'), zoomOut: $('zoomOut'), ytInput: $('ytInput'), exportBtn: $('exportBtn'), showTabCards: $('showTabCards'), showChords: $('showChords'), audioInput: $('audioInput'), audioRemove: $('audioRemove'),
+    zoomRange: $('zoomRange'), zoomOut: $('zoomOut'), ytInput: $('ytInput'), exportBtn: $('exportBtn'), showTabCards: $('showTabCards'), showChords: $('showChords'), audioInput: $('audioInput'), audioRemove: $('audioRemove'), kitSel: $('kitSel'), kitInput: $('kitInput'),
     barDlg: $('barDlg'), barDlgTitle: $('barDlgTitle'), barDlgText: $('barDlgText'),
     presetRow: $('presetRow'), barForm: $('barForm'), barName: $('barName'), barSubmit: $('barSubmit'), barRemove: $('barRemove'),
     barChords: $('barChords'), barChordsAll: $('barChordsAll'), barChordsAllLabel: $('barChordsAllLabel'),
@@ -2257,25 +2257,57 @@
   });
 
   /* ---------------- player controls ---------------- */
-  // The drum kit is a SoundFont with its own drum sounds. It is downloaded in the background after the app starts,
-  // so the app stays responsive, and it is added to the sounds between songs (never while playing).
-  // Until it is ready, the built-in drums play.
+  // The drum kit is a SoundFont with its own drum sounds. Each song uses its own kit, or the default one. Kits are
+  // read in the background, and the synth takes a kit between songs, never while playing. Until a kit is ready, the
+  // built-in drums play. iOS 12 and older (the old iPad) stopped playing once a kit was added, so they keep the built-in synth.
   const DRUM_KIT_URL = 'kits/drums-default.sf2';
-  // iOS 12 and older (the old iPad) stopped playing once the kit was added, so they keep the built-in synth.
+  const SYNTH_URL = 'lib/soundfont/sonivox.sf2';
   const oldIos = /(iPad|iPhone|iPod)/.test(navigator.userAgent) && /OS (1[0-2])_/.test(navigator.userAgent);
-  let drumKitBytes = null;
-  let drumKitApplied = false;
-  function applyDrumKit() {
-    if (!drumKitBytes || drumKitApplied || state.playing || !state.score || !drumTrack()) return;
-    drumKitApplied = true;
-    api.loadSoundFont(drumKitBytes, true);
+  const kitReads = new Map();   // kit id -> the kit, ready for the synth (or the failure)
+  let synthBytes = null;
+  let appliedKit = null;        // the kit the synth has now; null while only the built-in sounds are loaded
+  let applying = false;
+  const kitMeta = () => (state.notes && state.notes.drumKit) || null;
+  const kitId = (meta) => (meta ? (meta.fileId || meta.name) : 'default');
+  function readKit(meta) {
+    const id = kitId(meta);
+    if (!kitReads.has(id)) {
+      const got = meta
+        ? SM.library.kits.load(state.song.key, meta)
+        : fetch(DRUM_KIT_URL).then((r) => { if (!r.ok) throw new Error(`The default drum kit is missing (${r.status})`); return r.arrayBuffer(); }).then((b) => new Uint8Array(b));
+      const read = Promise.resolve(got).then((bytes) => { if (!bytes) throw new Error('This drum kit is not on this device'); return SM.soundfont.asDrumKit(bytes); });
+      read.catch(() => kitReads.delete(id));
+      kitReads.set(id, read);
+    }
+    return kitReads.get(id);
   }
-  if (!oldIos) setTimeout(() => {
-    fetch(DRUM_KIT_URL)
-      .then((r) => { if (!r.ok) throw new Error(`The drum kit is missing (${r.status})`); return r.arrayBuffer(); })
-      .then((buf) => { drumKitBytes = SM.soundfont.asDrumKit(new Uint8Array(buf)); applyDrumKit(); })
-      .catch((e) => console.error('The drum kit could not be loaded, so the built-in drums play', e));
-  }, 3000);
+  function readSynth() {
+    if (!synthBytes) synthBytes = fetch(SYNTH_URL).then((r) => r.arrayBuffer()).then((b) => new Uint8Array(b));
+    return synthBytes;
+  }
+  // Gives the synth the drum kit this song uses. A change of kit first reloads the built-in sounds, since a second kit
+  // would otherwise be added on top of the first.
+  async function applyDrumKit() {
+    if (oldIos || !state.score || !drumTrack() || state.playing || applying) return;
+    const meta = kitMeta();
+    const want = kitId(meta);
+    if (appliedKit === want) return;
+    applying = true;
+    try {
+      const kit = await readKit(meta);
+      if (state.playing || kitId(kitMeta()) !== want) return;   // playback or the song changed meanwhile
+      if (appliedKit !== null) api.loadSoundFont(await readSynth(), false);
+      api.loadSoundFont(kit, true);
+      appliedKit = want;
+    } catch (e) {
+      console.error(e);
+      toast('That drum kit could not be loaded, so the built-in drums play');
+    } finally {
+      applying = false;
+    }
+  }
+  setTimeout(() => { if (!oldIos) readKit(null).catch((e) => console.error(e)); }, 3000);
+
   els.playBtn.addEventListener('click', () => {
     if (els.playBtn.disabled) { toast(soundProblem || 'Sounds are still loading'); return; }
     applyDrumKit();
@@ -2437,6 +2469,58 @@
     }
   }
   els.audioInput.addEventListener('change', (e) => { attachAudio(e.target.files[0]); e.target.value = ''; });
+
+  // The drum kit this song uses: the default, a kit in the band folder (or on this device), or a new one.
+  const ADD_KIT = '__add';
+  async function fillKitSelect() {
+    if (!state.song) return;
+    const key = state.song.key;
+    const list = await SM.library.kits.list(key).catch(() => []);
+    if (!state.song || state.song.key !== key) return;
+    const current = kitId(kitMeta());
+    els.kitSel.innerHTML = '';
+    els.kitSel.appendChild(new Option('Default kit', 'default', false, current === 'default'));
+    list.forEach((k) => els.kitSel.appendChild(new Option(k.name, k.fileId || k.name, false, current === (k.fileId || k.name))));
+    els.kitSel.appendChild(new Option('Add a drum kit…', ADD_KIT, false, false));
+  }
+  els.kitSel.addEventListener('change', async () => {
+    const v = els.kitSel.value;
+    if (v === ADD_KIT) { els.kitInput.click(); return; }
+    if (v === 'default') delete state.notes.drumKit;
+    else {
+      const list = await SM.library.kits.list(state.song.key).catch(() => []);
+      const k = list.find((x) => (x.fileId || x.name) === v);
+      if (!k) return;
+      state.notes.drumKit = { name: k.name, fileId: k.fileId };
+    }
+    saveNotes();
+    applyDrumKit();
+  });
+  els.kitInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file || !state.song) return;
+    const key = state.song.key;
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      SM.soundfont.asDrumKit(bytes);   // refuses a file that is not a SoundFont with presets
+      const list = await SM.library.kits.list(key).catch(() => []);
+      const base = file.name.replace(/\.sf2$/i, '');
+      let name = base;
+      for (let n = 2; list.some((k) => k.name === name); n++) name = `${base} ${n}`;
+      toast('Adding the drum kit…');
+      const meta = await SM.library.kits.add(key, name, bytes);
+      if (state.song.key !== key) return;
+      state.notes.drumKit = meta;
+      saveNotes();
+      fillKitSelect();
+      applyDrumKit();
+      toast(`Drum kit “${name}” added${meta.fileId ? ' to the band folder' : ' on this device'}`);
+    } catch (err) {
+      console.error(err);
+      toast(err.message && /SoundFont|read-only/.test(err.message) ? err.message : 'That file is not a drum kit (SoundFont .sf2)');
+    }
+  });
   els.audioRemove.addEventListener('click', async () => {
     const key = state.song.key;
     try {
@@ -3057,6 +3141,7 @@
     els.zoomOut.textContent = `${Math.round(prefs.zoom * 100)}%`;
     els.ytInput.value = state.notes.youtubeUrl || '';
     els.audioRemove.hidden = !state.notes.audio;
+    fillKitSelect();
     const m = state.notes.meta || {};
     els.statusSel.value = songStatus(state.notes, state.song.hasTab);
     fillKeySettings();

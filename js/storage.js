@@ -846,6 +846,19 @@
         changeSongRow({ ...song, tab: { name: fileName || song.tab.name } });
         return updated;
       },
+      // Drum kits are .sf2 files in the band folder, so everyone in the band can choose from them.
+      async listDrumKits() {
+        const f = folder();
+        if (!f) return [];
+        const kids = await childrenOf([f.id]);
+        return kids.filter((x) => x.mimeType !== FOLDER_TYPE && /\.sf2$/i.test(x.name)).map((x) => ({ name: x.name.replace(/\.sf2$/i, ''), fileId: x.id }));
+      },
+      async uploadDrumKit(name, bytes) {
+        const m = multipart({ name: `${name}.sf2`, parents: [folder().id] }, bytes, 'application/octet-stream');
+        const r = await call(`${UPLOAD}/files?uploadType=multipart&supportsAllDrives=true&fields=id`, { method: 'POST', headers: { 'Content-Type': m.type }, body: m.body });
+        return (await r.json()).id;
+      },
+      downloadDrumKit: (fileId) => downloadTab(fileId),
       // An MP3 for a band song goes in its folder, so everyone in the band can play it.
       async uploadAudio(id, fileName, bytes) {
         const song = await findSong(id);
@@ -943,8 +956,45 @@
     }
   };
 
+  // Drum kits. A band keeps them in its folder; on a device they are kept here. Either way a copy is kept on this device,
+  // so a kit a song uses still loads when there is no connection.
+  const kitKey = (name, fileId) => `kit:${fileId || name}`;
+  const kits = {
+    async list(key) {
+      const { source } = library.parse(key);
+      if (source.listDrumKits) return source.listDrumKits();
+      const idx = await audioStore.get('kits-index').catch(() => null);
+      return idx ? idx.names.map((name) => ({ name, fileId: null })) : [];
+    },
+    async add(key, name, bytes) {
+      const { source } = library.parse(key);
+      if (!source.canWrite) throw new Error('This copy of the song is read-only here.');
+      let fileId = null;
+      if (source.uploadDrumKit) {
+        fileId = await source.uploadDrumKit(name, bytes);
+      } else {
+        const idx = (await audioStore.get('kits-index').catch(() => null)) || { k: 'kits-index', names: [] };
+        if (!idx.names.includes(name)) idx.names.push(name);
+        await audioStore.put(idx);
+      }
+      await audioStore.put({ k: kitKey(name, fileId), name, fileId, bytes, type: 'application/octet-stream' });
+      return { name, fileId };
+    },
+    // The kit's bytes, from this device when it has them, otherwise from the band folder.
+    async load(key, meta) {
+      const copy = await audioStore.get(kitKey(meta.name, meta.fileId)).catch(() => null);
+      if (copy) return copy.bytes;
+      const { source } = library.parse(key);
+      if (!meta.fileId || !source.downloadDrumKit) return null;
+      const bytes = await source.downloadDrumKit(meta.fileId);
+      await audioStore.put({ k: kitKey(meta.name, meta.fileId), name: meta.name, fileId: meta.fileId, bytes, type: 'application/octet-stream' }).catch(() => {});
+      return bytes;
+    }
+  };
+
   const library = {
     sources,
+    kits,
     audio,
     key: (sourceId, id) => `${sourceId}:${id}`,
     parse(key) { const i = key.indexOf(':'); return { source: sources[key.slice(0, i)], sourceId: key.slice(0, i), id: key.slice(i + 1) }; },
