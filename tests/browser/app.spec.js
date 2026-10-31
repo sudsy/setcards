@@ -217,7 +217,10 @@ test('the drum feel setting is kept', async ({ page }) => {
   await page.locator('#drumFeel').fill('8');
   await page.locator('#drumFeel').dispatchEvent('change');
   await expect(page.locator('#drumFeelOut')).toHaveText('8 ms');
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('setcards:prefs')).drumFeel)).toBe(8);
+  // kept with the song, so it is still there after closing and reopening the settings
+  await page.keyboard.press('Escape');
+  await page.click('#settingsBtn');
+  await expect(page.locator('#drumFeel')).toHaveValue('8');
   await page.keyboard.press('Escape');
 });
 
