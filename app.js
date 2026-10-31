@@ -566,7 +566,8 @@
       t.dataset.index = i;
       t.dataset.group = p.group.key;
       t.dataset.bars = p.bars;   // shown after the name, so you know how long to wait
-      t.classList.toggle('rest', !!p.empty && !role().cues);
+      // a part with no notes is drawn as a gap, unless its chords are shown: then it has a card, and a solid chip
+      t.classList.toggle('rest', !!p.empty && !role().cues && !showChords());
       t.textContent = p.label;
       t.title = `${p.label} · ${plural(p.bars, 'bar')} · bars ${p.start + 1}–${p.end + 1}${p.empty ? ' · nothing to play' : ` · ${p.summary}`}`;
       t.addEventListener('click', () => {
