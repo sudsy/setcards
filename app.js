@@ -652,7 +652,8 @@
   function songNoteRow() {
     const row = document.createElement('div');
     row.className = 'song-note-row';
-    row.appendChild(capoPicker());
+    // a capo is for guitar only: the chord shapes it changes are guitar shapes
+    if (prefs.role === 'guitar') row.appendChild(capoPicker());
     row.appendChild(noteBlock(null));
     return row;
   }

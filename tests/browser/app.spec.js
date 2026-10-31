@@ -291,6 +291,15 @@ test('a capo is chosen at the top of the song, and shows the chord shapes to pla
   await expect(page.locator('.capo-pick')).toHaveCount(0);
 });
 
+test('the capo is only offered to guitar, not bass', async ({ page }) => {
+  await openDemo(page);
+  await chooseRole(page, 'Bass');
+  await expect(page.locator('.song-note-row')).toBeVisible();
+  await expect(page.locator('.capo-pick')).toHaveCount(0);
+  await chooseRole(page, 'Guitar');
+  await expect(page.locator('.capo-pick')).toHaveCount(1);
+});
+
 test('guitar shows chord diagrams and vocals shows the cue list', async ({ page }) => {
   await openDemo(page);
   await chooseRole(page, 'Guitar');
