@@ -36,7 +36,7 @@
     barChords: $('barChords'), barChordsAll: $('barChordsAll'), barChordsAllLabel: $('barChordsAllLabel'),
     chordDlg: $('chordDlg'), chordDlgTitle: $('chordDlgTitle'), chordForm: $('chordForm'), chordInput: $('chordInput'),
     chordAll: $('chordAll'), chordAllLabel: $('chordAllLabel'), chordClear: $('chordClear'), chordPreview: $('chordPreview'),
-    chordSheetTitle: $('chordSheetTitle'), chordSheetDlg: $('chordSheetDlg'), chordSheetBody: $('chordSheetBody'), chordSheetAll: $('chordSheetAll'),
+    chordSheetTitle: $('chordSheetTitle'), chordSheetDlg: $('chordSheetDlg'), chordSheetBody: $('chordSheetBody'),
     chordSheetCount: $('chordSheetCount'), chordSheetDiscard: $('chordSheetDiscard'), chordSheetSave: $('chordSheetSave'),
     roleDlg: $('roleDlg'), roleList: $('roleList'),
     joinDlg: $('joinDlg'), joinTitle: $('joinTitle'), joinBtn: $('joinBtn'),
@@ -459,6 +459,18 @@
     const out = [];
     state.parts.forEach((p) => p.units.forEach((u) => { if (u.riff === riffId && offset < u.len) out.push(u.start + offset); }));
     return [...new Set(out)];
+  }
+  // The bars of the written section that holds this bar, from its start to the next section's start.
+  function sectionBarRange(bar) {
+    const n = state.score ? state.score.masterBars.length : 0;
+    let from = 0, to = n - 1;
+    for (const s of sortedSections()) { if (s.start <= bar) from = s.start; else { to = s.start - 1; break; } }
+    return [from, to];
+  }
+  // The repeats of a riff inside the section of the given bar only (the single-bar and riff dialogs copy to these).
+  function riffBarsInSection(riffId, offset, bar) {
+    const [a, b] = sectionBarRange(bar);
+    return riffBars(riffId, offset).filter((x) => x >= a && x <= b);
   }
   function riffForBar(bar) {
     const p = state.parts[partIndexForBar(bar)];
@@ -2333,16 +2345,16 @@
     const own = state.notes.chords[bar];
     els.barChords.value = own === '-' ? '-' : chordsAt(bar).join(' ');
     els.barChords.dataset.initial = els.barChords.value;
-    const times = rf ? riffBars(rf.riff, rf.offset).length : 1;
+    const times = rf ? riffBarsInSection(rf.riff, rf.offset, bar).length : 1;
     els.barChordsAllLabel.hidden = !(rf && times > 1);
     els.barChordsAll.checked = false;   // only this bar, unless the repeats are asked for
-    if (rf) els.barChordsAllLabel.querySelector('span').textContent = `Also in every repeat of riff ${rf.riff} (${times} times)`;
+    if (rf) els.barChordsAllLabel.querySelector('span').textContent = `Also in every repeat of riff ${rf.riff} in this section (${times} times)`;
     els.barDlg.showModal();
   }
 
   function setChords(bar, text, everywhere) {
     const rf = riffForBar(bar);
-    const bars = everywhere && rf ? riffBars(rf.riff, rf.offset) : [bar];
+    const bars = everywhere && rf ? riffBarsInSection(rf.riff, rf.offset, bar) : [bar];
     // entered as the shapes shown (with any capo); stored in the tab's own key
     const value = SM.chords.transposeText(text.trim(), capoOf() - transposeSemis());
     bars.forEach((b) => {
@@ -2458,12 +2470,12 @@
   /* ---------------- chord dialog (from the cards) ---------------- */
   function openChordDialog(bar, riffId, offset) {
     state.chordEdit = { bar, riffId, offset };
-    const times = riffBars(riffId, offset).length;
+    const times = riffBarsInSection(riffId, offset, bar).length;
     els.chordDlgTitle.textContent = `Riff ${riffId}, bar ${offset + 1}`;
     els.chordInput.value = chordsAt(bar).join(' ');
     els.chordAllLabel.hidden = times <= 1;
     els.chordAll.checked = false;   // only this bar, unless the repeats are asked for
-    els.chordAllLabel.querySelector('span').textContent = `Also in every repeat of riff ${riffId} (${times} times)`;
+    els.chordAllLabel.querySelector('span').textContent = `Also in every repeat of riff ${riffId} in this section (${times} times)`;
     previewChords();
     els.chordDlg.showModal();
     setTimeout(() => els.chordInput.focus(), 50);
@@ -2525,13 +2537,6 @@
       grid.appendChild(label);
     }
     els.chordSheetBody.appendChild(grid);
-    els.chordSheetAll.checked = false;
-    // only a riff that is played more than once has repeats to copy to (as in the single-bar dialog)
-    const repeats = chordSheetBoxes().some((b) => {
-      const rf = riffForBar(Number(b.dataset.bar));
-      return !!rf && riffBars(rf.riff, rf.offset).length > 1;
-    });
-    els.chordSheetAll.closest('label').hidden = !repeats;
     updateChordSheet();
     els.chordSheetDlg.showModal();
     setTimeout(() => chordSheetBoxes()[0] && chordSheetBoxes()[0].focus(), 50);
@@ -2547,8 +2552,8 @@
   function saveChordSheet() {
     const changed = chordSheetBoxes().filter((b) => b.value.trim() !== b.dataset.initial);
     if (!changed.length) { closeDialog(els.chordSheetDlg); return; }
-    const everywhere = els.chordSheetAll.checked;
-    changed.forEach((box) => setChords(Number(box.dataset.bar), box.value, everywhere));
+    // each box is written as typed: the repeats of a riff are not copied from here
+    changed.forEach((box) => setChords(Number(box.dataset.bar), box.value, false));
     closeDialog(els.chordSheetDlg);
     chordsChanged();
     toast(changed.length === 1 ? 'Chords saved' : `Chords saved in ${changed.length} bars`);

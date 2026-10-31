@@ -379,7 +379,7 @@ test('chords for a section are typed in one box per bar from its card, and saved
   expect(errors).toEqual([]);
 });
 
-test('the repeats box is only offered where a riff is played more than once', async ({ page }) => {
+test('the repeats option is only offered where a riff is played more than once', async ({ page }) => {
   const errors = watchErrors(page);
   await page.addInitScript(() => localStorage.setItem('setcards:prefs', JSON.stringify({ mode: 'solo', role: 'guitar' })));
   await page.goto('/');
@@ -394,10 +394,15 @@ test('the repeats box is only offered where a riff is played more than once', as
   const bytes = new alphaTab.exporter.Gp7Exporter().export(imp.readScore(), new alphaTab.Settings());
   await page.locator('#attachInput').setInputFiles({ name: 'no-repeats.gp', mimeType: 'application/octet-stream', buffer: Buffer.from(bytes) });
   await expect.poll(() => page.evaluate(() => window.setcardsTest.state().bars.length), { timeout: 20000 }).toBeGreaterThan(0);
-  const card = page.locator('.card').first();
-  await card.locator('.card-chords').click();
+  // a single bar's chords, from the card: no riff comes back, so there is nothing to copy to
+  await page.locator('.card').first().locator('.chord-cell').first().click();
+  await expect(page.locator('#chordDlg')).toBeVisible();
+  await expect(page.locator('#chordAllLabel')).toBeHidden();
+  await page.click('#chordDlg [data-close]');
+  // the text boxes for a section never copy to repeats
+  await page.locator('.card').first().locator('.card-chords').click();
   await expect(page.locator('#chordSheetDlg')).toBeVisible();
-  await expect(page.locator('#chordSheetAll').locator('xpath=..')).toBeHidden();
+  await expect(page.locator('#chordSheetDlg')).not.toContainText('Also in every repeat');
   await page.click('#chordSheetDiscard');
   expect(errors).toEqual([]);
 });
