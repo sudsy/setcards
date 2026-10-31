@@ -1312,7 +1312,8 @@
         playing: state.playing,
         range: api.playbackRange ? { start: api.playbackRange.startTick, end: api.playbackRange.endTick } : null,
         parts: state.parts.map((p) => ({ start: p.playStart, end: p.playEnd })),
-        bars: state.score ? state.score.masterBars.slice(0, 12).map((m) => m.start) : []
+        bars: state.score ? state.score.masterBars.slice(0, 12).map((m) => m.start) : [],
+        sideSticks: clickNotes.size
       })
     };
   }
@@ -1560,7 +1561,7 @@
   api.playerPositionChanged.on((e) => {
     if (!state.score || !state.playing) return;
     setPlayingPart(partIndexForTick(e.currentTick));
-    updateClick(e.currentTick);
+    updateClick();
   });
 
   // Count-in and click, set for each song. The click plays only in bars where the drums have no notes, so a song
@@ -1570,41 +1571,94 @@
   const clickLevel = () => (Number.isFinite(prefs.clickLevel) ? prefs.clickLevel : 100) / 100;
   const countInLevel = () => (Number.isFinite(prefs.countInLevel) ? prefs.countInLevel : 100) / 100;
   let clickBars = null;   // per bar: true when the drums have no notes in it (no drum track counts as no drums)
-  let clickBar = 0;
   function computeClickBars() {
     if (!state.score) { clickBars = null; return; }
     const drums = drumTrack();
     const st = drums ? drums.staves[0] : null;
     clickBars = state.score.masterBars.map((mb, i) => {
       const sb = st && st.bars[i];
-      return !(sb && sb.voices.some((v) => v.beats.some((b) => b.notes.length)));
+      return !(sb && sb.voices.some((v) => v.beats.some((b) => b.notes.some((n) => !clickNotes.has(n)))));
     });
   }
-  function barAtTick(tick) {
-    const mbs = state.score.masterBars;
-    let i = Math.min(clickBar, mbs.length - 1);
-    while (i > 0 && tick < mbs[i].start) i--;
-    while (i + 1 < mbs.length && tick >= mbs[i + 1].start) i++;
-    clickBar = i;
-    return i;
+  // alphaTab's own metronome is kept silent: the click is the side sticks in drum-free bars (see syncClickNotes)
+  function updateClick() {
+    if (api.metronomeVolume !== 0) api.metronomeVolume = 0;
   }
-  // The click sounds on the first beat of a drum-free bar only: alphaTab clicks on every beat, so the volume is
-  // turned on for the start of the bar (a quarter note's worth of ticks) and off for the rest of it.
-  const FIRST_BEAT_TICKS = 960;
-  function updateClick(tick) {
-    if (!clickBars) return;
-    const c = clickSetup();
-    const bar = barAtTick(tick);
-    const onFirstBeat = tick - state.score.masterBars[bar].start < FIRST_BEAT_TICKS;
-    const level = c.click && clickBars[bar] && onFirstBeat ? clickLevel() : 0;
-    if (api.metronomeVolume !== level) api.metronomeVolume = level;
+  // The click in drum-free bars: a side stick on the first beat of each such bar, added to the score in memory so it
+  // is played at its exact place in the song. It is shown in the notation, and left out of any file that is saved or
+  // exported (see withoutClickNotes).
+  const SIDE_STICK = 37;               // General MIDI key 37, a short click the drum kit covers
+  const clickNotes = new Map();        // note -> { beat, wasEmpty }
+  // a track may not list a side stick among its drum sounds, so one is added to its list for the click
+  let clickArt = null, clickArtList = null;
+  function hideClickNotes() {
+    for (const [note, c] of clickNotes) {
+      const i = c.beat.notes.indexOf(note);
+      if (i >= 0) c.beat.notes.splice(i, 1);
+      if (c.wasEmpty) c.beat.V = true;   // back to a rest
+    }
+    if (clickArt && clickArtList) {
+      const i = clickArtList.indexOf(clickArt);
+      if (i >= 0) clickArtList.splice(i, 1);
+    }
+  }
+  function showClickNotes() {
+    if (clickArt && clickArtList && clickArtList.indexOf(clickArt) < 0) clickArtList.push(clickArt);
+    for (const [note, c] of clickNotes) {
+      c.beat.notes.push(note);
+      if (c.wasEmpty) c.beat.V = false;  // a beat with a note is not a rest
+    }
+  }
+  function withoutClickNotes(fn) {
+    hideClickNotes();
+    try { return fn(); } finally { showClickNotes(); }
+  }
+  function syncClickNotes() {
+    const had = clickNotes.size;
+    hideClickNotes();
+    clickNotes.clear();
+    clickArt = null;
+    clickArtList = null;
+    const drums = drumTrack();
+    if (drums && clickSetup().click && clickBars) {
+      const list = drums.percussionArticulations;
+      let art = list.findIndex((a) => a && a.outputMidiNumber === SIDE_STICK);
+      if (art < 0 && list.length) {
+        // a copy of one of the track's sounds, pointed at the side stick key
+        const base = list[0];
+        clickArt = Object.assign(Object.create(Object.getPrototypeOf(base)), base, { outputMidiNumber: SIDE_STICK });
+        clickArtList = list;
+        list.push(clickArt);
+        art = list.length - 1;
+      }
+      if (art >= 0) {
+        const st = drums.staves[0];
+        clickBars.forEach((free, i) => {
+          const bar = st.bars[i];
+          const beat = free && bar && bar.voices[0] && bar.voices[0].beats[0];
+          if (!beat) return;
+          const note = new AT.model.Note();
+          note.percussionArticulation = art;
+          const wasEmpty = !!beat.isEmpty;
+          clickNotes.set(note, { beat, wasEmpty });
+          beat.addNote(note);
+          if (wasEmpty) beat.V = false;
+        });
+      }
+    }
+    if (!clickNotes.size && clickArt) { clickArtList.splice(clickArtList.indexOf(clickArt), 1); clickArt = null; }
+    if (had || clickNotes.size) {
+      api.loadMidiForScore();
+      if (prefs.view === 'tab' && state.score) api.render();
+    }
   }
   function applyClick() {
     if (!state.score) return;
     computeClickBars();
+    syncClickNotes();
     const c = clickSetup();
     api.countInVolume = c.countIn ? countInLevel() : 0;
-    updateClick(api.tickPosition || 0);
+    updateClick();
   }
   function setPlayingPart(i) {
     if (i === state.playingPart) return;
@@ -3624,7 +3678,7 @@
   // A copy of the Guitar Pro file with the sections, riff letters and chord names written in.
   els.exportBtn.addEventListener('click', () => {
     try {
-      const data = new AT.exporter.Gp7Exporter().export(state.score, api.settings);
+      const data = withoutClickNotes(() => new AT.exporter.Gp7Exporter().export(state.score, api.settings));
       const blob = new Blob([data], { type: 'application/octet-stream' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);

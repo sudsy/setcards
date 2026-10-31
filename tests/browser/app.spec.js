@@ -300,6 +300,39 @@ test('the capo is only offered to guitar, not bass', async ({ page }) => {
   await expect(page.locator('.capo-pick')).toHaveCount(1);
 });
 
+test('the click in drum-free bars is a side stick on the first beat, and is left out of an export', async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.addInitScript(() => localStorage.setItem('setcards:prefs', JSON.stringify({ mode: 'solo' })));
+  await page.goto('/');
+  await page.click('#addSongBtn');
+  await page.fill('#addTitle', 'Drums and Click');
+  await page.click('#addForm button[type=submit]');
+  const alphaTab = await import('@coderline/alphatab');
+  const imp = new alphaTab.importer.AlphaTexImporter();
+  // bar 1 has four drum hits; bars 2 and 3 have none
+  imp.initFromString('\\title "Drums and Click"\n\\track "Drums"\n\\instrument percussion\n.\n:4 36 42 38 42 | :1 r | :1 r |', new alphaTab.Settings());
+  const bytes = new alphaTab.exporter.Gp7Exporter().export(imp.readScore(), new alphaTab.Settings());
+  await page.locator('#attachInput').setInputFiles({ name: 'drums-click.gp', mimeType: 'application/octet-stream', buffer: Buffer.from(bytes) });
+  await expect.poll(() => page.evaluate(() => window.setcardsTest.state().bars.length), { timeout: 20000 }).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(() => window.setcardsTest.state().sideSticks)).toBe(0);
+  await page.click('#settingsBtn');
+  await page.check('#clickBars');
+  await expect.poll(() => page.evaluate(() => window.setcardsTest.state().sideSticks)).toBe(2);
+  await page.uncheck('#clickBars');
+  await expect.poll(() => page.evaluate(() => window.setcardsTest.state().sideSticks)).toBe(0);
+  await page.check('#clickBars');
+  await expect.poll(() => page.evaluate(() => window.setcardsTest.state().sideSticks)).toBe(2);
+  // the export has the drums as they were written: four hits, and no side sticks
+  const download = page.waitForEvent('download');
+  await page.click('#exportBtn');
+  const file = await download;
+  const fs = require('fs');
+  const copy = alphaTab.importer.ScoreLoader.loadScoreFromBytes(new Uint8Array(fs.readFileSync(await file.path())), new alphaTab.Settings());
+  const hits = copy.tracks[0].staves[0].bars.map((b) => b.voices[0].beats.filter((x) => x.notes.length).length);
+  expect(hits).toEqual([4, 0, 0]);
+  expect(errors).toEqual([]);
+});
+
 test('guitar shows chord diagrams and vocals shows the cue list', async ({ page }) => {
   await openDemo(page);
   await chooseRole(page, 'Guitar');
