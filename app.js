@@ -2445,8 +2445,10 @@
   }
   // Gives the synth the drum kit this song uses. A change of kit first reloads the built-in sounds, since a second kit
   // would otherwise be added on top of the first.
+  // Drum kits are paused while the sound is being fixed: a song with a kit selected went silent. The built-in drums play.
+  const KIT_PLAYBACK = false;
   async function applyDrumKit() {
-    if (oldIos) { logSound('drum kit: off on this device, the built-in drums play'); return; }
+    if (!KIT_PLAYBACK || oldIos) { logSound('drum kit: not used for playback, the built-in drums play'); return; }
     if (!state.score || !drumTrack() || applying) return;
     const meta = kitMeta();
     const want = kitId(meta);
@@ -2471,7 +2473,7 @@
       applying = false;
     }
   }
-  setTimeout(() => { if (!oldIos) readKit(null).catch((e) => console.error(e)); }, 3000);
+  setTimeout(() => { if (KIT_PLAYBACK && !oldIos) readKit(null).catch((e) => console.error(e)); }, 3000);
 
   els.playBtn.addEventListener('click', () => {
     if (els.playBtn.disabled) { toast(soundProblem || 'Sounds are still loading'); return; }
