@@ -2385,7 +2385,7 @@
   // Gives the synth the drum kit this song uses. A change of kit first reloads the built-in sounds, since a second kit
   // would otherwise be added on top of the first.
   async function applyDrumKit() {
-    if (!state.score || !drumTrack() || state.playing || applying) return;
+    if (!state.score || !drumTrack() || applying) return;
     const meta = kitMeta();
     const want = kitId(meta);
     if (appliedKit === want) return;
@@ -2398,7 +2398,7 @@
         return;
       }
       const kit = await readKit(meta);
-      if (state.playing || kitId(kitMeta()) !== want) return;   // playback or the song changed meanwhile
+      if (kitId(kitMeta()) !== want) return;   // the song changed meanwhile
       if (appliedKit !== null) api.loadSoundFont(await readSynth(), false);
       api.loadSoundFont(kit, true);
       appliedKit = want;
@@ -2435,6 +2435,21 @@
     if (drums) api.changeTrackSolo([drums], state.drumsOnly);
   }
   els.drumsBtn.addEventListener('click', () => setDrumsOnly(!state.drumsOnly));
+
+  // A change of sound while a song plays: playback stops, the change is made, and playback starts again from the
+  // beginning of the part being played (or of the song), so different sounds can be compared one after another.
+  async function changeSound(change) {
+    const wasPlaying = state.playing;
+    if (wasPlaying) api.stop();
+    try {
+      await change();
+    } finally {
+      if (wasPlaying) {
+        api.tickPosition = api.playbackRange ? api.playbackRange.startTick : 0;
+        api.play();
+      }
+    }
+  }
 
   // Drum feel: each drum hit is moved a little early or late, by an amount that is the same every time the song plays,
   // so the feel can be compared. Only playback changes; the file does not.
@@ -2622,7 +2637,7 @@
   els.drumFeel.addEventListener('change', () => {
     prefs.drumFeel = Number(els.drumFeel.value) || 0;
     savePrefs();
-    if (!state.playing) applyDrumFeel();
+    changeSound(() => applyDrumFeel());
   });
   els.soundLogCopy.addEventListener('click', async () => {
     const text = els.soundLogText.textContent;
@@ -2650,7 +2665,7 @@
       state.notes.drumKit = { name: k.name, fileId: k.fileId };
     }
     saveNotes();
-    applyDrumKit();
+    changeSound(() => applyDrumKit());
   });
   els.kitInput.addEventListener('change', async (e) => {
     const file = e.target.files[0];
@@ -2670,7 +2685,7 @@
       state.notes.drumKit = meta;
       saveNotes();
       fillKitSelect();
-      applyDrumKit();
+      changeSound(() => applyDrumKit());
       toast(`Drum kit “${name}” added${meta.fileId ? ' to the band folder' : ' on this device'}`);
     } catch (err) {
       console.error(err);
