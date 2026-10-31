@@ -553,7 +553,7 @@
       t.textContent = p.label;
       t.title = `${p.label} · ${plural(p.bars, 'bar')} · bars ${p.start + 1}–${p.end + 1}${p.empty ? ' · nothing to play' : ` · ${p.summary}`}`;
       t.addEventListener('click', () => {
-        if (prefs.view === 'cards') scrollToCard(i);
+        if (prefs.view === 'cards') { scrollToCard(i); playFromPart(i); }
         else selectView(i);
       });
       els.structure.appendChild(t);
@@ -1288,6 +1288,32 @@
     api.tickPosition = range.startTick;
   }
 
+  // In the cards view, a section picked in the song order is where playback starts: it begins again there if playing,
+  // and otherwise Play starts from there.
+  function playFromPart(i) {
+    const p = state.parts[i];
+    if (!p || !state.score) return;
+    const range = new AT.synth.PlaybackRange();
+    range.startTick = p.playStart;
+    range.endTick = p.playEnd;
+    const wasPlaying = state.playing;
+    if (wasPlaying) api.stop();
+    api.playbackRange = range;
+    api.isLooping = state.loop;
+    api.tickPosition = range.startTick;
+    if (wasPlaying) api.play();
+  }
+  // Lets the browser tests read the playback position. Only present when a test browser is driving the page.
+  if (navigator.webdriver) {
+    window.setcardsTest = {
+      state: () => ({
+        tick: api.tickPosition,
+        playing: state.playing,
+        range: api.playbackRange ? { start: api.playbackRange.startTick, end: api.playbackRange.endTick } : null,
+        parts: state.parts.map((p) => ({ start: p.playStart, end: p.playEnd }))
+      })
+    };
+  }
   function playRange(start, end) {
     if (els.playBtn.disabled) { toast(soundProblem || 'Sounds are still loading'); return; }
     const range = rangeFor(start, end);

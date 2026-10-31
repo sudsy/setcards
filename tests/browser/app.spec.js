@@ -95,6 +95,33 @@ test('the song list is home, and shows key, tempo and length once a song is open
   await expect(page.locator('#homeView')).toBeVisible();
 });
 
+test('picking a section in the cards sets playback to its beginning', async ({ page }) => {
+  await openDemo(page);
+  await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
+  const sections = page.locator('#structure .step:not(.whole)');
+  expect(await sections.count()).toBeGreaterThan(2);
+  await sections.nth(2).click();
+  const s = await page.evaluate(() => window.setcardsTest.state());
+  expect(s.playing).toBe(false);
+  // alphaTab counts the first tick of a range one later than the part's own start, so one tick either way is the same place
+  expect(Math.abs(s.range.start - s.parts[2].start)).toBeLessThanOrEqual(1);
+  expect(Math.abs(s.tick - s.parts[2].start)).toBeLessThanOrEqual(1);
+});
+
+test('picking a section while playing restarts playback at that section', async ({ page }) => {
+  await openDemo(page);
+  await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
+  await expect(page.locator('#playBtn')).toBeEnabled({ timeout: 20000 });
+  await page.click('#playBtn');
+  await expect.poll(async () => (await page.evaluate(() => window.setcardsTest.state())).playing, { timeout: 10000 }).toBe(true);
+  const sections = page.locator('#structure .step:not(.whole)');
+  await sections.nth(1).click();
+  const s = await page.evaluate(() => window.setcardsTest.state());
+  expect(Math.abs(s.range.start - s.parts[1].start)).toBeLessThanOrEqual(1);
+  await expect.poll(async () => (await page.evaluate(() => window.setcardsTest.state())).playing, { timeout: 10000 }).toBe(true);
+  await page.click('#playBtn');
+});
+
 test('opens a song as cards, with the song order at the top', async ({ page }) => {
   const errors = watchErrors(page);
   await openDemo(page);
