@@ -12,7 +12,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const out = resolve(root, process.argv[2] || 'dist/legacy');
 const at = (p) => join(root, p);
 
-const SCRIPTS = ['app.js', 'js/analysis.js', 'js/chords.js', 'js/noteedit.js', 'js/storage.js', 'demo.js', 'config.js', 'version.js', 'sw.js', 'lib/alphaTab.min.js'];
+const SCRIPTS = ['app.js', 'js/analysis.js', 'js/chords.js', 'js/noteedit.js', 'js/soundfont.js', 'js/storage.js', 'demo.js', 'config.js', 'version.js', 'sw.js', 'lib/alphaTab.min.js'];
 
 // Colour tokens get an r, g, b companion so colours can be mixed with rgba(); used by the legacy colour rules.
 function addColourCompanions(css) {
@@ -119,6 +119,8 @@ async function main() {
   copyFileSync(at('icon.svg'), join(out, 'icon.svg'));
   cpSync(at('lib/font'), join(out, 'lib/font'), { recursive: true });
   cpSync(at('lib/soundfont'), join(out, 'lib/soundfont'), { recursive: true });
+  // the drum kit, when the repository has one (see the drum kit notes in js/soundfont.js)
+  if (existsSync(at('kits'))) cpSync(at('kits'), join(out, 'kits'), { recursive: true });
   console.log(`Legacy build written to ${out}`);
 }
 

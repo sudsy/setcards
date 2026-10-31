@@ -2256,8 +2256,22 @@
   });
 
   /* ---------------- player controls ---------------- */
+  // The drum kit is a SoundFont with its own drum sounds. It is loaded the first time a song with drums is played.
+  // If the kit cannot be loaded, the built-in drums play.
+  const DRUM_KIT_URL = 'kits/drums-default.sf2';
+  let drumKitLoad = null;
+  function loadDrumKit() {
+    if (!drumKitLoad) {
+      drumKitLoad = fetch(DRUM_KIT_URL)
+        .then((r) => { if (!r.ok) throw new Error(`The drum kit is missing (${r.status})`); return r.arrayBuffer(); })
+        .then((buf) => api.loadSoundFont(SM.soundfont.asDrumKit(new Uint8Array(buf)), true))
+        .catch((e) => { console.error(e); drumKitLoad = null; toast('The drum kit could not be loaded, so the built-in drums play'); });
+    }
+    return drumKitLoad;
+  }
   els.playBtn.addEventListener('click', () => {
     if (els.playBtn.disabled) { toast(soundProblem || 'Sounds are still loading'); return; }
+    if (drumTrack() && !state.drumKitReady) { state.drumKitReady = true; loadDrumKit(); }
     if (prefs.view === 'tab' || state.playing) { api.playPause(); return; }
     applyPlaybackRange();
     api.playPause();
