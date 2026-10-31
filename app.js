@@ -2268,8 +2268,8 @@
     els.barChords.dataset.initial = els.barChords.value;
     const times = rf ? riffBars(rf.riff, rf.offset).length : 1;
     els.barChordsAllLabel.hidden = !(rf && times > 1);
-    els.barChordsAll.checked = true;
-    if (rf) els.barChordsAllLabel.querySelector('span').textContent = `Every time riff ${rf.riff} plays (${times} times)`;
+    els.barChordsAll.checked = false;   // only this bar, unless the repeats are asked for
+    if (rf) els.barChordsAllLabel.querySelector('span').textContent = `Also in every repeat of riff ${rf.riff} (${times} times)`;
     els.barDlg.showModal();
   }
 
@@ -2395,8 +2395,8 @@
     els.chordDlgTitle.textContent = `Riff ${riffId}, bar ${offset + 1}`;
     els.chordInput.value = chordsAt(bar).join(' ');
     els.chordAllLabel.hidden = times <= 1;
-    els.chordAll.checked = true;
-    els.chordAllLabel.querySelector('span').textContent = `Every time riff ${riffId} plays (${times} times)`;
+    els.chordAll.checked = false;   // only this bar, unless the repeats are asked for
+    els.chordAllLabel.querySelector('span').textContent = `Also in every repeat of riff ${riffId} (${times} times)`;
     previewChords();
     els.chordDlg.showModal();
     setTimeout(() => els.chordInput.focus(), 50);

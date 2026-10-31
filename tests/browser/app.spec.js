@@ -171,12 +171,47 @@ async function chooseRole(page, label) {
   await expect(page.locator('#roleBtn')).toHaveText(label);
 }
 
+test('a chord typed in one bar stays in that bar unless every repeat is asked for', async ({ page }) => {
+  await openDemo(page);
+  await chooseRole(page, 'Guitar');
+  const verseCard = page.locator('.card[data-group="verse"]');
+  await verseCard.locator('.chord-cell').first().click();
+  await expect(page.locator('#chordAll')).not.toBeChecked();
+  await page.fill('#chordInput', 'Em');
+  await page.click('#chordForm button[type=submit]');
+  await expect(page.locator('#toast')).toContainText('Chords saved');
+  await expect(verseCard.locator('.chord-cell').first()).toHaveText('Em');
+});
+
+test('several chords typed in a row each stay in their own bar', async ({ page }) => {
+  await openDemo(page);
+  await chooseRole(page, 'Guitar');
+  const verseCard = page.locator('.card[data-group="verse"]');
+  const chords = ['Am', 'F', 'C', 'G'];
+  for (let i = 0; i < chords.length; i++) {
+    await verseCard.locator('.chord-cell').nth(i).click();
+    await page.fill('#chordInput', chords[i]);
+    await page.click('#chordForm button[type=submit]');
+    await expect(page.locator('#chordDlg')).toBeHidden();
+  }
+  // every bar keeps the chord typed for it, and no other bar changed
+  for (let i = 0; i < chords.length; i++) {
+    await expect(verseCard.locator('.chord-cell').nth(i)).toHaveText(chords[i]);
+  }
+  await page.reload();
+  await page.locator('.song-row .song-open').first().click();
+  for (let i = 0; i < chords.length; i++) {
+    await expect(page.locator('.card[data-group="verse"] .chord-cell').nth(i)).toHaveText(chords[i]);
+  }
+});
+
 test('chords entered on a riff apply to every repeat and survive a reload', async ({ page }) => {
   await openDemo(page);
   await chooseRole(page, 'Guitar');
   const verseCard = page.locator('.card[data-group="verse"]');
   await verseCard.locator('.chord-cell').first().click();
-  await expect(page.locator('#chordAllLabel')).toContainText('Every time riff');
+  await expect(page.locator('#chordAllLabel')).toContainText('Also in every repeat');
+  await page.check('#chordAll');
   await page.fill('#chordInput', 'Em');
   await expect(page.locator('#chordPreview svg')).toHaveCount(1);
   await page.click('#chordForm button[type=submit]');
