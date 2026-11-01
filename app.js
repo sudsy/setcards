@@ -1322,7 +1322,7 @@
         range: api.playbackRange ? { start: api.playbackRange.startTick, end: api.playbackRange.endTick } : null,
         parts: state.parts.map((p) => ({ start: p.playStart, end: p.playEnd })),
         bars: state.score ? state.score.masterBars.slice(0, 12).map((m) => m.start) : [],
-        sideSticks: clickNotes.size,
+        sideSticks: click.clickCount(),
         scroll: els.scroller ? els.scroller.scrollTop : 0,
         metronome: api.metronomeVolume,
         groups: state.groups ? state.groups.length : 0,
@@ -1584,104 +1584,10 @@
 
   // Count-in and click, set for each song. The click plays only in bars where the drums have no notes, so a song
   // whose drums come in late keeps its time without the click sitting on top of the drums.
-  const clickSetup = () => { const c = (state.notes && state.notes.click) || {}; return { countIn: !!c.countIn, click: !!c.click }; };
-  // the volumes are kept on this device (percent; 100 is the synth's full level)
-  const clickLevel = () => (Number.isFinite(prefs.clickLevel) ? prefs.clickLevel : 100) / 100;
-  const countInLevel = () => (Number.isFinite(prefs.countInLevel) ? prefs.countInLevel : 100) / 100;
-  let clickBars = null;   // per bar: true when the drums have no notes in it (no drum track counts as no drums)
-  function computeClickBars() {
-    if (!state.score) { clickBars = null; return; }
-    const drums = drumTrack();
-    const st = drums ? drums.staves[0] : null;
-    clickBars = SM.drums.drumFreeBars(state.score.masterBars.length, st ? st.bars : null, (n) => clickNotes.has(n));
-  }
-  // alphaTab's own metronome is kept silent: the click is the side sticks in drum-free bars (see syncClickNotes)
-  function updateClick() {
-    // while a tab part is being listened to, the metronome clicks every beat so the part can be followed
-    const level = listening ? clickLevel() : 0;
-    if (api.metronomeVolume !== level) api.metronomeVolume = level;
-  }
-  // The click in drum-free bars: a side stick on the first beat of each such bar, added to the score in memory so it
-  // is played at its exact place in the song. It is shown in the notation, and left out of any file that is saved or
-  // exported (see withoutClickNotes).
-  const SIDE_STICK = 37;               // General MIDI key 37, a short click the drum kit covers
-  const clickNotes = new Map();        // note -> { beat, wasEmpty }
-  // a track may not list a side stick among its drum sounds, so one is added to its list for the click
-  let clickArt = null, clickArtList = null;
-  function hideClickNotes() {
-    for (const [note, c] of clickNotes) {
-      const i = c.beat.notes.indexOf(note);
-      if (i >= 0) c.beat.notes.splice(i, 1);
-      if (c.wasEmpty) c.beat.V = true;   // back to a rest
-    }
-    if (clickArt && clickArtList) {
-      const i = clickArtList.indexOf(clickArt);
-      if (i >= 0) clickArtList.splice(i, 1);
-    }
-  }
-  function showClickNotes() {
-    if (clickArt && clickArtList && clickArtList.indexOf(clickArt) < 0) clickArtList.push(clickArt);
-    for (const [note, c] of clickNotes) {
-      c.beat.notes.push(note);
-      if (c.wasEmpty) c.beat.V = false;  // a beat with a note is not a rest
-    }
-  }
-  function withoutClickNotes(fn) {
-    hideClickNotes();
-    const marked = Array.from(originalSimile.keys()).map((bar) => [bar, bar.simileMark]);
-    restoreSimile();
-    try { return fn(); } finally {
-      showClickNotes();
-      marked.forEach(([bar, mark]) => { bar.simileMark = mark; });
-    }
-  }
-  function syncClickNotes() {
-    const had = clickNotes.size;
-    hideClickNotes();
-    clickNotes.clear();
-    clickArt = null;
-    clickArtList = null;
-    const drums = drumTrack();
-    if (drums && clickSetup().click && clickBars) {
-      const list = drums.percussionArticulations;
-      let art = list.findIndex((a) => a && a.outputMidiNumber === SIDE_STICK);
-      if (art < 0 && list.length) {
-        // a copy of one of the track's sounds, pointed at the side stick key
-        const base = list[0];
-        clickArt = Object.assign(Object.create(Object.getPrototypeOf(base)), base, { outputMidiNumber: SIDE_STICK });
-        clickArtList = list;
-        list.push(clickArt);
-        art = list.length - 1;
-      }
-      if (art >= 0) {
-        const st = drums.staves[0];
-        clickBars.forEach((free, i) => {
-          const bar = st.bars[i];
-          const beat = free && bar && bar.voices[0] && bar.voices[0].beats[0];
-          if (!beat) return;
-          const note = new AT.model.Note();
-          note.percussionArticulation = art;
-          const wasEmpty = !!beat.isEmpty;
-          clickNotes.set(note, { beat, wasEmpty });
-          beat.addNote(note);
-          if (wasEmpty) beat.V = false;
-        });
-      }
-    }
-    if (!clickNotes.size && clickArt) { clickArtList.splice(clickArtList.indexOf(clickArt), 1); clickArt = null; }
-    if (had || clickNotes.size) {
-      api.loadMidiForScore();
-      if (prefs.view === 'tab' && state.score) api.render();
-    }
-  }
-  function applyClick() {
-    if (!state.score) return;
-    computeClickBars();
-    syncClickNotes();
-    const c = clickSetup();
-    api.countInVolume = c.countIn ? countInLevel() : 0;
-    updateClick();
-  }
+  // The click and the count-in: see js/click.js. The side sticks are the click in drum-free bars.
+  const click = SM.click.create({ api, AT, notes: () => state.notes, score: () => state.score, prefs: () => prefs,
+    listening: () => listening, drumTrack: () => drumTrack() });
+  const { clickSetup, clickLevel, countInLevel, computeClickBars, updateClick, applyClick, syncClickNotes, withoutClickNotes } = click;
   function setPlayingPart(i) {
     if (i === state.playingPart) return;
     state.playingPart = i;
@@ -2707,6 +2613,12 @@
   function restoreSimile() {
     originalSimile.forEach((mark, bar) => { bar.simileMark = mark; });
   }
+  // runs fn with the % marks taken out of the score (for a file that is saved or exported)
+  function withoutSimileMarks(fn) {
+    const marked = Array.from(originalSimile.keys()).map((bar) => [bar, bar.simileMark]);
+    restoreSimile();
+    try { return fn(); } finally { marked.forEach(([bar, mark]) => { bar.simileMark = mark; }); }
+  }
   function applySimileMarks() {
     if (!state.score) return;
     restoreSimile();
@@ -2742,92 +2654,20 @@
   // The drum kit is a SoundFont with its own drum sounds. Each song uses its own kit, or the default one. Kits are
   // read in the background, and the synth takes a kit between songs, never while playing. Until a kit is ready, the
   // built-in drums play. iOS 12 and older (the old iPad) stopped playing once a kit was added, so they keep the built-in synth.
+  // Drum kits: see js/kits.js. The built-in drums play on iOS 12 and older, which keep the built-in sounds.
   const DRUM_KIT_URL = 'kits/drums-default.sf2';
   const SYNTH_URL = 'lib/soundfont/sonivox.sf2';
-  const kitReads = new Map();   // kit id -> the kit, ready for the synth (or the failure)
-  let synthBytes = null;
-  let appliedKit = null;        // the kit the synth has now; null while only the built-in sounds are loaded
-  let applying = false;
   // iOS 12 and older (the old iPad) crashed after a few bars once the 23 MB kit was loaded, so they keep the built-in drums.
   const oldIos = /(iPad|iPhone|iPod)/.test(navigator.userAgent) && /OS (1[0-2])_/.test(navigator.userAgent);
   const kitMeta = () => (state.notes && state.notes.drumKit) || null;
-  const kitId = (meta) => (meta && meta.builtin ? 'builtin' : (meta ? (meta.fileId || meta.name) : 'default'));
-  function readKit(meta) {
-    const id = kitId(meta);
-    if (!kitReads.has(id)) {
-      const got = meta
-        ? SM.library.kits.load(state.song.key, meta)
-        : fetch(DRUM_KIT_URL).then((r) => { if (!r.ok) throw new Error(`The default drum kit is missing (${r.status})`); return r.arrayBuffer(); }).then((b) => new Uint8Array(b));
-      const read = Promise.resolve(got).then((bytes) => { if (!bytes) throw new Error('This drum kit is not on this device'); return SM.soundfont.asDrumKit(bytes); });
-      read.catch(() => kitReads.delete(id));
-      kitReads.set(id, read);
-    }
-    return kitReads.get(id);
-  }
-  function readSynth() {
-    if (!synthBytes) synthBytes = fetch(SYNTH_URL).then((r) => r.arrayBuffer()).then((b) => new Uint8Array(b));
-    return synthBytes;
-  }
-  // Gives the synth the drum kit this song uses. A change of kit first reloads the built-in sounds, since a second kit
-  // would otherwise be added on top of the first.
   // Drum kit playback. Turned off while a silence was being found; set to false to use the built-in drums only.
   const KIT_PLAYBACK = true;
-  async function applyDrumKit() {
-    if (!KIT_PLAYBACK || oldIos) { logSound('drum kit: not used for playback, the built-in drums play'); return; }
-    if (!state.score || !drumTrack() || applying) return;
-    const meta = kitMeta();
-    const want = kitId(meta);
-    if (appliedKit === want) return;
-    applying = true;
-    try {
-      if (want === 'builtin') {
-        // the built-in drums: the synth as it came, with no kit added
-        if (appliedKit !== null) api.loadSoundFont(await readSynth(), false);
-        appliedKit = want;
-        return;
-      }
-      const kit = await readKit(meta);
-      if (kitId(kitMeta()) !== want) return;   // the song changed meanwhile
-      logKitInfo(want, kit);
-      if (appliedKit !== null) api.loadSoundFont(await readSynth(), false);
-      api.loadSoundFont(kit, true);
-      appliedKit = want;
-    } catch (e) {
-      console.error(e);
-      toast('That drum kit could not be loaded, so the built-in drums play');
-    } finally {
-      applying = false;
-    }
-  }
-  // Debug: what the kit holds and which track it plays on, so a silent drum track can be told apart from a missing kit.
-  function logKitInfo(id, kit) {
-    try {
-      const banks = SM.soundfont.presetBanks(kit);
-      const drumBank = banks.filter((b) => b.bank === SM.soundfont.DRUM_BANK).length;
-      logSound(`drum kit ${id}: ${kit.length} bytes, ${banks.length} presets, ${drumBank} in drum bank`);
-      logSound(`drum kit presets: ${banks.slice(0, 8).map((b) => `${b.name}@${b.bank}`).join(', ')}`);
-      const d = drumTrack();
-      if (d) logSound(`drum track: "${d.name}", channel ${d.playbackInfo.primaryChannel}, program ${d.playbackInfo.program}, volume ${d.playbackInfo.volume}`);
-      const mask = SM.soundfont.keysCovered(kit);
-      const covered = Array.from(mask).reduce((n, v) => n + v, 0);
-      const span = [...mask.keys()].filter((k) => mask[k]);
-      logSound(`kit keys: ${covered} keys with samples${span.length ? `, ${span[0]} to ${span[span.length - 1]}` : ''}; metronome key 33 ${mask[33] ? 'covered' : 'NOT covered'}`);
-      if (d) {
-        const outside = {};
-        let inside = 0, total = 0;
-        for (const staff of d.staves) for (const bar of staff.bars) for (const voice of bar.voices) for (const beat of voice.beats) for (const note of beat.notes) {
-          total++;
-          // a drum note's real value is its string and fret, so its MIDI key comes from the track's drum list
-          const key = note.isPercussion ? ((d.percussionArticulations[note.percussionArticulation] || {}).outputMidiNumber ?? -1) : note.realValue;
-          if (key >= 0 && key < 128 && mask[key]) inside++; else outside[key] = (outside[key] || 0) + 1;
-        }
-        const list = Object.keys(outside).map(Number).sort((a, b) => a - b).slice(0, 12).map((k) => `${k}x${outside[k]}`);
-        logSound(`drum notes: ${total} total, ${inside} on covered keys, ${total - inside} not covered${list.length ? ` (keys: ${list.join(' ')})` : ''}`);
-      }
-    } catch (e) {
-      logSound(`drum kit info failed: ${e && e.message}`);
-    }
-  }
+  const kits = SM.kits.create({
+    api, library: SM.library, soundfont: SM.soundfont, logSound, toast, drumTrack: () => drumTrack(), kitMeta,
+    songKey: () => state.song.key, hasScore: () => !!state.score, fetch: (u) => fetch(u),
+    urls: { kit: DRUM_KIT_URL, synth: SYNTH_URL }, oldIos, playback: KIT_PLAYBACK,
+  });
+  const { applyDrumKit, readKit, kitId } = kits;
   setTimeout(() => { if (KIT_PLAYBACK && !oldIos) readKit(null).catch((e) => console.error(e)); }, 3000);
 
   els.playBtn.addEventListener('click', () => {
@@ -3903,7 +3743,7 @@
   // A copy of the Guitar Pro file with the sections, riff letters and chord names written in.
   els.exportBtn.addEventListener('click', () => {
     try {
-      const data = withoutClickNotes(() => new AT.exporter.Gp7Exporter().export(state.score, api.settings));
+      const data = withoutSimileMarks(() => withoutClickNotes(() => new AT.exporter.Gp7Exporter().export(state.score, api.settings)));
       const blob = new Blob([data], { type: 'application/octet-stream' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
