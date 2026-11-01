@@ -1585,9 +1585,11 @@
   // Count-in and click, set for each song. The click plays only in bars where the drums have no notes, so a song
   // whose drums come in late keeps its time without the click sitting on top of the drums.
   // The click and the count-in: see js/click.js. The side sticks are the click in drum-free bars.
+  // the display-only changes to the score, taken out while a file is written (see js/overlays.js)
+  const overlays = SM.overlays.create();
   const click = SM.click.create({ api, AT, notes: () => state.notes, score: () => state.score, prefs: () => prefs,
-    listening: () => listening, drumTrack: () => drumTrack() });
-  const { clickSetup, clickLevel, countInLevel, computeClickBars, updateClick, applyClick, syncClickNotes, withoutClickNotes } = click;
+    listening: () => listening, drumTrack: () => drumTrack(), overlays });
+  const { clickSetup, clickLevel, countInLevel, computeClickBars, updateClick, applyClick, syncClickNotes } = click;
   function setPlayingPart(i) {
     if (i === state.playingPart) return;
     state.playingPart = i;
@@ -2613,12 +2615,12 @@
   function restoreSimile() {
     originalSimile.forEach((mark, bar) => { bar.simileMark = mark; });
   }
-  // runs fn with the % marks taken out of the score (for a file that is saved or exported)
-  function withoutSimileMarks(fn) {
-    const marked = Array.from(originalSimile.keys()).map((bar) => [bar, bar.simileMark]);
-    restoreSimile();
-    try { return fn(); } finally { marked.forEach(([bar, mark]) => { bar.simileMark = mark; }); }
-  }
+  // the % marks are an overlay too: they are taken out while a file is written
+  let simileHidden = null;
+  overlays.add({
+    hide() { simileHidden = Array.from(originalSimile.keys()).map((bar) => [bar, bar.simileMark]); restoreSimile(); },
+    show() { (simileHidden || []).forEach(([bar, mark]) => { bar.simileMark = mark; }); simileHidden = null; },
+  });
   function applySimileMarks() {
     if (!state.score) return;
     restoreSimile();
@@ -3743,7 +3745,7 @@
   // A copy of the Guitar Pro file with the sections, riff letters and chord names written in.
   els.exportBtn.addEventListener('click', () => {
     try {
-      const data = withoutSimileMarks(() => withoutClickNotes(() => new AT.exporter.Gp7Exporter().export(state.score, api.settings)));
+      const data = overlays.without(() => new AT.exporter.Gp7Exporter().export(state.score, api.settings));
       const blob = new Blob([data], { type: 'application/octet-stream' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);

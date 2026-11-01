@@ -7,6 +7,7 @@ globalThis.window = undefined;
 require('../../js/songlogic.js');
 require('../../js/drums.js');
 require('../../js/kits.js');
+require('../../js/overlays.js');
 require('../../js/click.js');
 const { kits, click } = { kits: globalThis.SM.kits, click: globalThis.SM.click };
 
@@ -83,7 +84,7 @@ function clickDeps(score, notes) {
   class Note { constructor() { this.percussionArticulation = -1; } }
   return {
     api, AT: { model: { Note } }, notes: () => notes, score: () => score, prefs: () => ({ view: 'cards', clickLevel: 100, countInLevel: 100 }),
-    listening: () => false, drumTrack: () => score.track,
+    listening: () => false, drumTrack: () => score.track, overlays: globalThis.SM.overlays.create(),
   };
 }
 

@@ -1,6 +1,6 @@
 /* The click: the count-in and metronome volumes, and the click in drum-free bars. The click there is a side stick on
    the first beat of each drum-free bar, added to the score in memory so it plays at its exact place in the song. It is
-   shown in the notation, and left out of any file that is saved or exported (see withoutClickNotes).
+   shown in the notation, and left out of any file that is saved or exported (see js/overlays.js).
    create(deps) takes what the click needs from the app:
      api                 the alphaTab API (volumes, rendering, MIDI reloads)
      AT                  alphaTab (its model and exporter classes)
@@ -8,7 +8,8 @@
      score()             the loaded score, or null
      prefs()             the device preferences (click and count-in levels, view)
      listening()         true while a tab part is being listened to (the metronome then clicks every beat)
-     drumTrack()         the drum track of the score, or null */
+     drumTrack()         the drum track of the score, or null
+     overlays            the score overlays (js/overlays.js) the side sticks are part of */
 (function (root) {
   'use strict';
   const SM = root.SM = root.SM || {};
@@ -34,7 +35,7 @@
     }
     // The click in drum-free bars: a side stick on the first beat of each such bar, added to the score in memory so it
     // is played at its exact place in the song. It is shown in the notation, and left out of any file that is saved or
-    // exported (see withoutClickNotes).
+    // exported (see js/overlays.js).
     const SIDE_STICK = 37;               // General MIDI key 37, a short click the drum kit covers
     const clickNotes = new Map();        // note -> { beat, wasEmpty }
     // a track may not list a side stick among its drum sounds, so one is added to its list for the click
@@ -57,11 +58,8 @@
         if (c.wasEmpty) c.beat.V = false;  // a beat with a note is not a rest
       }
     }
-    // runs fn with the click's side sticks taken out of the score (for a file that is saved or exported)
-    function withoutClickNotes(fn) {
-      hideClickNotes();
-      try { return fn(); } finally { showClickNotes(); }
-    }
+    // the side sticks are an overlay: they are taken out while a file is written (see js/overlays.js)
+    deps.overlays.add({ hide: hideClickNotes, show: showClickNotes });
     function syncClickNotes() {
       const had = clickNotes.size;
       hideClickNotes();
@@ -109,7 +107,7 @@
       api.countInVolume = c.countIn ? countInLevel() : 0;
       updateClick();
     }
-    return { clickSetup, clickLevel, countInLevel, computeClickBars, updateClick, applyClick, syncClickNotes, withoutClickNotes, clickCount: () => clickNotes.size };
+    return { clickSetup, clickLevel, countInLevel, computeClickBars, updateClick, applyClick, syncClickNotes, clickCount: () => clickNotes.size };
   }
 
   SM.click = { create };
