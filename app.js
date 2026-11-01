@@ -1593,10 +1593,7 @@
     if (!state.score) { clickBars = null; return; }
     const drums = drumTrack();
     const st = drums ? drums.staves[0] : null;
-    clickBars = state.score.masterBars.map((mb, i) => {
-      const sb = st && st.bars[i];
-      return !(sb && sb.voices.some((v) => v.beats.some((b) => b.notes.some((n) => !clickNotes.has(n)))));
-    });
+    clickBars = SM.drums.drumFreeBars(state.score.masterBars.length, st ? st.bars : null, (n) => clickNotes.has(n));
   }
   // alphaTab's own metronome is kept silent: the click is the side sticks in drum-free bars (see syncClickNotes)
   function updateClick() {
@@ -2620,7 +2617,8 @@
     listening = false;
     const track = state.score && state.score.tracks[tabPartIndex()];
     if (track) api.changeTrackSolo([track], false);
-    if (state.playing) api.stop();
+    // Stop right after Listen can come before the audio has started, and alphaTab throws then; the song is stopped either way
+    if (state.playing) { try { api.stop(); } catch (e) { /* not started yet */ } }
     updateClick();
     renderTabParts();
   }
@@ -2880,13 +2878,9 @@
 
   // Drum feel: each drum hit is moved a little early or late, by an amount that is the same every time the song plays,
   // and its loudness can vary, and a roll can swell. Only playback changes; the file does not.
-  const feelStraight = new WeakMap();   // beat -> its own playback start, before any feel
-  const feelLoudness = new WeakMap();   // beat -> its own dynamic (loudness), before any feel
+  const feelMemory = { straight: new WeakMap(), loudness: new WeakMap() };   // each beat's own timing and loudness
   let feelApplied = null;               // what the feel was last applied for
-  const DYN_MIN = 0, DYN_MAX = 7;       // ppp .. fff
   // A number for a key that is the same every time: the same hit always gets the same feel.
-  const hashOf = SL.hashOf;
-  const hitOffset = SL.hitOffset;
   // The drum feel of this song: kept in its notes, so it goes to the band folder with the song.
   const drumFeelOf = () => {
     const f = (state.notes && state.notes.drumFeel) || {};
@@ -2903,36 +2897,7 @@
     const drums = drumTrack();
     if (drums) {
       const ticksPerMs = (960 * (state.score.tempo || 120)) / 60000;
-      drums.staves[0].bars.forEach((bar) => bar.voices.forEach((v) => {
-        // timing: every beat, straight or moved by a fixed amount
-        v.beats.forEach((b) => {
-          if (!feelStraight.has(b)) feelStraight.set(b, b.playbackStart);
-          const key = `${bar.index}.${v.index}.${b.index}`;
-          b.playbackStart = feelStraight.get(b) + (ms ? hitOffset(key, ms * ticksPerMs) : 0);
-        });
-        // loudness: the hits (beats with notes), each at its own level; a roll (a run of repeated hits) can swell
-        const hits = v.beats.filter((b) => b.notes.length);
-        hits.forEach((b) => { if (!feelLoudness.has(b)) feelLoudness.set(b, b.dynamics); });
-        const runStart = new Map();
-        for (let k = 0; k < hits.length; k++) {
-          if (k > 0 && hits[k].duration === hits[k - 1].duration) runStart.set(hits[k], runStart.get(hits[k - 1]));
-          else runStart.set(hits[k], k);
-        }
-        hits.forEach((b, k) => {
-          const start = runStart.get(b);
-          let end = k;
-          while (end + 1 < hits.length && runStart.get(hits[end + 1]) === start) end++;
-          const runLength = end - start + 1;
-          let d = 0;
-          if (loud) d += (hashOf(`${bar.index}.${v.index}.${b.index}`, 1) % 3) - 1;
-          if (swell && runLength >= 4) {
-            // builds to the middle of the roll and fades back: -1, 0 or +1 level
-            const t = 1 - Math.abs((2 * (k - start)) / (runLength - 1) - 1);
-            d += Math.round(2 * t - 1);
-          }
-          b.dynamics = Math.min(DYN_MAX, Math.max(DYN_MIN, feelLoudness.get(b) + d));
-        });
-      }));
+      SM.drums.applyFeel(drums.staves[0].bars, { ms, loud, swell, ticksPerMs }, feelMemory);
       api.loadMidiForScore();
     }
     feelApplied = tag;
