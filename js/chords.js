@@ -191,5 +191,9 @@
   }
   const keyName = (text) => { const k = keyOf(text); return k ? k.name : (text || ''); };
 
-  SM.chords = { parse, shape, diagram, split, transposeName, transposeText, semitonesBetween, isMinor, keyOf, keyName, KEY_NAMES };
+  // A chord as it is written for the player: the sounding name moved down by the capo (the shape to finger).
+  const shapeOf = (name, capo) => (Number(capo) ? transposeName(name, -Number(capo)) : name);
+  // The sounding name of a shape: the shape moved up by the capo.
+  const soundingOf = (name, capo) => (Number(capo) ? transposeName(name, Number(capo)) : name);
+  SM.chords = { parse, shape, diagram, split, transposeName, transposeText, semitonesBetween, isMinor, keyOf, keyName, KEY_NAMES, shapeOf, soundingOf };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -350,7 +350,7 @@
     const sounding = own != null
       ? (own === '-' ? [] : SM.chords.split(own).map((c) => SM.chords.transposeName(c, transposeSemis())))
       : (state.fileChords[bar] || []).map((c) => c.name);
-    return capoOf() ? sounding.map((c) => SM.chords.transposeName(c, -capoOf())) : sounding;
+    return sounding.map((c) => SM.chords.shapeOf(c, capoOf()));
   }
   function songChordNames() {
     const seen = [];
@@ -458,23 +458,15 @@
   const partIndexForTick = (tick) => state.parts.findIndex((p) => p.playStart <= tick && tick < p.playEnd);
 
   // Every bar where a given bar of a riff is played (used to copy chords to each repeat).
-  function riffBars(riffId, offset) {
-    const out = [];
-    state.parts.forEach((p) => p.units.forEach((u) => { if (u.riff === riffId && offset < u.len) out.push(u.start + offset); }));
-    return [...new Set(out)];
-  }
+  const SL = SM.songLogic;
+  const riffBars = (riffId, offset) => SL.barsOfRiff(state.parts, riffId, offset);
   // The bars of the written section that holds this bar, from its start to the next section's start.
-  function sectionBarRange(bar) {
-    const n = state.score ? state.score.masterBars.length : 0;
-    let from = 0, to = n - 1;
-    for (const s of sortedSections()) { if (s.start <= bar) from = s.start; else { to = s.start - 1; break; } }
-    return [from, to];
-  }
+  const sectionBarRange = (bar) => SL.sectionRange(sortedSections().map((s) => s.start), bar, state.score ? state.score.masterBars.length : 0);
   // The repeats of a riff inside the section of the given bar only (the single-bar and riff dialogs copy to these).
-  function riffBarsInSection(riffId, offset, bar) {
-    const [a, b] = sectionBarRange(bar);
-    return riffBars(riffId, offset).filter((x) => x >= a && x <= b);
-  }
+  const riffBarsInSection = (riffId, offset, bar) => {
+    const starts = sortedSections().map((s) => s.start);
+    return SL.barsOfRiffInSection(state.parts, starts, state.score ? state.score.masterBars.length : 0, riffId, offset, bar);
+  };
   function riffForBar(bar) {
     const p = state.parts[partIndexForBar(bar)];
     if (!p) return null;
@@ -933,38 +925,6 @@
       holder.className = 'mini-tab';
       holder.dataset.start = p.start;
       holder.dataset.len = p.bars;
-      div.appendChild(holder);
-    }
-    return div;
-  }
-
-  function riffBlock(riff, seenBefore) {
-    const div = document.createElement('div');
-    div.className = 'riff' + (seenBefore ? ' seen' : '');
-    const firstPart = state.parts[partIndexForBar(riff.start)];
-    const chordCells = [];
-    for (let k = 0; k < riff.len; k++) {
-      const names = chordsAt(riff.start + k);
-      chordCells.push(`<button class="chord-cell" data-bar="${riff.start + k}" data-riff="${riff.id}" data-offset="${k}" title="Change the chords for bar ${k + 1} of riff ${riff.id}">${names.length ? names.map(esc).join(' ') : '<span class="no-chord">+ chord</span>'}</button>`);
-    }
-    div.innerHTML = `
-      <div class="riff-head">
-        <span class="riff-id">${esc(riff.id)}</span>
-        <span class="riff-len">${plural(riff.len, 'bar')}${riff.uses > 1 ? ` · played ${riff.uses} times in the song` : ''}</span>
-        <button class="riff-play" type="button" aria-label="Play riff ${esc(riff.id)}" title="Loop this riff">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5l12 7-12 7z"/></svg>
-        </button>
-      </div>
-      ${showChords() ? `<div class="chord-row">${chordCells.join('<span class="bar-sep">|</span>')}</div>` : ''}
-      ${seenBefore ? `<p class="seen-note">Same riff as in ${esc(firstPart ? firstPart.label : 'an earlier section')}.</p>` : ''}`;
-    div.querySelectorAll('.chord-cell').forEach((b) => b.addEventListener('click', () => openChordDialog(Number(b.dataset.bar), b.dataset.riff, Number(b.dataset.offset))));
-    div.querySelector('.riff-play').addEventListener('click', () => playRange(riff.start, riff.start + riff.len - 1));
-    // one part per screen in landscape, so a riff is drawn on every card that uses it
-    if ((!seenBefore || isPaged()) && showTabInCards() && !riff.empty) {
-      const holder = document.createElement('div');
-      holder.className = 'mini-tab';
-      holder.dataset.start = riff.start;
-      holder.dataset.len = riff.len;
       div.appendChild(holder);
     }
     return div;
@@ -2692,7 +2652,7 @@
       const box = chordPanelBoxes().find((b) => Number(b.dataset.bar) === bar);
       if (!box) return;
       // the boxes show the shapes to play, so the sounding name is moved down by any capo
-      box.value = SM.chords.transposeName(name, -capoOf());
+      box.value = SM.chords.shapeOf(name, capoOf());
       filled++;
       filledBars.add(bar);
     });
@@ -2925,14 +2885,8 @@
   let feelApplied = null;               // what the feel was last applied for
   const DYN_MIN = 0, DYN_MAX = 7;       // ppp .. fff
   // A number for a key that is the same every time: the same hit always gets the same feel.
-  function hashOf(key, seed) {
-    let h = 2166136261 ^ seed;
-    for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619);
-    return h >>> 0;
-  }
-  function hitOffset(key, maxTicks) {
-    return Math.round((((hashOf(key, 0) % 2001) / 1000) - 1) * maxTicks);
-  }
+  const hashOf = SL.hashOf;
+  const hitOffset = SL.hitOffset;
   // The drum feel of this song: kept in its notes, so it goes to the band folder with the song.
   const drumFeelOf = () => {
     const f = (state.notes && state.notes.drumFeel) || {};

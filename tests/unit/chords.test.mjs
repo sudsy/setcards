@@ -47,3 +47,10 @@ test('keys are read with their scale and named in words', () => {
   assert.equal(C.keyOf('C major').minor, false);
   assert.equal(C.keyOf('Cmaj7'), null);
 });
+
+test('a shape is the sounding name moved down by the capo, and nothing changes with no capo', () => {
+  assert.equal(SM.chords.shapeOf('D', 2), 'C');
+  assert.equal(SM.chords.soundingOf('C', 2), 'D');
+  assert.equal(SM.chords.shapeOf('Bb', 0), 'Bb');
+  assert.equal(SM.chords.soundingOf('F#m', 0), 'F#m');
+});
