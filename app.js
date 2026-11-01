@@ -589,6 +589,9 @@
     if (isPaged()) {
       pagedTarget = target.dataset.group;
       els.cards.scrollTo({ left: target.offsetLeft - els.cards.offsetLeft, behavior: 'smooth' });
+      // the scroll events of a smooth scroll can be cut short; once it has had time to finish, mark the parts on screen
+      clearTimeout(markInView.t);
+      markInView.t = setTimeout(markInView, 700);
       target.classList.remove('flash');
       void target.offsetWidth;
       target.classList.add('flash');
