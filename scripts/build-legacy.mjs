@@ -12,7 +12,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const out = resolve(root, process.argv[2] || 'dist/legacy');
 const at = (p) => join(root, p);
 
-const SCRIPTS = ['app.js', 'js/analysis.js', 'js/chords.js', 'js/chordinfer.js', 'js/songlogic.js', 'js/drums.js', 'js/overlays.js', 'js/click.js', 'js/chordpanel.js', 'js/kits.js', 'js/noteedit.js', 'js/soundfont.js', 'js/storage-core.js', 'js/storage-device.js', 'js/storage-drive.js', 'js/storage.js', 'demo.js', 'config.js', 'version.js', 'sw.js', 'lib/alphaTab.min.js'];
+const SCRIPTS = ['app.js', 'js/analysis.js', 'js/chords.js', 'js/chordinfer.js', 'js/songlogic.js', 'js/drums.js', 'js/overlays.js', 'js/click.js', 'js/chordpanel.js', 'js/cards.js', 'js/kits.js', 'js/noteedit.js', 'js/soundfont.js', 'js/storage-core.js', 'js/storage-device.js', 'js/storage-drive.js', 'js/storage.js', 'demo.js', 'config.js', 'version.js', 'sw.js', 'lib/alphaTab.min.js'];
 
 // Colour tokens get an r, g, b companion so colours can be mixed with rgba(); used by the legacy colour rules.
 function addColourCompanions(css) {
