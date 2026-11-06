@@ -188,6 +188,9 @@
     const notes = state.notes;
     notes.title = state.song.title;
     notes.artist = state.song.artist;
+    // the same checks the notes tool makes: a problem is logged, and the notes are still saved
+    const problems = SM.notes.validate(notes);
+    if (problems.length) console.warn('Song notes need a look:', problems.join('; '));
     const run = async () => {
       if (pendingSave === run) pendingSave = null;
       const r = await SM.library.saveNotes(key, notes);
