@@ -81,7 +81,7 @@ function loadDrive() {
   globalThis.sessionStorage = memoryStorage({ 'setcards:gtoken2': JSON.stringify({ token: 't', exp: Date.now() + 3600e3 }) });
   globalThis.SETCARDS_CONFIG = { google: { clientId: 'x' } };
   // the storage files load in order: the shared pieces, this device, Drive, then the library
-  const files = ['storage-core', 'storage-device', 'storage-drive', 'storage'];
+  const files = ['storage-core', 'storage-device', 'drive-api', 'storage-drive', 'storage'];
   files.forEach((f) => delete require.cache[require.resolve(`../../js/${f}.js`)]);
   delete globalThis.SM;
   files.forEach((f) => require(`../../js/${f}.js`));

@@ -81,18 +81,13 @@
     // Calls made without a tap (opening a song, checking for the band's latest changes) never open Google's sign-in
     // window: a browser blocks a popup that no tap caused, and it would be shown on every song. They use the access
     // from a sign-in the person made. Without one they fail, and the saved copy stays on screen, read only.
-    async function call(url, opts = {}) {
-      if (!hasToken()) throw new Error('Google needs you to sign in again. Open Songs and tap Show band songs.');
-      const t = token;
-      const r = await fetch(url, Object.assign({}, opts, { headers: Object.assign({ Authorization: 'Bearer ' + t }, opts.headers || {}) }));
-      if (r.status === 401) {
-        token = null;
-        try { sessionStorage.removeItem('setcards:gtoken2'); } catch (e) { /* storage unavailable */ }
-        throw new Error('Your Google sign-in expired. Open Songs and tap Show band songs to sign in again.');
-      }
-      if (!r.ok) throw new Error(`Google Drive said ${r.status}: ${(await r.text()).slice(0, 160)}`);
-      return r;
-    }
+    // Every call to Drive goes through the shared Drive API (js/drive-api.js): reads and writes alike.
+    const api = SM.driveApi.create({
+      fetch: (...a) => fetch(...a),
+      token: () => { if (!hasToken()) throw new Error('Google needs you to sign in again. Open Songs and tap Show band songs.'); return token; },
+      onUnauthorized: () => { token = null; try { sessionStorage.removeItem('setcards:gtoken2'); } catch (e) { /* storage unavailable */ } },
+    });
+    const call = (url, opts) => api.request(url, opts);
 
     // Opens Google's own file picker. mode 'folder' picks the band folder itself (only `onlyId` when joining
     // from an invite link); mode 'files' picks songs inside the band folder.
@@ -166,12 +161,7 @@
       return filesCache;
     }
 
-    function multipart(meta, body, type) {
-      const boundary = 'setcards' + Math.random().toString(36).slice(2);
-      const head = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${boundary}\r\nContent-Type: ${type}\r\n\r\n`;
-      const tail = `\r\n--${boundary}--`;
-      return { body: new Blob([head, body, tail]), type: `multipart/related; boundary=${boundary}` };
-    }
+    const multipart = SM.driveApi.multipartBody;
 
     // Songs in the folder. A song is its notes file, its Guitar Pro file, or both:
     // a song added before it has tab is just "<name>.setcards.json"; once a tab file is attached the notes
@@ -227,11 +217,7 @@
     const folderName = (notes) => slug(`${notes.title || 'Untitled'}${notes.artist ? ' - ' + notes.artist : ''}`);
 
     async function makeFolder(name, parentId) {
-      const r = await call(`${API}/files?fields=id,name,mimeType,parents&supportsAllDrives=true`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, mimeType: FOLDER_TYPE, parents: [parentId] })
-      });
-      const created = await r.json();
+      const created = await api.createFolder(name, parentId);
       (filesCache || (filesCache = [])).push(created);
       return created;
     }
@@ -245,7 +231,7 @@
       return makeFolder(folderName(notes), tabs.id);
     }
     async function moveInto(file, folderId) {
-      await call(`${API}/files/${file.id}?addParents=${folderId}&removeParents=${parentOf(file) || folder().id}&supportsAllDrives=true&fields=id,parents`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      await api.updateFile(file.id, {}, { addParents: folderId, removeParents: parentOf(file) || folder().id, fields: 'id,parents' });
       file.parents = [folderId];
     }
     // Moves songs saved straight in the band folder (before folders per song) into Tabs/<song>/.
@@ -271,20 +257,16 @@
         const today = new Date().toISOString().slice(0, 10);
         const keptKey = 'setcards:kept:' + song.notesFile.id;
         const keep = ls.get(keptKey) !== today;
-        await call(`${UPLOAD}/files/${song.notesFile.id}?uploadType=media&supportsAllDrives=true${keep ? '&keepRevisionForever=true' : ''}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: json });
+        await api.replaceMedia(song.notesFile.id, json, 'application/json', { keepRevisionForever: keep, fields: 'id' });
         if (keep) ls.set(keptKey, today);
         return song.notesFile;
       }
-      const m = multipart({ name: nameIfNew + NOTES_SUFFIX, parents: [parentId], mimeType: 'application/json' }, json, 'application/json');
-      const r = await call(`${UPLOAD}/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,modifiedTime,parents`, { method: 'POST', headers: { 'Content-Type': m.type }, body: m.body });
-      const created = await r.json();
+      const created = await api.createFile({ name: nameIfNew + NOTES_SUFFIX, parents: [parentId], mimeType: 'application/json' }, json, 'application/json');
       (filesCache || (filesCache = [])).push(created);
       return created;
     }
     async function uploadTab(fileName, bytes, parentId) {
-      const m = multipart({ name: fileName, parents: [parentId] }, bytes, 'application/octet-stream');
-      const r = await call(`${UPLOAD}/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,modifiedTime,parents`, { method: 'POST', headers: { 'Content-Type': m.type }, body: m.body });
-      const created = await r.json();
+      const created = await api.createFile({ name: fileName, parents: [parentId] }, bytes, 'application/octet-stream');
       (filesCache || (filesCache = [])).push(created);
       return created;
     }
@@ -429,9 +411,7 @@
         if (change.removed) return false;
         // the first time, the sheet is made with every song in the order they were added
         const csv = [SHEET_HEAD, ...orderBySheet(songs, '').map((x) => rowFor(x).cells)].map(sheetLine).join('\r\n') + '\r\n';
-        const m = multipart({ name: SHEET_NAME, parents: [folder().id], mimeType: SHEET_TYPE }, csv, 'text/csv');
-        const r = await call(`${UPLOAD}/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,mimeType`, { method: 'POST', headers: { 'Content-Type': m.type }, body: m.body });
-        filesCache.push(await r.json());
+        filesCache.push(await api.createFile({ name: SHEET_NAME, parents: [folder().id], mimeType: SHEET_TYPE }, csv, 'text/csv', 'id,name,mimeType'));
         lastSheetCsv = csv;
         return true;
       }
@@ -450,7 +430,7 @@
       }
       const csv = [SHEET_HEAD, ...rows].map(sheetLine).join('\r\n') + '\r\n';
       if (sameTable(csv, current)) return false;
-      await call(`${UPLOAD}/files/${sheet.id}?uploadType=media&supportsAllDrives=true`, { method: 'PATCH', headers: { 'Content-Type': 'text/csv' }, body: csv });
+      await api.replaceMedia(sheet.id, csv, 'text/csv', { fields: 'id' });
       lastSheetCsv = csv;
       return true;
     }
@@ -473,7 +453,7 @@
       sheetTimer = setTimeout(flushSongRows, 5000);
     }
 
-    const trash = (id) => call(`${API}/files/${id}?supportsAllDrives=true`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) });
+    const trash = (id) => api.trashFile(id);
 
     return {
       id: 'drive',
@@ -497,11 +477,7 @@
         return picked[0];
       },
       async createFolder(name) {
-        const r = await call(`${API}/files?fields=id,name&supportsAllDrives=true`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, mimeType: 'application/vnd.google-apps.folder' })
-        });
-        const f = await r.json();
+        const f = await api.createFolder(name, undefined, 'id,name');
         ls.set('setcards:driveFolder', { id: f.id, name: f.name });
         filesCache = [];
         return f;
@@ -615,7 +591,7 @@
         // keep the song's folder named after its title and artist
         if (song.folder && song.folder.name !== folderName(notes)) {
           try {
-            await call(`${API}/files/${song.folder.id}?supportsAllDrives=true`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: folderName(notes) }) });
+            await api.updateFile(song.folder.id, { name: folderName(notes) }, { fields: 'id,name' });
             song.folder.name = folderName(notes);
           } catch (e) { /* the old name still works */ }
         }
@@ -644,11 +620,9 @@
       async replaceTab(id, bytes, fileName) {
         const song = await findSong(id);
         if (!song.tab) throw new Error('This song has no tab file');
-        const r = await call(`${UPLOAD}/files/${song.tab.id}?uploadType=media&supportsAllDrives=true&fields=id,name,modifiedTime`, { method: 'PATCH', headers: { 'Content-Type': 'application/octet-stream' }, body: bytes });
-        let updated = await r.json();
+        let updated = await api.replaceMedia(song.tab.id, bytes, 'application/octet-stream', { fields: 'id,name,modifiedTime' });
         if (fileName && fileName !== updated.name) {
-          const named = await call(`${API}/files/${song.tab.id}?supportsAllDrives=true&fields=id,name,modifiedTime`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: fileName }) });
-          updated = await named.json();
+          updated = await api.updateFile(song.tab.id, { name: fileName }, { fields: 'id,name,modifiedTime' });
         }
         song.tab.modifiedTime = updated.modifiedTime;
         changeSongRow({ ...song, tab: { name: fileName || song.tab.name } });
@@ -662,18 +636,14 @@
         return kids.filter((x) => x.mimeType !== FOLDER_TYPE && /\.sf2$/i.test(x.name)).map((x) => ({ name: x.name.replace(/\.sf2$/i, ''), fileId: x.id }));
       },
       async uploadDrumKit(name, bytes) {
-        const m = multipart({ name: `${name}.sf2`, parents: [folder().id] }, bytes, 'application/octet-stream');
-        const r = await call(`${UPLOAD}/files?uploadType=multipart&supportsAllDrives=true&fields=id`, { method: 'POST', headers: { 'Content-Type': m.type }, body: m.body });
-        return (await r.json()).id;
+        return (await api.createFile({ name: `${name}.sf2`, parents: [folder().id] }, bytes, 'application/octet-stream', 'id')).id;
       },
       downloadDrumKit: (fileId) => downloadTab(fileId),
       // An MP3 for a band song goes in its folder, so everyone in the band can play it.
       async uploadAudio(id, fileName, bytes) {
         const song = await findSong(id);
         if (!song.folder) await moveLooseSongs([song]);
-        const m = multipart({ name: fileName, parents: [song.folder ? song.folder.id : folder().id] }, bytes, 'audio/mpeg');
-        const r = await call(`${UPLOAD}/files?uploadType=multipart&supportsAllDrives=true&fields=id`, { method: 'POST', headers: { 'Content-Type': m.type }, body: m.body });
-        return (await r.json()).id;
+        return (await api.createFile({ name: fileName, parents: [song.folder ? song.folder.id : folder().id] }, bytes, 'audio/mpeg', 'id')).id;
       },
       downloadAudio: (fileId) => downloadTab(fileId),
       trashAudio: (fileId) => trash(fileId),

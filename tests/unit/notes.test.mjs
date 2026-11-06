@@ -67,3 +67,13 @@ test('the tool writes a valid change and refuses an invalid one', () => {
   writeFileSync(f, JSON.stringify({ ...saved, capo: 99 }));
   assert.equal(spawnSync(process.execPath, [TOOL, 'validate', f]).status, 2);
 });
+
+test('the band folder tool refuses invalid notes before it contacts Drive', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'drive-'));
+  const bad = join(dir, 'bad.json');
+  writeFileSync(bad, JSON.stringify({ format: 'setcards/1', capo: 99, chords: {} }));
+  const DRIVE = new URL('../../scripts/drive-tool.mjs', import.meta.url).pathname;
+  const r = spawnSync(process.execPath, [DRIVE, 'notes-put', 'some-id', bad], { env: { ...process.env, SETCARDS_DRIVE_TOKEN: 'fake' }, encoding: 'utf8' });
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /capo/);
+});
