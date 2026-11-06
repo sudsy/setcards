@@ -825,6 +825,30 @@ test('band songs show the saved copy at once and say when the latest has been ch
   await expect(page.locator('#syncBtn')).toHaveAttribute('title', 'Up to date');
 });
 
+test('a band song opens read only until signed in to Google, and opening it does not ask again', async ({ page }) => {
+  const errors = watchErrors(page);
+  await fakeDrive(page, { signedIn: false });
+  await page.addInitScript(() => {
+    window.fakeSavedSongs = [{ id: 'b1', title: 'Saved Song', artist: 'Band', notes: { title: 'Saved Song' }, hasTab: true, addedAt: 1 }];
+    window.fakeBandSongs = [{ id: 'b1', title: 'Saved Song', artist: 'Band', notes: { title: 'Saved Song' }, hasTab: true, addedAt: 1 }];
+  });
+  await page.goto('/');
+  await page.locator('.song-row .song-open', { hasText: 'Saved Song' }).click();
+  await expect(page.locator('body')).toHaveClass(/read-only/);
+  expect(errors).toEqual([]);
+});
+
+test('a band song can be edited once signed in to Google', async ({ page }) => {
+  await fakeDrive(page, { signedIn: true });
+  await page.addInitScript(() => {
+    window.fakeSavedSongs = [{ id: 'b1', title: 'Saved Song', artist: 'Band', notes: { title: 'Saved Song' }, hasTab: true, addedAt: 1 }];
+    window.fakeBandSongs = [{ id: 'b1', title: 'Saved Song', artist: 'Band', notes: { title: 'Saved Song' }, hasTab: true, addedAt: 1 }];
+  });
+  await page.goto('/');
+  await page.locator('.song-row .song-open', { hasText: 'Saved Song' }).click();
+  await expect(page.locator('body')).not.toHaveClass(/read-only/);
+});
+
 test('songs are listed in the order they were added, and can be sorted by title or artist', async ({ page }) => {
   await page.addInitScript(() => { if (!localStorage.getItem('setcards:prefs')) localStorage.setItem('setcards:prefs', JSON.stringify({ mode: 'solo' })); });
   await page.goto('/');

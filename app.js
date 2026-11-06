@@ -85,7 +85,6 @@
     chordEdit: null
   };
 
-  let silentSignInTried = false;   // one quiet sign-in attempt per visit, before asking with the button
   let updateWaiting = false;   // a new version of the app is ready and will load at the next good moment
   let swRegistration = null;   // the app's service worker, so the refresh icon can look for a new version
   let ytPlayer = null;
@@ -704,6 +703,7 @@
   }
 
   function openNoteDialog(partKey, partName) {
+    if (editRefused()) return;
     state.noteEdit = partKey;
     els.noteTitle.textContent = `${role().label} note · ${partName || 'whole song'}`;
     els.noteHint.textContent = `Everyone sees this in the ${role().label.toLowerCase()} view, on any device.`;
@@ -1704,6 +1704,18 @@
     });
   }
 
+  /* ---------------- read only until signed in ---------------- */
+  // A band song (one in the band folder) can be read by anyone with the app. Editing it needs a sign-in first, so an
+  // edit is never kept back to be sent later. Drafts and songs kept on this device can always be edited.
+  const isBandSong = (key) => !!key && SM.library.parse(key).sourceId === 'drive';
+  const canEditSong = () => !state.song || !isBandSong(state.song.key) || drive.signedIn();
+  function editRefused() {
+    if (canEditSong()) return false;
+    toast('Sign in to Google to edit this band song. You can still read it.');
+    return true;
+  }
+  function syncReadOnly() { document.body.classList.toggle('read-only', !canEditSong()); }
+
   function applySong(key, song, refresh) {
     const prevVideo = mediaKey(state.notes);
     if (state.playing) api.stop();
@@ -1711,6 +1723,7 @@
     state.song = { key, title: song.notes.title || song.title || (song.fileName || 'Untitled').replace(SM.SONG_EXT, ''), artist: song.notes.artist || song.artist || '', fileName: song.fileName, canShare: song.canShare, localOnly: song.localOnly, offline: !!song.offline };
     state.notes = song.notes;
     state.notes.chords = state.notes.chords || {};
+    syncReadOnly();
     // changes kept in this browser while the page was closing are sent on to where the song lives
     if (song.fromOverlay && song.canShare) saveNotes();
     state.score = null;
@@ -1874,6 +1887,7 @@
 
   /* ---------------- edit mode ---------------- */
   function setEditing(on) {
+    if (on && editRefused()) return;
     if (!on && !confirmNoteEdits()) return;
     if (!on && state.edit.ops.length) discardNoteEdits();
     state.editing = on;
@@ -1990,6 +2004,7 @@
   }
 
   function openBarDialog(bar) {
+    if (editRefused()) return;
     state.barDlgIndex = bar;
     const existing = state.notes.sections.find((s) => s.start === bar);
     els.barDlgTitle.textContent = `Bar ${bar + 1}`;
@@ -2147,6 +2162,7 @@
 
   /* ---------------- chord dialog (from the cards) ---------------- */
   function openChordDialog(bar, riffId, offset) {
+    if (editRefused()) return;
     state.chordEdit = { bar, riffId, offset };
     const times = riffBarsInSection(riffId, offset, bar).length;
     els.chordDlgTitle.textContent = `Riff ${riffId}, bar ${offset + 1}`;
@@ -2795,18 +2811,12 @@
       } else if (!drive.connected()) {
         renderBandBox();
       } else if (!drive.signedIn()) {
-        // A phone's app icon starts a new session each time, so the token from last time is gone. Google can often
-        // renew access without asking, so that is tried first; the songs appear by themselves if it works.
-        if (drive.wasSignedIn() && drive.canRenewQuietly() && !silentSignInTried) {
-          silentSignInTried = true;
-          drive.signIn(false).then(() => renderHome(), () => {});
-        }
         const box = els.bandBox;
         box.hidden = false;
         box.innerHTML = `<p>Sign in to Google to see <strong></strong>’s songs.</p><button class="text-btn primary" id="homeSignIn" type="button">Show band songs</button>`;
         box.querySelector('strong').textContent = drive.folder().name;
         box.querySelector('#homeSignIn').addEventListener('click', async () => {
-          try { await drive.signIn(); renderHome(); } catch (e) { toast(e.message); }
+          try { await drive.signIn(); syncReadOnly(); renderHome(); } catch (e) { toast(e.message); }
         });
         // the copy kept on this phone, so songs are there even before signing in or without a connection
         const saved = await drive.listSaved().catch(() => null);

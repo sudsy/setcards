@@ -919,3 +919,6 @@ body.chord-editing #chordPanel { padding-bottom: 12px; }
 .chord-panel-bar #chordPanelCount { flex: 1 1 100%; margin: 0; }
 @media (min-width: 560px) { .chord-panel-bar #chordPanelCount { flex: 1 1 auto; } }
 .chord-panel-bar .text-btn { margin: 0; }
+/* a band song read without a sign-in: nothing here is edited, so the edit controls are not shown */
+body.read-only #editBtn, body.read-only .add-note { display: none; }
+body.read-only .chord-cell { pointer-events: none; }
