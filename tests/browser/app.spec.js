@@ -460,6 +460,40 @@ test('the chart view shows a card per section, with the bass note each bar start
   expect(errors).toEqual([]);
 });
 
+test('tapping a bar in the chart opens its tab for bass, and its chord diagram for guitar', async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.addInitScript(() => localStorage.setItem('setcards:prefs', JSON.stringify({ mode: 'solo', view: 'chart' })));
+  await page.goto('/');
+  await page.click('#addSongBtn');
+  await page.fill('#addTitle', 'Baby I Love You');
+  await page.click('#addForm button[type=submit]');
+  const alphaTab = await import('@coderline/alphatab');
+  const sec = (name, n) => Array.from({ length: n }, (_, i) => (i === 0 ? `\\section "${name}" ` : '') + '5.4.8').join(' |\n');
+  const tex = ['\\title "Baby I Love You"', '.', '\\track "Bass"', '\\instrument 33', '.', sec('Intro', 2), '|', sec('Verse', 8), '|'].join('\n');
+  const imp = new alphaTab.importer.AlphaTexImporter();
+  imp.initFromString(tex, new alphaTab.Settings());
+  const bytes = new alphaTab.exporter.Gp7Exporter().export(imp.readScore(), new alphaTab.Settings());
+  await page.locator('#attachInput').setInputFiles({ name: 'baby.gp', mimeType: 'application/octet-stream', buffer: Buffer.from(bytes) });
+  await expect(page.locator('#chart .chart-card').first()).toBeVisible({ timeout: 20000 });
+  // bass: the tap opens the full tab, at that bar
+  await page.locator('#chart .chart-card').nth(1).locator('.chart-cell').nth(2).click();
+  await expect(page.locator('#viewSelTop')).toHaveValue('tab');
+  // guitar: the tap shows the chord diagram for the bar, and the diagrams toggle follows the setting
+  await pickView(page, 'chart');
+  await chooseRole(page, 'Guitar');
+  await expect(page.locator('.chord-diag-toggle')).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('#chart .chart-card').first().locator('.chart-cell').first().click();
+  await expect(page.locator('#barPeekDlg')).toBeVisible();
+  await expect(page.locator('#barPeekTitle')).toHaveText('Bar 1');
+  await page.click('#barPeekDlg [data-close]');
+  await page.locator('.chord-diag-toggle').click();
+  await expect(page.locator('.chord-diag-toggle')).toHaveAttribute('aria-pressed', 'false');
+  await page.click('#settingsBtn');
+  await expect(page.locator('#showChords')).not.toBeChecked();
+  await page.locator('#settingsDlg [data-close]').click();
+  expect(errors).toEqual([]);
+});
+
 test('guitar shows chord diagrams and vocals shows the cue list', async ({ page }) => {
   await openDemo(page);
   await chooseRole(page, 'Guitar');

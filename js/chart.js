@@ -42,10 +42,10 @@
         if (data) {
           const fret = data.frets[i];
           if (fret === null || fret === undefined) cells.push({ kind: 'rest' });
-          else cells.push({ kind: data.stabs && data.stabs.includes(i + 1) ? 'stab' : 'note', note: noteOnD(fret, transpose) });
+          else cells.push({ kind: data.stabs && data.stabs.includes(i + 1) ? 'stab' : 'note', note: noteOnD(fret, transpose), bar: first.start + i });
         } else {
           const note = lowestNote(bars[first.start + i]);
-          cells.push(note ? { kind: 'note', note } : { kind: 'rest' });
+          cells.push(note ? { kind: 'note', note, bar: first.start + i } : { kind: 'rest', bar: first.start + i });
         }
       }
       // one line per time the section is played: "Verse 1", "Verse 2"… (or just the name when it is played once)

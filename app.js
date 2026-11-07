@@ -30,6 +30,7 @@
     addYt: $('addYt'), addStatus: $('addStatus'),
     noteDlg: $('noteDlg'), noteTitle: $('noteTitle'), noteHint: $('noteHint'), noteForm: $('noteForm'), noteText: $('noteText'), noteClear: $('noteClear'),
     settingsBtn: $('settingsBtn'), settingsDlg: $('settingsDlg'), trackSel: $('trackSel'),
+    barPeekDlg: $('barPeekDlg'), barPeekTitle: $('barPeekTitle'), barPeekBody: $('barPeekBody'),
     zoomRange: $('zoomRange'), zoomOut: $('zoomOut'), ytInput: $('ytInput'), exportBtn: $('exportBtn'), showTabCards: $('showTabCards'), showChords: $('showChords'), audioInput: $('audioInput'), audioRemove: $('audioRemove'), kitSel: $('kitSel'), kitInput: $('kitInput'), drumFeel: $('drumFeel'), drumFeelOut: $('drumFeelOut'), drumLoud: $('drumLoud'), drumSwell: $('drumSwell'), countIn: $('countIn'), clickBars: $('clickBars'), clickLevel: $('clickLevel'), clickLevelOut: $('clickLevelOut'), countInLevel: $('countInLevel'), countInLevelOut: $('countInLevelOut'), soundLogText: $('soundLogText'), soundLogCopy: $('soundLogCopy'), appVersion: $('appVersion'),
     barDlg: $('barDlg'), barDlgTitle: $('barDlgTitle'), barDlgText: $('barDlgText'),
     presetRow: $('presetRow'), barForm: $('barForm'), barName: $('barName'), barSubmit: $('barSubmit'), barRemove: $('barRemove'),
@@ -671,7 +672,17 @@
     const row = document.createElement('div');
     row.className = 'song-note-row';
     // a capo is for guitar only: the chord shapes it changes are guitar shapes
-    if (prefs.role === 'guitar') row.appendChild(capoPicker());
+    if (prefs.role === 'guitar') {
+      row.appendChild(capoPicker());
+      // the chord diagrams: the same setting as "Show chords" in the song settings
+      const diag = document.createElement('button');
+      diag.type = 'button';
+      diag.className = 'toggle chord-diag-toggle';
+      diag.textContent = 'Chord diagrams';
+      diag.setAttribute('aria-pressed', String(showChords()));
+      diag.addEventListener('click', () => setShowChords(!showChords()));
+      row.appendChild(diag);
+    }
     row.appendChild(noteBlock(null));
     return row;
   }
@@ -1045,6 +1056,18 @@
       dataFor: data, transpose: transposeSemis(),
     });
     const rest = '<svg viewBox="0 0 12 14" width="12" height="14" aria-hidden="true" style="display:block;margin:auto"><path d="M0 3h12" stroke="currentColor" stroke-width="1"></path><rect x="2" y="3" width="8" height="4" fill="currentColor"></rect></svg>';
+    // the guitar row (capo and the chord diagrams toggle) at the top, as in the cards
+    box.appendChild(songNoteRow());
+    // the chord diagrams, above the chart, when they are shown for this instrument
+    if (role().diagrams && showChords()) {
+      const names = songChordNames();
+      if (names.length) {
+        const strip = document.createElement('section');
+        strip.className = 'card chart-card diagram-strip';
+        strip.innerHTML = `<h3 class="card-label">Chords in this song</h3><div class="diagrams">${names.map((n) => SM.chords.diagram(n)).join('')}</div>`;
+        box.appendChild(strip);
+      }
+    }
     sections.forEach((sec) => {
       const group = state.groups.find((g) => g.key === sec.group);
       const card = document.createElement('section');
@@ -1055,9 +1078,13 @@
       cells.className = 'chart-cells';
       cells.style.setProperty('--cols', String(Math.min(9, sec.cells.length)));
       sec.cells.forEach((c) => {
-        const d = document.createElement('div');
+        // each bar is a button: tapping it opens the bar (see openBarFromChart)
+        const d = document.createElement('button');
+        d.type = 'button';
         d.className = 'chart-cell' + (c.kind === 'stab' ? ' stab' : '') + (c.kind === 'rest' ? ' rest' : '');
-        if (c.kind === 'rest') { d.setAttribute('aria-label', 'rest'); d.innerHTML = rest; } else d.textContent = c.note;
+        d.setAttribute('aria-label', `Bar ${c.bar + 1}${c.kind === 'rest' ? ', rest' : `, ${c.note}`}`);
+        if (c.kind === 'rest') d.innerHTML = rest; else d.textContent = c.note;
+        d.addEventListener('click', () => openBarFromChart(c.bar));
         cells.appendChild(d);
       });
       const lines = document.createElement('div');
@@ -3274,6 +3301,32 @@
     useTrack(i);
   });
   // The full tab shows chord names above the bars only when this instrument shows chords.
+  // Chord names and diagrams for what you play: one setting, read by the song settings and the guitar row.
+  function setShowChords(on) {
+    prefs.chords[prefs.role] = !!on;
+    savePrefs();
+    syncChordToggles();
+    applyChordVisibility();
+    if (prefs.view === 'tab') api.render(); else redrawCards();
+  }
+  function syncChordToggles() {
+    els.showChords.checked = showChords();
+    document.querySelectorAll('.chord-diag-toggle').forEach((b) => b.setAttribute('aria-pressed', String(showChords())));
+  }
+  // Tapping a bar in the chart: a guitar bar shows its chord diagram; a bass bar opens the full tab at that bar.
+  function openBarFromChart(bar) {
+    if (role().diagrams) {
+      const names = chordsAt(bar);
+      els.barPeekTitle.textContent = `Bar ${bar + 1}`;
+      els.barPeekBody.innerHTML = names.length
+        ? `<div class="diagrams">${names.map((n) => SM.chords.diagram(n)).join('')}</div>`
+        : '<p class="fine">No chord for this bar.</p>';
+      els.barPeekDlg.showModal();
+    } else {
+      pendingTabBar = bar;
+      setView('tab');
+    }
+  }
   function applyChordVisibility() {
     const show = showChords();
     const els2 = api.settings.notation.elements;
@@ -3282,12 +3335,7 @@
     api.updateSettings();
     return true;
   }
-  els.showChords.addEventListener('change', () => {
-    prefs.chords[prefs.role] = els.showChords.checked;
-    savePrefs();
-    applyChordVisibility();
-    if (prefs.view === 'tab') api.render(); else renderCards();
-  });
+  els.showChords.addEventListener('change', () => setShowChords(els.showChords.checked));
   els.showTabCards.addEventListener('change', () => {
     prefs.cardsTab[prefs.role] = els.showTabCards.checked;
     savePrefs();
