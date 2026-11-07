@@ -922,3 +922,22 @@ body.chord-editing #chordPanel { padding-bottom: 12px; }
 /* a band song read without a sign-in: nothing here is edited, so the edit controls are not shown */
 body.read-only #editBtn, body.read-only .add-note { display: none; }
 body.read-only .chord-cell { pointer-events: none; }
+
+/* ---------- chart view: one card per section, a cell for each bar ---------- */
+.chart-view { padding: 6px 8px; display: grid; gap: 6px; align-content: start; overflow-y: auto; }
+.chart-view[hidden] { display: none; }
+.chart-card { padding: 6px 8px; margin-bottom: 0; }
+.chart-cells { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+.chart-cell { border: 1px solid var(--line); border-radius: 6px; text-align: center; font-family: var(--font-display); font-weight: 600; font-size: 1.15rem; line-height: 1.7; background: var(--surface); color: var(--ink); }
+.chart-cell.stab { border-color: var(--c-chorus); color: var(--c-chorus); background: color-mix(in srgb, var(--c-chorus) 10%, var(--surface)); }
+.chart-cell.rest { border-style: dashed; color: var(--muted); font-size: 0.8rem; font-weight: 500; }
+.chart-card .card-lines { display: grid; gap: 2px; margin-top: 4px; }
+
+/* ---------- top bar: the view as a dropdown on wide screens; on phones it is in the settings ---------- */
+.view-sel { font: inherit; font-size: 0.85rem; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink); }
+.view-field { display: none; }
+.edit-icon { display: none; width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+body.compact .top-view { display: none; }
+body.compact .view-field { display: block; }
+body.compact .edit-word { display: none; }
+body.compact .edit-icon { display: block; }

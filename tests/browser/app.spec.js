@@ -19,6 +19,17 @@ async function openDemo(page, path = '/') {
   await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
 }
 
+// Picks the view: the top bar dropdown on wide screens, or the song settings on phones.
+async function pickView(page, view) {
+  if (await page.locator('#viewSelTop').isVisible()) {
+    await page.selectOption('#viewSelTop', view);
+  } else {
+    await page.click('#settingsBtn');
+    await page.selectOption('#viewSelSet', view);
+    await page.click('#settingsDlg [data-close]');
+  }
+}
+
 // Stand-ins for the Google Drive source, so band features can be tested without signing in.
 async function fakeDrive(page, { folder = { id: 'f1', name: 'The Band (Setcards)' }, signedIn = true } = {}) {
   await page.addInitScript(({ folder, signedIn }) => {
@@ -150,7 +161,7 @@ test('tapping a section in the song order scrolls to its card', async ({ page })
 
 test('the full tab shows one section at a time, or the whole song', async ({ page }) => {
   await openDemo(page);
-  await page.click('#viewTab:visible, #viewTabTop:visible');
+  await pickView(page, 'tab');
   await expect(page.locator('#tab .at-surface canvas').first()).toBeVisible();
   await steps(page).nth(4).click();
   await expect(page.locator('#sectionName')).toHaveText('Chorus');
@@ -166,9 +177,10 @@ test('the full tab shows one section at a time, or the whole song', async ({ pag
 });
 
 async function chooseRole(page, label) {
-  await page.click('#roleBtn');
-  await page.click(`.role-opt:has-text("${label}")`);
-  await expect(page.locator('#roleBtn')).toHaveText(label);
+  await page.click('#settingsBtn');
+  await page.selectOption('#roleSel', { label });
+  await page.click('#settingsDlg [data-close]');
+  await expect(page.locator('#roleSel')).toHaveValue(new RegExp(label.toLowerCase()));
 }
 
 test('a chord typed in one bar stays in that bar unless every repeat is asked for', async ({ page }) => {
@@ -287,7 +299,7 @@ test('a capo is chosen at the top of the song, and shows the chord shapes to pla
   await expect(first).toHaveText(before);
   // the capo is chosen with the cards, so the full tab has no capo control
   await page.selectOption('.capo-pick', '2');
-  await page.click('#viewTab:visible, #viewTabTop:visible');
+  await pickView(page, 'tab');
   await expect(page.locator('.capo-pick')).toHaveCount(0);
 });
 
@@ -389,76 +401,10 @@ test('in guitar edit mode, the chords for the whole song are typed in one box pe
   expect(errors).toEqual([]);
 });
 
-test('the repeats option is only offered where a riff is played more than once', async ({ page }) => {
-  const errors = watchErrors(page);
-  await page.addInitScript(() => localStorage.setItem('setcards:prefs', JSON.stringify({ mode: 'solo', role: 'guitar' })));
-  await page.goto('/');
-  await page.click('#addSongBtn');
-  await page.fill('#addTitle', 'No Repeats');
-  await page.click('#addForm button[type=submit]');
-  const alphaTab = await import('@coderline/alphatab');
-  // sixteen bars, each different, so no riff comes back
-  const bars = Array.from({ length: 16 }, (_, i) => `${i}.6.4 ${(i + 3) % 16}.5.4 ${(i + 5) % 16}.4.4 ${(i + 7) % 16}.3.4`).join(' | ');
-  const imp = new alphaTab.importer.AlphaTexImporter();
-  imp.initFromString(`\\title "No Repeats"\n.\n\\track "Nylon"\n\\instrument 24\n${bars} |`, new alphaTab.Settings());
-  const bytes = new alphaTab.exporter.Gp7Exporter().export(imp.readScore(), new alphaTab.Settings());
-  await page.locator('#attachInput').setInputFiles({ name: 'no-repeats.gp', mimeType: 'application/octet-stream', buffer: Buffer.from(bytes) });
-  await expect.poll(() => page.evaluate(() => window.setcardsTest.state().bars.length), { timeout: 20000 }).toBeGreaterThan(0);
-  // a single bar's chords, from the card: no riff comes back, so there is nothing to copy to
-  await page.locator('.card').first().locator('.chord-cell').first().click();
-  await expect(page.locator('#chordDlg')).toBeVisible();
-  await expect(page.locator('#chordAllLabel')).toBeHidden();
-  await page.click('#chordDlg [data-close]');
-
-  expect(errors).toEqual([]);
-});
-
-test('for bass on a card, the repeats of its section can be shown as %, and only on the cards', async ({ page }) => {
-  const errors = watchErrors(page);
-  await openDemo(page);
-  await chooseRole(page, 'Bass');
-  const pct = page.locator('.card').first().locator('.repeat-btn');
-  await expect(pct).toHaveAttribute('aria-pressed', 'false');
-  expect(await page.evaluate(() => window.setcardsTest.state().simileBars)).toBe(0);
-  await pct.click();
-  await expect(page.locator('.card').first().locator('.repeat-btn')).toHaveAttribute('aria-pressed', 'true');
-  await expect.poll(() => page.evaluate(() => window.setcardsTest.state().simileBars)).toBeGreaterThan(0);
-  // the full tab keeps every bar as written, so the lyrics are not crowded
-  await page.click('#viewTab:visible, #viewTabTop:visible');
-  await expect.poll(() => page.evaluate(() => window.setcardsTest.state().simileBars)).toBe(0);
-  await page.click('#viewCards:visible, #viewCardsTop:visible');
-  await expect(page.locator('.card').first().locator('.repeat-btn')).toHaveAttribute('aria-pressed', 'true');
-  await expect.poll(() => page.evaluate(() => window.setcardsTest.state().simileBars)).toBeGreaterThan(0);
-  expect(errors).toEqual([]);
-});
-
-test('an export made while bars show as % has the same notes as the song', async ({ page }) => {
-  await openDemo(page);
-  await chooseRole(page, 'Bass');
-  await page.locator('.card').first().locator('.repeat-btn').click();
-  await expect.poll(() => page.evaluate(() => window.setcardsTest.state().simileBars)).toBeGreaterThan(0);
-  await page.click('#settingsBtn');
-  const download = page.waitForEvent('download');
-  await page.click('#exportBtn');
-  const fs = require('fs');
-  const alphaTab = await import('@coderline/alphatab');
-  const count = (bytes) => {
-    const score = alphaTab.importer.ScoreLoader.loadScoreFromBytes(new Uint8Array(bytes), new alphaTab.Settings());
-    let notes = 0;
-    score.tracks.forEach((t) => t.staves.forEach((st) => st.bars.forEach((b) => b.voices.forEach((v) => v.beats.forEach((x) => { notes += x.notes.length; })))));
-    return { notes, bars: score.masterBars.length, marks: score.tracks.reduce((n, t) => n + t.staves.reduce((m, st) => m + st.bars.filter((b) => b.simileMark).length, 0), 0) };
-  };
-  const exported = count(fs.readFileSync(await (await download).path()));
-  const original = count((await demoGpFile()).buffer);
-  expect(exported.notes).toBe(original.notes);
-  expect(exported.bars).toBe(original.bars);
-  expect(exported.marks).toBe(0);
-});
-
 test('picking a section in the full tab scrolls to it and keeps the rest of the tab', async ({ page }) => {
   await openDemo(page);
   await chooseRole(page, 'Bass');
-  await page.click('#viewTab:visible, #viewTabTop:visible');
+  await pickView(page, 'tab');
   await page.click('#nextBtn');
   await page.click('#nextBtn');
   await page.click('#nextBtn');
@@ -476,13 +422,42 @@ test('the play bar has back to the beginning and no loop button', async ({ page 
   await expect(page.locator('#loopBtn')).toHaveCount(0);
   await expect(page.locator('#skipBtn')).toBeVisible();
   await chooseRole(page, 'Bass');
-  await page.click('#viewTab:visible, #viewTabTop:visible');
+  await pickView(page, 'tab');
   await page.click('#nextBtn');
   await page.click('#nextBtn');
   await page.click('#skipBtn');
   const start = await page.evaluate(() => window.setcardsTest.state().parts[1].playStart ?? window.setcardsTest.state().parts[1].start);
   // alphaTab numbers a range one tick later, so a tick either side is the start
   await expect.poll(() => page.evaluate(() => Math.abs(window.setcardsTest.state().tick - window.setcardsTest.state().parts[1].start))).toBeLessThanOrEqual(1);
+});
+
+test('the chart view shows a card per section, with the bass note each bar starts on', async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.addInitScript(() => localStorage.setItem('setcards:prefs', JSON.stringify({ mode: 'solo', view: 'chart' })));
+  await page.goto('/');
+  await page.click('#addSongBtn');
+  await page.fill('#addTitle', 'Baby I Love You');
+  await page.click('#addForm button[type=submit]');
+  const alphaTab = await import('@coderline/alphatab');
+  // the bass part, with the sections of the song as written (the chart takes its notes from the band's data)
+  const bar = (f) => `${f}.4.8`;
+  const sec = (name, n, f) => Array.from({ length: n }, (_, i) => (i === 0 ? `\\section "${name}" ` : '') + bar(f(i))).join(' |\n');
+  const tex = ['\\title "Baby I Love You"', '.', '\\track "Bass"', '\\instrument 33', '.',
+    sec('Intro', 2, () => 5), '|', sec('Verse', 8, () => 5), '|', sec('Pre-chorus', 6, () => 5), '|',
+    sec('Chorus', 7, () => 5), '|', sec('Outro', 9, () => 5), '|'].join('\n');
+  const imp = new alphaTab.importer.AlphaTexImporter();
+  imp.initFromString(tex, new alphaTab.Settings());
+  const bytes = new alphaTab.exporter.Gp7Exporter().export(imp.readScore(), new alphaTab.Settings());
+  await page.locator('#attachInput').setInputFiles({ name: 'baby.gp', mimeType: 'application/octet-stream', buffer: Buffer.from(bytes) });
+  await expect(page.locator('#chart .chart-card').first()).toBeVisible({ timeout: 20000 });
+  await expect(page.locator('#chart .chart-card')).toHaveCount(5);
+  const chorus = page.locator('#chart .chart-card').nth(3);
+  await expect(chorus.locator('.chart-cell.stab')).toHaveCount(2);
+  await expect(page.locator('#chart .chart-card').first().locator('.chart-cell')).toHaveText(['G', 'G']);
+  await expect(page.locator('#chart .chart-card').nth(4).locator('.chart-cell.rest')).toHaveCount(1);
+  await expect(page.locator('#chart .card-lines .layout').first().locator('.when')).toHaveText('Intro');
+  await expect(page.locator('#viewSelTop')).toHaveValue('chart');
+  expect(errors).toEqual([]);
 });
 
 test('guitar shows chord diagrams and vocals shows the cue list', async ({ page }) => {
@@ -493,8 +468,7 @@ test('guitar shows chord diagrams and vocals shows the cue list', async ({ page 
   await page.click('#chordForm button[type=submit]');
   await expect(page.locator('.diagram-strip .chord-svg')).toHaveCount(2);
 
-  await page.click('#roleBtn');
-  await page.click('.role-opt:has-text("Vocals")');
+  await chooseRole(page, 'Vocals');
   await expect(page.locator('.cue')).toHaveCount(10);
   await expect(page.locator('.cue').first()).toContainText('Intro');
 });
@@ -514,12 +488,10 @@ test('instrument notes are kept with the song and shown only in that instrument�
   // close the part's details, which opened with the long press
   await page.keyboard.press('Escape');
 
-  await page.click('#roleBtn');
-  await page.click('.role-opt:has-text("Guitar")');
+  await chooseRole(page, 'Guitar');
   await expect(page.locator('.card[data-group="verse"] .role-note')).toHaveCount(0);
 
-  await page.click('#roleBtn');
-  await page.click('.role-opt:has-text("Bass")');
+  await chooseRole(page, 'Bass');
   await page.reload();
   await page.locator('.song-row .song-open').first().click();
   await expect(page.locator('.card[data-group="verse"] .role-note-text')).toHaveText('Walk up into the chorus');
@@ -534,7 +506,6 @@ test('the band key, original key and tempo are recorded and shown in the song li
   await page.locator('#tempoInput').blur();
   await expect(page.locator('#keyInfo')).toContainText('The band plays this 2 semitones lower than the recording.');
   await page.locator('#settingsDlg [data-close]').click();
-  await expect(page.locator('#songMeta')).toContainText('D · 100 bpm');
   await page.click('#backBtn');
   await expect(page.locator('.song-row .details').first()).toContainText('D (orig. E) · 100 bpm');
 });
@@ -656,7 +627,7 @@ test('a song can be added with just a name, then given its tab later', async ({ 
 
   // it opens on the no-tab page, keeping what was entered
   await expect(page.locator('#noTab h2')).toHaveText('No tab yet');
-  await expect(page.locator('#songMeta')).toContainText('Proposed · The Demos');
+  await expect(page.locator('#songMeta')).toHaveText('The Demos');
   await expect(page.locator('#noTabYt')).toHaveValue('https://youtu.be/dQw4w9WgXcQ');
   await expect(page.locator('#noTab a', { hasText: 'Songsterr' })).toHaveAttribute('href', /pattern=Low%20Road%20The%20Demos/);
   await page.locator('#noTab .add-note').click();
@@ -674,7 +645,6 @@ test('a song can be added with just a name, then given its tab later', async ({ 
   await proposed.locator('.song-open').click();
   await page.locator('#attachInput').setInputFiles(await demoGpFile());
   await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
-  await expect(page.locator('#songMeta')).toContainText('Proposed');
   await expect(page.locator('.song-note-row > .role-note .role-note-text')).toHaveText('Check the key with the singer');
   await page.click('#backBtn');
   // still proposed until the band decides it is being learnt
@@ -717,7 +687,7 @@ test('the bass view hides chords unless they are turned on', async ({ page }) =>
 
   await chooseRole(page, 'Bass');
   await expect(page.locator('.chord-row')).toHaveCount(0);
-  await page.click('#viewTab:visible, #viewTabTop:visible');
+  await pickView(page, 'tab');
   await expect(page.locator('#tab .at-surface svg').first()).toBeVisible();
   await expect(page.locator('#tab text', { hasText: 'Intro' }).first()).toBeVisible();
   await expect(page.locator('#tab text', { hasText: /^Em$/ })).toHaveCount(0);
@@ -727,7 +697,7 @@ test('the bass view hides chords unless they are turned on', async ({ page }) =>
   await page.check('#showChords');
   await page.locator('#settingsDlg [data-close]').click();
   await expect(page.locator('#tab text', { hasText: /^Em$/ }).first()).toBeVisible();
-  await page.click('#viewCards:visible, #viewCardsTop:visible');
+  await pickView(page, 'cards');
   await expect(page.locator('.card[data-group="intro"] .chord-cell').first()).toHaveText('Em');
 });
 
@@ -740,7 +710,7 @@ test('the tab can be transposed for the band or just on this device', async ({ p
   await page.locator('.card[data-group="intro"] .chord-cell').first().click();
   await page.fill('#chordInput', 'Em');
   await page.click('#chordForm button[type=submit]');
-  await page.click('#viewTab:visible, #viewTabTop:visible');
+  await pickView(page, 'tab');
   const firstFrets = () => page.evaluate(() => [...document.querySelectorAll('#tab text')].map((t) => t.textContent).filter((t) => /^\d+$/.test(t)).slice(1, 4).join(' '));
   await expect(page.locator('#tab .at-surface svg').first()).toBeVisible();
   const before = await firstFrets();
@@ -751,7 +721,6 @@ test('the tab can be transposed for the band or just on this device', async ({ p
   await page.click('#bandTrUp');
   await expect(page.locator('#bandTrOut')).toHaveText('+2');
   await page.locator('#settingsDlg [data-close]').click();
-  await expect(page.locator('#songMeta')).toContainText('tab +2');
   await expect(page.locator('#tab text', { hasText: /^F#m$/ }).first()).toBeVisible();
   expect(await firstFrets()).not.toEqual(before);
 
@@ -770,7 +739,6 @@ test('the tab can be transposed for the band or just on this device', async ({ p
   await page.click('#myTrReset');
   await expect(page.locator('#myTrOut')).toHaveText('same');
   await page.locator('#settingsDlg [data-close]').click();
-  await expect(page.locator('#songMeta')).toContainText('tab +2');
 });
 
 test('match band key works out the transposition from the tab key', async ({ page }) => {

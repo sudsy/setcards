@@ -8,7 +8,7 @@
   const els = {
     songTitle: $('songTitle'), songMeta: $('songMeta'),
     structure: $('structure'),
-    viewCards: $('viewCards'), viewTab: $('viewTab'), viewCardsTop: $('viewCardsTop'), viewTabTop: $('viewTabTop'), roleBtn: $('roleBtn'),
+    viewSelTop: $('viewSelTop'), viewSelSet: $('viewSelSet'), roleSel: $('roleSel'), chart: $('chart'),
     sectionHead: $('sectionHead'), sectionName: $('sectionName'), sectionBars: $('sectionBars'),
     prevBtn: $('prevBtn'), nextBtn: $('nextBtn'),
     editBtn: $('editBtn'), editPanel: $('editPanel'), sectionList: $('sectionList'),
@@ -230,7 +230,8 @@
     const k = [keys.band || (m.key ? m.key + (m.keyGuessed ? '?' : '') : ''), tr ? `tab ${signed(tr)}` : ''].filter(Boolean).join(', ');
     const t = (state.notes && state.notes.tempo) || m.tempo;
     const st = state.notes && STATUS_LABELS[state.notes.status] && state.notes.status !== 'ready' ? STATUS_LABELS[state.notes.status] : '';
-    els.songMeta.textContent = [place, st, state.song.artist, k, t ? `${t} bpm` : ''].filter(Boolean).join(' · ') || state.song.fileName || '';
+    // the header shows only the artist; the band, status, key and tempo are in the song's details
+    els.songMeta.textContent = state.song.artist || '';
   }
 
   function updateBanner() {
@@ -563,6 +564,10 @@
       t.title = `${p.label} · ${plural(p.bars, 'bar')} · bars ${p.start + 1}–${p.end + 1}${p.empty ? ' · nothing to play' : ` · ${p.summary}`}`;
       t.addEventListener('click', () => {
         if (prefs.view === 'cards') { scrollToCard(i); playFromPart(i); }
+        else if (prefs.view === 'chart') {
+          const c = els.chart.querySelector(`.card[data-group="${CSS.escape(p.group.key)}"]`);
+          if (c) c.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        }
         else selectView(i);
       });
       els.structure.appendChild(t);
@@ -983,7 +988,6 @@
     SM, els, state, role, showChords, showTabInCards, isCompact, isPaged, compactClass, applyPaged, markInView,
     destroyMinis, startMinis, songKeysBlock, songNoteRow, noteBlock, getNote, sectionBarRange, chordsAt, songChordNames,
     riffForBar, openChordDialog, playRange, plural, esc, segColor, selectView, setView,
-    simileStarts: () => simileStarts(), toggleSimile, applySimileMarks,
   });
   const renderCards = cardsView.renderCards;
 
@@ -1002,23 +1006,76 @@
       applySimileMarks();
       api.render();
     } else {
-      renderCards();
+      redrawCards();
       els.scroller.scrollTop = 0;
     }
     refreshChipStates();
   }
 
+  // The chart and the cards are both drawn from the song's sections; the full tab is drawn by alphaTab.
+  const showingCards = () => prefs.view === 'cards' || prefs.view === 'chart';
+  function redrawCards() {
+    if (prefs.view === 'chart') renderChart(); else renderCards();
+  }
+
   function applyViewChrome() {
     applyPaged();
     const cards = prefs.view === 'cards';
-    [[els.viewCards, els.viewCardsTop, cards], [els.viewTab, els.viewTabTop, !cards]].forEach(([a, b, on]) => {
-      a.setAttribute('aria-pressed', String(on));
-      b.setAttribute('aria-pressed', String(on));
-    });
+    const chart = prefs.view === 'chart';
+    const tab = prefs.view === 'tab';
+    els.viewSelTop.value = prefs.view;
+    els.viewSelSet.value = prefs.view;
     els.cards.hidden = !cards;
-    els.tab.hidden = cards;
-    els.sectionHead.hidden = cards;
-    if (cards && state.editing) setEditing(false);
+    els.chart.hidden = !chart;
+    els.tab.hidden = !tab;
+    els.sectionHead.hidden = !tab;
+    if ((cards || chart) && state.editing) setEditing(false);
+  }
+
+  // The chart: one card per section, a cell for each bar showing the bass note it starts on, and a lyric cue line for
+  // each time the section is played (see js/chart.js).
+  function renderChart() {
+    const box = els.chart;
+    box.innerHTML = '';
+    if (!state.score || !state.groups.length) return;
+    const track = state.score.tracks[state.trackIndex];
+    const data = SM.chartData[state.song && state.song.title] || null;
+    const sections = SM.chart.chartSections({
+      groups: state.groups, parts: state.parts, bars: track && track.staves[0] ? track.staves[0].bars : [],
+      dataFor: data, transpose: transposeSemis(),
+    });
+    const rest = '<svg viewBox="0 0 12 14" width="12" height="14" aria-hidden="true" style="display:block;margin:auto"><path d="M0 3h12" stroke="currentColor" stroke-width="1"></path><rect x="2" y="3" width="8" height="4" fill="currentColor"></rect></svg>';
+    sections.forEach((sec) => {
+      const group = state.groups.find((g) => g.key === sec.group);
+      const card = document.createElement('section');
+      card.className = 'card chart-card';
+      card.dataset.group = sec.group;
+      card.style.setProperty('--seg', segColor(group ? group.kind : ''));
+      const cells = document.createElement('div');
+      cells.className = 'chart-cells';
+      cells.style.gridTemplateColumns = `repeat(${Math.min(8, sec.cells.length)}, minmax(0, 1fr))`;
+      if (sec.cells.length === 9) cells.style.gridTemplateColumns = 'repeat(9, minmax(0, 1fr))';
+      sec.cells.forEach((c) => {
+        const d = document.createElement('div');
+        d.className = 'chart-cell' + (c.kind === 'stab' ? ' stab' : '') + (c.kind === 'rest' ? ' rest' : '');
+        if (c.kind === 'rest') { d.setAttribute('aria-label', 'rest'); d.innerHTML = rest; } else d.textContent = c.note;
+        cells.appendChild(d);
+      });
+      const lines = document.createElement('div');
+      lines.className = 'card-lines';
+      sec.lines.forEach((text) => {
+        const row = document.createElement('div');
+        row.className = 'layout';
+        const when = document.createElement('span');
+        when.className = 'when';
+        when.textContent = text;
+        row.appendChild(when);
+        lines.appendChild(row);
+      });
+      card.appendChild(cells);
+      card.appendChild(lines);
+      box.appendChild(card);
+    });
   }
 
   // Scrolls the full tab to a bar once it has been drawn.
@@ -1228,7 +1285,7 @@
     els.drumsBtn.hidden = !drumTrack();
     applyDrumKit();
     setDrumsOnly(prefs.drumsOnly);
-    if (prefs.view === 'cards') { renderCards(); doneSwitching(); }
+    if (showingCards()) { redrawCards(); doneSwitching(); }
     if (suggested) toast(`This file had no sections, so Setcards suggested ${state.notes.sections.length}. Rename them in Edit.`);
   });
 
@@ -1592,7 +1649,7 @@
     applyAnnotations();
     renderMap();
     api.renderTracks([state.score.tracks[i]]);
-    if (prefs.view === 'cards') renderCards();
+    if (showingCards()) redrawCards();
     els.trackSel.value = i;
   }
 
@@ -1601,19 +1658,24 @@
     prefs.roleChosen = true;
     savePrefs();
     refreshEditPanel();
-    els.roleBtn.textContent = role().label;
+    els.roleSel.value = prefs.role;
     els.homeRoleBtn.textContent = role().label;
     if (!state.score) return;
     applySimileMarks();
     const i = pickTrack(state.score);
     updateBanner();
     if (i !== state.trackIndex) useTrack(i);
-    else if (prefs.view === 'cards') renderCards();
+    else if (showingCards()) redrawCards();
     els.showTabCards.checked = showTabInCards();
     els.showChords.checked = showChords();
     if (applyChordVisibility() && prefs.view === 'tab') api.render();
   }
 
+  function fillRoleSelect() {
+    els.roleSel.innerHTML = '';
+    ROLES.forEach((r) => { const o = document.createElement('option'); o.value = r.id; o.textContent = r.label; els.roleSel.appendChild(o); });
+    els.roleSel.value = prefs.role;
+  }
   const openRoles = () => {
     els.roleList.innerHTML = '';
     ROLES.forEach((r) => {
@@ -1626,7 +1688,9 @@
     });
     els.roleDlg.showModal();
   };
-  els.roleBtn.addEventListener('click', openRoles);
+  // what you play is chosen in the song settings (and on the home screen)
+  fillRoleSelect();
+  els.roleSel.addEventListener('change', () => setRole(els.roleSel.value));
   els.homeRoleBtn.addEventListener('click', openRoles);
   // The refresh icon reloads the songs, and looks for a new version of the app: when one is ready, the page reloads onto it.
   // While a dialog is open, a touch outside it does not scroll the page underneath (on older iPads it did).
@@ -1896,7 +1960,8 @@
     state.editing = on;
     document.body.classList.toggle('editing', on);
     els.editBtn.setAttribute('aria-pressed', String(on));
-    els.editBtn.textContent = on ? 'Done' : 'Edit';
+    els.editBtn.querySelector('.edit-word').textContent = on ? 'Done' : 'Edit';
+    els.editBtn.setAttribute('aria-label', on ? 'Done' : 'Edit');
     els.editPanel.hidden = !on;
     if (on) {
       if (prefs.view !== 'tab' && !chordPanelMode()) setView('tab');
@@ -2205,7 +2270,8 @@
   // In a section that is switched on, a bar exactly like the one before it is drawn with a % sign. The notes stay in
   // the score, so playback and the saved file are unchanged; the marks are put back while a file is written.
   const originalSimile = new Map();   // bar -> the mark it came with, for the bars shown with %
-  const simileOn = () => prefs.role === 'bass' && prefs.view === 'cards';
+  // The % marks were drawn from the "Repeats as %" button, which is removed; the marks are kept switched off.
+  const simileOn = () => false;
   const simileStarts = () => (state.notes && state.notes.simile) || [];
   function restoreSimile() {
     originalSimile.forEach((mark, bar) => { bar.simileMark = mark; });
@@ -2346,10 +2412,8 @@
   });
   els.prevBtn.addEventListener('click', () => selectView(state.view - 1));
   els.nextBtn.addEventListener('click', () => selectView(state.view + 1));
-  els.viewCards.addEventListener('click', () => setView('cards'));
-  els.viewTab.addEventListener('click', () => setView('tab'));
-  els.viewCardsTop.addEventListener('click', () => setView('cards'));
-  els.viewTabTop.addEventListener('click', () => setView('tab'));
+  els.viewSelTop.addEventListener('change', () => setView(els.viewSelTop.value));
+  els.viewSelSet.addEventListener('change', () => setView(els.viewSelSet.value));
 
   document.addEventListener('keydown', (e) => {
     if (e.target.closest('input, select, textarea, dialog')) return;
@@ -3228,7 +3292,7 @@
   els.showTabCards.addEventListener('change', () => {
     prefs.cardsTab[prefs.role] = els.showTabCards.checked;
     savePrefs();
-    if (prefs.view === 'cards') renderCards();
+    if (showingCards()) redrawCards();
   });
   document.querySelectorAll('input[name="stave"]').forEach((r) => r.addEventListener('change', () => {
     prefs.stave = r.value;
@@ -3363,7 +3427,7 @@
 
   /* ---------------- start ---------------- */
   // The app always opens on the band's song list.
-  els.roleBtn.textContent = role().label;
+  fillRoleSelect();
   applyViewChrome();
   applyChordVisibility();
   drive.preload();

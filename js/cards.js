@@ -6,7 +6,7 @@
   const SM = root.SM = root.SM || {};
 
   function create(deps) {
-    const { SM, els, state, role, showChords, showTabInCards, isCompact, isPaged, compactClass, applyPaged, markInView, destroyMinis, startMinis, songKeysBlock, songNoteRow, noteBlock, sectionBarRange, chordsAt, songChordNames, riffForBar, openChordDialog, playRange, plural, esc, segColor, selectView, setView, simileStarts, toggleSimile, applySimileMarks, getNote } = deps;
+    const { SM, els, state, role, showChords, showTabInCards, isCompact, isPaged, compactClass, applyPaged, markInView, destroyMinis, startMinis, songKeysBlock, songNoteRow, noteBlock, sectionBarRange, chordsAt, songChordNames, riffForBar, openChordDialog, playRange, plural, esc, segColor, selectView, setView, getNote } = deps;
     function renderCards() {
       compactClass();
       // in performance mode a redraw keeps the part that was on screen
@@ -16,7 +16,6 @@
       els.cards.innerHTML = '';
       applyPaged();
       if (!state.score) return;
-      applySimileMarks();
       const r = role();
       const frag = document.createDocumentFragment();
 
@@ -106,24 +105,7 @@
         }
         // the whole section is written out, bar by bar, including any repeats inside it
         card.appendChild(sectionBlock(occ[0], !g.empty));
-        // the card's controls, under its bars: for bass, its repeats as % (an experiment)
-        const actions = document.createElement('div');
-        actions.className = 'card-actions';
-        if (r.id === 'bass' && showTabInCards()) {
-          const start = sectionBarRange(occ[0].start)[0];
-          const on = simileStarts().includes(start);
-          const pct = document.createElement('button');
-          pct.type = 'button';
-          pct.className = 'text-btn repeat-btn';
-          pct.textContent = 'Repeats as %';
-          pct.setAttribute('aria-pressed', String(on));
-          pct.setAttribute('aria-label', `Show repeated bars in ${g.name} as %`);
-          pct.title = `Show repeated bars in ${g.name} as %`;
-          pct.addEventListener('click', () => toggleSimile(start));
-          actions.appendChild(pct);
-        }
-        if (actions.children.length) card.appendChild(actions);
-        riffIds.forEach((id) => shown.add(id));
+          riffIds.forEach((id) => shown.add(id));
         // held upright, the card is only its colour and tab; a long press opens the rest
         if (isCompact()) attachPartDetail(card, g, occ, layoutHtml, fills);
         frag.appendChild(card);

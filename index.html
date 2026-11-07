@@ -69,12 +69,13 @@
         <div id="songTitle" class="song-title">Setcards</div>
         <div id="songMeta" class="song-meta"></div>
       </div>
-      <button id="roleBtn" class="role-btn" title="What you play">Bass</button>
-      <button id="editBtn" class="text-btn" aria-pressed="false">Edit</button>
-      <div class="seg-toggle top-view" role="group" aria-label="View">
-        <button id="viewCardsTop" aria-pressed="true">Cards</button>
-        <button id="viewTabTop" aria-pressed="false">Full tab</button>
-      </div>
+      <button id="editBtn" class="text-btn edit-btn" aria-pressed="false" aria-label="Edit">
+        <span class="edit-word">Edit</span>
+        <svg class="edit-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>
+      </button>
+      <select id="viewSelTop" class="view-sel top-view" aria-label="View">
+        <option value="chart">Chart</option><option value="cards">Cards</option><option value="tab">Full tab</option>
+      </select>
       <button id="noticeBtn" class="icon-btn notice-btn" aria-label="Notices" title="Notices" hidden>
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.5"/></svg>
       </button>
@@ -86,10 +87,6 @@
     <nav class="map" aria-label="Song structure">
       <div class="map-top">
         <div class="map-label">Song order</div>
-        <div class="seg-toggle" role="group" aria-label="View">
-          <button id="viewCards" aria-pressed="true">Cards</button>
-          <button id="viewTab" aria-pressed="false">Full tab</button>
-        </div>
       </div>
       <div id="structure" class="structure"></div>
     </nav>
@@ -153,6 +150,7 @@
       <div id="drop" class="drop-hint" hidden>Drop a Guitar Pro file to open it</div>
       <div id="loading" class="loading">Loading…</div>
       <section id="noTab" class="no-tab-page" hidden></section>
+      <div id="chart" class="chart-view" hidden></div>
       <div id="cards" class="cards"></div>
       <div id="tab" hidden></div>
     </main>
@@ -257,6 +255,14 @@
       </button>
     </div>
     <div class="sheet-scroll">
+    <label class="field">
+      <span>What you play</span>
+      <select id="roleSel"></select>
+    </label>
+    <label class="field view-field">
+      <span>View</span>
+      <select id="viewSelSet"><option value="chart">Chart</option><option value="cards">Cards</option><option value="tab">Full tab</option></select>
+    </label>
     <label class="field">
       <span>Status</span>
       <select id="statusSel"><option value="proposed">Proposed</option><option value="learning">Learning</option><option value="ready">Ready</option></select>
@@ -434,6 +440,8 @@
   <script src="js/kits.js"></script>
   <script src="js/soundfont.js"></script>
   <script src="js/notes.js"></script>
+  <script src="js/chart-data.js"></script>
+  <script src="js/chart.js"></script>
   <script src="js/storage-core.js"></script>
   <script src="js/storage-device.js"></script>
   <script src="js/drive-api.js"></script>
