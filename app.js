@@ -1202,6 +1202,7 @@
         metronome: api.metronomeVolume,
         groups: state.groups ? state.groups.length : 0,
         wholeNote: getNote(null) || '',
+        artistNote: state.notes ? state.notes.artist || '' : '',
         simileBars: state.score && state.score.tracks[state.trackIndex] ? state.score.tracks[state.trackIndex].staves[0].bars.filter((b) => b.simileMark).length : 0
       })
     };
@@ -3618,7 +3619,7 @@
     if (!state.notes || !state.song) return;
     const v = value.trim();
     if (v) state.notes[key] = v; else delete state.notes[key];
-    saveNotes();
+    // the song is updated before it is saved, since saving copies the song's title and artist into the notes
     if (key === 'title') {
       state.song.title = v || state.song.fileTitle;
       els.songTitle.textContent = state.song.title;
@@ -3626,6 +3627,7 @@
     } else {
       state.song.artist = v || state.song.fileArtist;
     }
+    saveNotes();
     updateSongMeta();
   }
   els.songTitleInput.addEventListener('change', () => setSongText('title', els.songTitleInput.value));

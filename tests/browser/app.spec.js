@@ -1101,3 +1101,19 @@ for (const [w, h] of [[375, 667], [393, 852], [430, 932]]) {
     expect(errors).toEqual([]);
   });
 }
+
+test('an artist typed in the settings is kept when the settings close, even with the field still focused', async ({ page }) => {
+  const errors = watchErrors(page);
+  await openDemo(page);
+  await page.click('#settingsBtn');
+  await page.fill('#songArtistInput', 'Typed Artist');
+  // closing the sheet without leaving the field (as on a phone, where a button tap does not move focus)
+  await page.evaluate(() => document.getElementById('settingsDlg').close());
+  await expect(page.locator('#songMeta')).toContainText('Typed Artist');
+  // the artist is saved with the song's notes, so it is still there after the song is reopened
+  await expect.poll(() => page.evaluate(() => window.setcardsTest.state().artistNote)).toBe('Typed Artist');
+  await page.click('#settingsBtn');
+  await expect(page.locator('#songArtistInput')).toHaveValue('Typed Artist');
+  await page.evaluate(() => document.getElementById('settingsDlg').close());
+  expect(errors).toEqual([]);
+});
