@@ -1000,5 +1000,23 @@ body.compact .chord-diag-toggle { min-height: 44px; }
 .chart-status[hidden] { display: none; }
 .chart-card .chart-name { font-family: var(--font-display); font-weight: 600; font-size: 14px; line-height: 16px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--seg); margin-bottom: 4px; }
 body.compact .chart-cells { display: flex; flex-wrap: wrap; gap: 3px; }
-body.compact .chart-cell { width: 34px; min-height: 36px; font-size: 15px; }
+/* the boxes share the width of the card: nine fit a row, from 28px on a narrow phone to 34px on a wide one */
+body.compact .chart-cell { width: clamp(28px, calc((100% - 24px) / 9), 34px); min-height: 36px; font-size: 15px; }
 .chart-cell sub { font-size: 9px; font-weight: 600; line-height: 1; vertical-align: baseline; position: relative; top: -0.1em; margin-left: 1px; }
+
+/* the chart on a phone: the play button floats over the chart, and ⋯ opens the other playback controls as a sheet */
+.more-btn { display: none; }
+body.chart-view.compact .chart-view { padding-bottom: 96px; }
+body.chart-view.compact .playerbar {
+  position: fixed; z-index: 5; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  left: auto; width: auto; padding: 0; gap: 10px; border: 0; background: none;
+  flex-direction: column-reverse; align-items: flex-end;
+}
+body.chart-view.compact:not(.player-open) .playerbar > :not(#playBtn):not(#moreBtn) { display: none !important; }
+body.chart-view.compact .playerbar > #playBtn { box-shadow: 0 4px 12px rgb(0 0 0 / 0.2); }
+body.chart-view.compact .more-btn { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-size: 20px; }
+body.chart-view.compact.player-open .playerbar {
+  left: 12px; right: 12px; bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  padding: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+}

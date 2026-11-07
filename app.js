@@ -6,7 +6,7 @@
   const $ = (id) => document.getElementById(id);
 
   const els = {
-    songTitle: $('songTitle'), songMeta: $('songMeta'), chartStatus: $('chartStatus'), capoSel: $('capoSel'),
+    songTitle: $('songTitle'), songMeta: $('songMeta'), chartStatus: $('chartStatus'), capoSel: $('capoSel'), songTitleInput: $('songTitleInput'), songArtistInput: $('songArtistInput'), moreBtn: $('moreBtn'),
     structure: $('structure'),
     viewSelTop: $('viewSelTop'), viewSelSet: $('viewSelSet'), roleSel: $('roleSel'), chart: $('chart'), chartEditor: $('chartEditor'),
     sectionHead: $('sectionHead'), sectionName: $('sectionName'), sectionBars: $('sectionBars'),
@@ -1033,6 +1033,8 @@
     compactClass();
     if (!chart && !els.chartEditor.hidden) closeChartEditor();
     if ((cards || chart) && state.editing) setEditing(false);
+    document.body.classList.toggle('chart-view', chart);
+    if (!chart) document.body.classList.remove('player-open');
     updateChartStatus();
   }
 
@@ -1825,7 +1827,7 @@
     const prevVideo = mediaKey(state.notes);
     if (state.playing) api.stop();
     destroyMinis();
-    state.song = { key, title: song.notes.title || song.title || (song.fileName || 'Untitled').replace(SM.SONG_EXT, ''), artist: song.notes.artist || song.artist || '', fileName: song.fileName, canShare: song.canShare, localOnly: song.localOnly, offline: !!song.offline };
+    state.song = { key, fileTitle: song.title || (song.fileName || 'Untitled').replace(SM.SONG_EXT, ''), fileArtist: song.artist || '', title: song.notes.title || song.title || (song.fileName || 'Untitled').replace(SM.SONG_EXT, ''), artist: song.notes.artist || song.artist || '', fileName: song.fileName, canShare: song.canShare, localOnly: song.localOnly, offline: !!song.offline };
     state.notes = song.notes;
     state.notes.chords = state.notes.chords || {};
     syncReadOnly();
@@ -3284,6 +3286,9 @@
     els.zoomOut.textContent = `${Math.round(prefs.zoom * 100)}%`;
     els.ytInput.value = state.notes.youtubeUrl || '';
     els.capoSel.value = String(capoOf());
+    els.songTitleInput.value = state.notes.title || '';
+    els.songArtistInput.value = state.notes.artist || '';
+    els.songTitleInput.disabled = els.songArtistInput.disabled = !canEditSong();
     els.capoSel.closest('.capo-field').hidden = !role().diagrams;
     els.audioRemove.hidden = !state.notes.audio;
     const feel = drumFeelOf();
@@ -3601,6 +3606,29 @@
   // the capo is chosen in the song settings, and the chart shows it as text under the title
   els.capoSel.innerHTML = '<option value="0">No capo</option>' + Array.from({ length: 12 }, (_, i) => `<option value="${i + 1}">Capo ${i + 1}</option>`).join('');
   els.capoSel.addEventListener('change', () => setCapo(Number(els.capoSel.value)));
+  // title and artist are kept with the song; an empty one goes back to the name in the file
+  function setSongText(key, value) {
+    if (!state.notes || !state.song) return;
+    const v = value.trim();
+    if (v) state.notes[key] = v; else delete state.notes[key];
+    saveNotes();
+    if (key === 'title') {
+      state.song.title = v || state.song.fileTitle;
+      els.songTitle.textContent = state.song.title;
+      document.title = `${state.song.title} · Setcards`;
+    } else {
+      state.song.artist = v || state.song.fileArtist;
+    }
+    updateSongMeta();
+  }
+  els.songTitleInput.addEventListener('change', () => setSongText('title', els.songTitleInput.value));
+  els.songArtistInput.addEventListener('change', () => setSongText('artist', els.songArtistInput.value));
+  // on a phone, the chart's play button floats over the chart, and ⋯ opens the other playback controls
+  els.moreBtn.addEventListener('click', () => {
+    const open = !document.body.classList.contains('player-open');
+    document.body.classList.toggle('player-open', open);
+    els.moreBtn.setAttribute('aria-expanded', String(open));
+  });
   els.showTabCards.addEventListener('change', () => {
     prefs.cardsTab[prefs.role] = els.showTabCards.checked;
     savePrefs();

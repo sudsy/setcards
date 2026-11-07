@@ -1020,3 +1020,76 @@ test('in guitar edit mode, the chords can be filled from a tab part and saved', 
   // alphaTab's audio reports stopping a source that has not started, which the test browser's silent audio can cause
   expect(errors.filter((e) => !/cannot call stop without calling start first/.test(e))).toEqual([]);
 });
+
+test('the display mode is remembered for each song, on this device', async ({ page }) => {
+  const errors = watchErrors(page);
+  await openDemo(page);
+  await pickView(page, 'chart');
+  await page.goto('/');
+  // a second song starts in the view it is opened in, then keeps its own view
+  await page.click('#addSongBtn');
+  await page.fill('#addTitle', 'Second Song');
+  await page.click('#addForm button[type=submit]');
+  const added = page.locator('.song-row .song-open', { hasText: 'Second Song' });
+  if (await added.isVisible()) await added.click();
+  await expect(page.locator('#songTitle')).toHaveText('Second Song');
+  await pickView(page, 'cards');
+  await page.click('#backBtn');
+  await page.locator('.song-row .song-open', { hasText: 'Low Road (demo)' }).click();
+  await expect(page.locator('#viewSelTop')).toHaveValue('chart');
+  await page.click('#backBtn');
+  await page.locator('.song-row .song-open', { hasText: 'Second Song' }).click();
+  await expect(page.locator('#viewSelTop')).toHaveValue('cards');
+  // it is kept in this browser, so it is still there after a reload
+  await page.reload();
+  await page.locator('.song-row .song-open', { hasText: 'Low Road (demo)' }).click();
+  await expect(page.locator('#viewSelTop')).toHaveValue('chart');
+  expect(errors).toEqual([]);
+});
+
+test('the song title and artist can be changed in the settings, and go back to the file when cleared', async ({ page }) => {
+  const errors = watchErrors(page);
+  await openDemo(page);
+  await page.click('#settingsBtn');
+  await page.fill('#songTitleInput', 'Low Road, live');
+  await page.fill('#songArtistInput', 'The Band');
+  await page.locator('#songArtistInput').press('Tab');
+  await page.click('#settingsDlg [data-close]');
+  await expect(page.locator('#songTitle')).toHaveText('Low Road, live');
+  await expect(page.locator('#songMeta')).toContainText('The Band');
+  await page.click('#settingsBtn');
+  await page.fill('#songTitleInput', '');
+  await page.locator('#songTitleInput').press('Tab');
+  await page.click('#settingsDlg [data-close]');
+  await expect(page.locator('#songTitle')).toHaveText('Low Road (demo)');
+  expect(errors).toEqual([]);
+});
+
+// the chart on the phone sizes people use: nothing spills sideways, the boxes stay in their cards, and the play button floats in view
+for (const [w, h] of [[375, 667], [393, 852], [430, 932]]) {
+  test(`the chart fits a ${w} by ${h} phone, with the play button floating over it`, async ({ page }) => {
+    const errors = watchErrors(page);
+    await openDemo(page);
+    await chooseRole(page, 'Guitar');
+    await pickView(page, 'chart');
+    await page.setViewportSize({ width: w, height: h });
+    await expect(page.locator('#chart .chart-card').first()).toBeVisible();
+    const r = await page.evaluate(() => {
+      const spilled = [...document.querySelectorAll('#chart .chart-card')].filter((card) => {
+        const cr = card.getBoundingClientRect();
+        return [...card.querySelectorAll('.chart-cell')].some((c) => { const b = c.getBoundingClientRect(); return b.right > cr.right + 1 || b.left < cr.left - 1; });
+      }).length;
+      const pb = document.getElementById('playBtn').getBoundingClientRect();
+      return { overflowX: document.documentElement.scrollWidth - window.innerWidth, spilled, playInView: pb.bottom <= window.innerHeight && pb.right <= window.innerWidth && pb.left >= 0 && pb.width > 0 };
+    });
+    expect(r.overflowX).toBeLessThanOrEqual(0);
+    expect(r.spilled).toBe(0);
+    expect(r.playInView).toBe(true);
+    // ⋯ opens the other playback controls as a sheet, and closes again
+    await page.click('#moreBtn');
+    await expect(page.locator('#speedSel')).toBeVisible();
+    await page.click('#moreBtn');
+    await expect(page.locator('#speedSel')).toBeHidden();
+    expect(errors).toEqual([]);
+  });
+}
