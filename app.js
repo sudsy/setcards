@@ -1844,6 +1844,8 @@
     // changes kept in this browser while the page was closing are sent on to where the song lives
     if (song.fromOverlay && song.canShare) saveNotes();
     state.score = null;
+    // the chart shows nothing while the new song loads, rather than the song before it
+    if (prefs.view === 'chart') renderChart();
     state.edit = { ops: [], sel: null, typing: null };
     updateNoteBar();
     state.playingPart = -1;
