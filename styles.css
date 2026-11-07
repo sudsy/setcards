@@ -947,6 +947,9 @@ body.compact .top-view { display: none; }
 body.compact .view-field { display: block; }
 body.compact .edit-word { display: none; }
 body.compact .edit-icon { display: block; }
+/* a bar's tab, in the card opened by a long press on the chart */
+.bar-peek-tab { min-height: 120px; }
+
 /* the chord diagrams toggle, beside the capo on the guitar row */
 body.compact .chord-diag-toggle { min-height: 44px; }
 .chord-diag-toggle[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }

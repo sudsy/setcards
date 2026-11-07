@@ -20,6 +20,15 @@ async function openDemo(page, path = '/') {
 }
 
 // Picks the view: the top bar dropdown on wide screens, or the song settings on phones.
+// Holds the pointer on an element for longer than a tap (a long press).
+async function longPress(page, locator) {
+  const box = await locator.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(650);
+  await page.mouse.up();
+}
+
 async function pickView(page, view) {
   if (await page.locator('#viewSelTop').isVisible()) {
     await page.selectOption('#viewSelTop', view);
@@ -475,14 +484,20 @@ test('tapping a bar in the chart opens its tab for bass, and its chord diagram f
   const bytes = new alphaTab.exporter.Gp7Exporter().export(imp.readScore(), new alphaTab.Settings());
   await page.locator('#attachInput').setInputFiles({ name: 'baby.gp', mimeType: 'application/octet-stream', buffer: Buffer.from(bytes) });
   await expect(page.locator('#chart .chart-card').first()).toBeVisible({ timeout: 20000 });
-  // bass: the tap opens the full tab, at that bar
-  await page.locator('#chart .chart-card').nth(1).locator('.chart-cell').nth(2).click();
-  await expect(page.locator('#viewSelTop')).toHaveValue('tab');
+  // a tap does nothing (it can be the end of a scroll); a long press opens the bar, with its tab for bass
+  const bassCell = page.locator('#chart .chart-card').nth(1).locator('.chart-cell').nth(2);
+  await bassCell.click();
+  await expect(page.locator('#barPeekDlg')).toBeHidden();
+  await longPress(page, bassCell);
+  await expect(page.locator('#barPeekDlg')).toBeVisible();
+  await expect(page.locator('#barPeekTitle')).toHaveText('Bar 5');
+  await expect(page.locator('#barPeekBody .bar-peek-tab')).toBeVisible();
+  await page.click('#barPeekDlg [data-close]');
   // guitar: the tap shows the chord diagram for the bar, and the diagrams toggle follows the setting
   await pickView(page, 'chart');
   await chooseRole(page, 'Guitar');
   await expect(page.locator('.chord-diag-toggle')).toHaveAttribute('aria-pressed', 'true');
-  await page.locator('#chart .chart-card').first().locator('.chart-cell').first().click();
+  await longPress(page, page.locator('#chart .chart-card').first().locator('.chart-cell').first());
   await expect(page.locator('#barPeekDlg')).toBeVisible();
   await expect(page.locator('#barPeekTitle')).toHaveText('Bar 1');
   await page.click('#barPeekDlg [data-close]');

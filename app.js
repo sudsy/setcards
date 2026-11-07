@@ -1084,7 +1084,7 @@
         d.className = 'chart-cell' + (c.kind === 'stab' ? ' stab' : '') + (c.kind === 'rest' ? ' rest' : '');
         d.setAttribute('aria-label', `Bar ${c.bar + 1}${c.kind === 'rest' ? ', rest' : `, ${c.note}`}`);
         if (c.kind === 'rest') d.innerHTML = rest; else d.textContent = c.note;
-        d.addEventListener('click', () => openBarFromChart(c.bar));
+        attachBarPress(d, c.bar);
         cells.appendChild(d);
       });
       const lines = document.createElement('div');
@@ -3313,19 +3313,60 @@
     els.showChords.checked = showChords();
     document.querySelectorAll('.chord-diag-toggle').forEach((b) => b.setAttribute('aria-pressed', String(showChords())));
   }
-  // Tapping a bar in the chart: a guitar bar shows its chord diagram; a bass bar opens the full tab at that bar.
+  // A long press on a bar in the chart opens it in a card: a guitar bar shows its chord diagram, and a bass bar shows
+  // its tab. A tap does nothing, so scrolling the chart does not open bars.
+  let barMini = null;
   function openBarFromChart(bar) {
+    els.barPeekTitle.textContent = `Bar ${bar + 1}`;
+    els.barPeekBody.innerHTML = '';
     if (role().diagrams) {
       const names = chordsAt(bar);
-      els.barPeekTitle.textContent = `Bar ${bar + 1}`;
       els.barPeekBody.innerHTML = names.length
         ? `<div class="diagrams">${names.map((n) => SM.chords.diagram(n)).join('')}</div>`
         : '<p class="fine">No chord for this bar.</p>';
-      els.barPeekDlg.showModal();
     } else {
-      pendingTabBar = bar;
-      setView('tab');
+      const holder = document.createElement('div');
+      holder.className = 'bar-peek-tab';
+      els.barPeekBody.appendChild(holder);
+      barMini = new AT.AlphaTabApi(holder, {
+        core: { fontDirectory: 'lib/font/', engine: renderEngine, logLevel: 'error', useWorkers: false, enableLazyLoading: false },
+        display: { layoutMode: AT.LayoutMode.Page, startBar: bar + 1, barCount: 1, scale: 1.2, staveProfile: STAVES[prefs.stave] ?? AT.StaveProfile.Tab },
+        notation: { rhythmMode: AT.TabRhythmMode.ShowWithBars },
+        player: { playerMode: AT.PlayerMode.Disabled },
+      });
+      styleTab(barMini);
+      barMini.updateSettings();
+      barMini.renderScore(state.score, [state.trackIndex]);
     }
+    els.barPeekDlg.showModal();
+  }
+  els.barPeekDlg.addEventListener('close', () => {
+    if (barMini) { try { barMini.destroy(); } catch (e) { /* already gone */ } barMini = null; }
+    els.barPeekBody.innerHTML = '';
+  });
+  // A bar opens on a long press (about half a second). A touch that moves is a scroll, so it does not count.
+  function attachBarPress(el, bar) {
+    let timer = null, fired = false, sx = 0, sy = 0;
+    const start = (x, y) => {
+      fired = false; sx = x; sy = y;
+      clearTimeout(timer);
+      timer = setTimeout(() => { fired = true; openBarFromChart(bar); }, 500);
+    };
+    const move = (x, y) => { if (Math.hypot(x - sx, y - sy) > 10) clearTimeout(timer); };
+    const stop = () => clearTimeout(timer);
+    el.addEventListener('touchstart', (e) => start(e.touches[0].clientX, e.touches[0].clientY), { passive: true });
+    el.addEventListener('touchmove', (e) => move(e.touches[0].clientX, e.touches[0].clientY), { passive: true });
+    el.addEventListener('touchend', stop);
+    el.addEventListener('touchcancel', stop);
+    el.addEventListener('mousedown', (e) => start(e.clientX, e.clientY));
+    el.addEventListener('mousemove', (e) => { if (e.buttons) move(e.clientX, e.clientY); });
+    el.addEventListener('mouseup', stop);
+    el.addEventListener('mouseleave', stop);
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+    el.addEventListener('click', (e) => {
+      if (fired) { fired = false; e.preventDefault(); return; }   // the tap that ends a long press
+      if (e.detail === 0) openBarFromChart(bar);                   // from the keyboard
+    });
   }
   function applyChordVisibility() {
     const show = showChords();
