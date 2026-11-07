@@ -1053,8 +1053,7 @@
       card.style.setProperty('--seg', segColor(group ? group.kind : ''));
       const cells = document.createElement('div');
       cells.className = 'chart-cells';
-      cells.style.gridTemplateColumns = `repeat(${Math.min(8, sec.cells.length)}, minmax(0, 1fr))`;
-      if (sec.cells.length === 9) cells.style.gridTemplateColumns = 'repeat(9, minmax(0, 1fr))';
+      cells.style.setProperty('--cols', String(Math.min(9, sec.cells.length)));
       sec.cells.forEach((c) => {
         const d = document.createElement('div');
         d.className = 'chart-cell' + (c.kind === 'stab' ? ' stab' : '') + (c.kind === 'rest' ? ' rest' : '');

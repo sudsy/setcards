@@ -927,7 +927,9 @@ body.read-only .chord-cell { pointer-events: none; }
 .chart-view { padding: 6px 8px; display: grid; gap: 6px; align-content: start; overflow-y: auto; }
 .chart-view[hidden] { display: none; }
 .chart-card { padding: 6px 8px; margin-bottom: 0; }
-.chart-cells { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+.chart-cells { display: grid; grid-template-columns: repeat(var(--cols, 8), minmax(0, 1fr)); gap: 4px; }
+/* on a wide screen every bar cell is the same width, whatever the section's length */
+body:not(.compact) .chart-cells { grid-template-columns: repeat(var(--cols, 8), 64px); justify-content: start; }
 .chart-cell { border: 1px solid var(--line); border-radius: 6px; text-align: center; font-family: var(--font-display); font-weight: 600; font-size: 1.15rem; line-height: 1.7; background: var(--surface); color: var(--ink); }
 .chart-cell.stab { border-color: var(--c-chorus); color: var(--c-chorus); background: color-mix(in srgb, var(--c-chorus) 10%, var(--surface)); }
 .chart-cell.rest { border-style: dashed; color: var(--muted); font-size: 0.8rem; font-weight: 500; }
