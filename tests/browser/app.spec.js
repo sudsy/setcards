@@ -705,7 +705,7 @@ test('a song can be added with just a name, then given its tab later', async ({ 
   await proposed.locator('.song-open').click();
   await page.locator('#attachInput').setInputFiles(await demoGpFile());
   await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
-  await expect(page.locator('.song-note-row > .role-note .role-note-text')).toHaveText('Check the key with the singer');
+  await expect.poll(() => page.evaluate(() => window.setcardsTest.state().wholeNote)).toBe('Check the key with the singer');
   await page.click('#backBtn');
   // still proposed until the band decides it is being learnt
   await expect(page.locator('.list-section', { hasText: 'Proposed' })).toHaveCount(1);
@@ -1074,6 +1074,9 @@ for (const [w, h] of [[375, 667], [393, 852], [430, 932]]) {
     await pickView(page, 'chart');
     await page.setViewportSize({ width: w, height: h });
     await expect(page.locator('#chart .chart-card').first()).toBeVisible();
+    await expect(page.locator('#chart')).not.toContainText('for the whole song');
+    await expect(page.locator('#loading')).toBeHidden();
+    await expect(page.locator('body')).toHaveClass(/compact/);
     const r = await page.evaluate(() => {
       const spilled = [...document.querySelectorAll('#chart .chart-card')].filter((card) => {
         const cr = card.getBoundingClientRect();

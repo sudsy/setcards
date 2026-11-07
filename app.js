@@ -1060,9 +1060,10 @@
     const box = els.chart;
     box.innerHTML = '';
     updateChartStatus();
+    // the score is loaded by now, so the phone size can be worked out (it is not when the view is first chosen)
+    compactClass();
+    els.loading.hidden = true;
     if (!state.score || !state.groups.length) return;
-    // the guitar row (capo and the chord diagrams toggle) at the top, as in the cards
-    box.appendChild(songNoteRow());
     // the chord diagrams, above the chart, when they are shown for this instrument
     if (role().diagrams && showChords()) {
       const names = songChordNames();
@@ -1195,6 +1196,7 @@
         scroll: els.scroller ? els.scroller.scrollTop : 0,
         metronome: api.metronomeVolume,
         groups: state.groups ? state.groups.length : 0,
+        wholeNote: getNote(null) || '',
         simileBars: state.score && state.score.tracks[state.trackIndex] ? state.score.tracks[state.trackIndex].staves[0].bars.filter((b) => b.simileMark).length : 0
       })
     };
