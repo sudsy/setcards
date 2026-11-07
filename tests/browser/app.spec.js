@@ -1117,3 +1117,62 @@ test('an artist typed in the settings is kept when the settings close, even with
   await page.evaluate(() => document.getElementById('settingsDlg').close());
   expect(errors).toEqual([]);
 });
+
+// Switching songs and instruments while the chart editor is in use: the editor never shows or saves another song's chart.
+test('the chart editor closes when another song is opened, and each song keeps its own chart', async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.addInitScript(() => localStorage.setItem('setcards:prefs', JSON.stringify({ mode: 'solo' })));
+  await page.goto('/');
+  await page.locator('#addDemoBtn').click();
+  await page.click('#addSongBtn');
+  await page.fill('#addTitle', 'Second Song');
+  await page.click('#addForm button[type=submit]');
+  await page.locator('#attachInput').setInputFiles(await demoGpFile());
+  await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
+  // back to the list (the system back, as the editor covers the page's own back button later)
+  await page.evaluate(() => history.back());
+  await expect(page.locator('.song-row .song-open', { hasText: 'Low Road (demo)' })).toBeVisible();
+
+  // first song: start editing, type into the first section, and leave without pressing Done
+  await page.locator('.song-row .song-open', { hasText: 'Low Road (demo)' }).click();
+  await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
+  await pickView(page, 'chart');
+  await page.click('#editBtn');
+  await expect(page.locator('#chartEditor')).toBeVisible();
+  await page.locator('#chartEditor .ce-sec').first().locator('.ce-in').fill('G G');
+  await page.evaluate(() => history.back());
+  await expect(page.locator('#chartEditor')).toBeHidden();
+  await expect(page.locator('.song-row .song-open', { hasText: 'Second Song' })).toBeVisible();
+
+  // second song: its editor starts empty, not with the first song's draft
+  await page.locator('.song-row .song-open', { hasText: 'Second Song' }).click();
+  await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
+  await pickView(page, 'chart');
+  await page.click('#editBtn');
+  await expect(page.locator('#chartEditor .ce-sec').first().locator('.ce-in')).toHaveValue(/^\s*$/);
+  await page.locator('#chartEditor .ce-sec').first().locator('.ce-in').fill('D D');
+  await page.click('#chartEditor [data-ce=done]');
+  await expect(page.locator('#chartEditor')).toBeHidden();
+  await expect(page.locator('#chart .chart-card').first().locator('.chart-cell').first()).toHaveText('D');
+
+  // back to the first song: its chart is still empty, and the second song's notes were not written into it
+  await page.evaluate(() => history.back());
+  await page.locator('.song-row .song-open', { hasText: 'Low Road (demo)' }).click();
+  await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
+  await pickView(page, 'chart');
+  await expect(page.locator('#chart .chart-card').first().locator('.chart-cell').first()).toHaveText('');
+  await expect(page.locator('#chart')).not.toContainText('D');
+  expect(errors).toEqual([]);
+});
+
+test('the chart editor offers the fields for the instrument in use', async ({ page }) => {
+  const errors = watchErrors(page);
+  await openDemo(page);
+  await chooseRole(page, 'Guitar');
+  await pickView(page, 'chart');
+  await page.click('#editBtn');
+  await expect(page.locator('#chartEditor .ce-lbl', { hasText: 'Real chords (sounding)' }).first()).toBeVisible();
+  await page.click('#chartEditor [data-ce=back]');
+  await expect(page.locator('#chartEditor')).toBeHidden();
+  expect(errors).toEqual([]);
+});

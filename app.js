@@ -1702,6 +1702,7 @@
   }
 
   function setRole(id) {
+    closeChartEditor();
     prefs.role = id;
     prefs.roleChosen = true;
     savePrefs();
@@ -1832,6 +1833,7 @@
   function syncReadOnly() { document.body.classList.toggle('read-only', !canEditSong()); }
 
   function applySong(key, song, refresh) {
+    closeChartEditor();
     const prevVideo = mediaKey(state.notes);
     if (state.playing) api.stop();
     destroyMinis();
@@ -2716,6 +2718,7 @@
 
   async function showHome() {
     if (updateWaiting) { refreshForUpdate(); return; }
+    closeChartEditor();
     if (!confirmNoteEdits()) return;
     if (state.edit.ops.length) discardNoteEdits();
     if (state.playing) api.stop();
@@ -3404,6 +3407,9 @@
       origChords[b] = text;
     });
     chartDraft = {
+      // the draft belongs to this song and instrument only; it is never saved into another
+      key: state.song.key,
+      guitar: chartEditorGuitar(),
       bass: { ...(c.notes || {}) },
       tags: JSON.parse(JSON.stringify(c.tags || {})),
       cues: { ...(c.cues || {}) },
@@ -3422,6 +3428,11 @@
     const d = chartDraft;
     const n = state.notes;
     if (!d || !n || !state.score) return;
+    if (d.key !== state.song.key || d.guitar !== chartEditorGuitar()) {
+      closeChartEditor();
+      toast('The chart was not saved, because the song or instrument changed while editing');
+      return;
+    }
     const tidy = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => (Array.isArray(v) ? v.length : v !== '' && v !== undefined)));
     n.chart = { notes: tidy(d.bass), tags: tidy(d.tags), cues: tidy(d.cues) };
     if (chartEditorGuitar()) {
