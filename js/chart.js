@@ -1,58 +1,60 @@
-/* The chart view: one card per section, with a cell for each bar showing the bass note the bar starts on, and a line of
-   lyric cues for each time the section is played. Plain calculations over the song's sections and bars, with no DOM, so
-   they can be tested on their own. A cell is { kind: 'note', note } | { kind: 'rest' } | { kind: 'stab', note }.
-   The chart uses the song's chart data (js/chart-data.js) when it has the section; otherwise it works the notes out from
-   the lowest note of each bar in the tab. */
+/* The chart: one card per section, with a cell for each bar and a lyric cue line for each time the section is sung.
+   Plain calculations, with no DOM, so they can be tested on their own. The chart has no defaults: a bar is empty until
+   its notes (bass) or chords (guitar) are entered, and a cue line is empty until its cue is written.
+
+   The song's chart is kept in its notes:
+     notes.chart.notes  { "<bar>": "G" }           bass note for a bar, "-" for a rest bar
+     notes.chart.tags   { "<bar>": ["Stab"] }      tags for a bar; Stab draws the stab colour, Slide the slide colour
+     notes.chart.cues   { "verse:2": "Lyric…" }    the lyric cue for the second time the verse is sung
+   Guitar bars use the song's chords (notes.chords), sounding as the editor shows them.
+
+   A cell is { kind: 'note' | 'stab' | 'slide' | 'rest' | 'empty', text, bar }. */
 (function (root) {
   'use strict';
   const SM = root.SM = root.SM || {};
 
-  const NOTES_ON_D = ['D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B', 'C', 'C#'];   // fret 0 is D, fret 5 G, fret 3 F
-
-  // The note a fret on the D string plays, moved by the song's transposition (semitones).
-  function noteOnD(fret, transpose = 0) {
-    return SM.chords.transposeName(NOTES_ON_D[((fret % 12) + 12) % 12], transpose);
-  }
-
   // The name a section goes by, without its number: "Verse 2" and "Verse" are both "verse".
   const baseKey = (name) => String(name || '').replace(/\s*\d+$/, '').trim().toLowerCase();
 
+  // The cell for one bar, from what the bar holds.
+  //   info  { text, rest, tags }: the bar's note or chord text, whether it is a rest, and its tags
+  function cellKind(info) {
+    const tags = (info && info.tags) || [];
+    if (info && info.rest) return 'rest';
+    if (!info || !info.text) return 'empty';
+    if (tags.includes('Stab')) return 'stab';
+    if (tags.includes('Slide')) return 'slide';
+    return 'note';
+  }
+
   // The chart for the song's sections.
-  //   groups    the song's sections as the cards show them: { name, occ: [part index], empty }
-  //   parts     the song's parts: { start, end, occNo }
-  //   bars      the tab's bars (each with its notes), by bar index
-  //   dataFor   the song's chart data, or null
-  //   transpose the song's transposition in semitones
-  function chartSections({ groups, parts, bars, dataFor = null, transpose = 0 }) {
-    const lowestNote = (bar) => {
-      const notes = [];
-      const beats = bar && bar.voices && bar.voices[0] ? bar.voices[0].beats : [];
-      beats.forEach((b) => b.notes.forEach((n) => { if (!n.isTieDestination) notes.push(n.realValue); }));
-      if (!notes.length) return null;
-      const low = Math.min(...notes);
-      return SM.chords.transposeName('C', ((low % 12) + 12) % 12);
-    };
+  //   groups   the song's sections as the cards show them: { name, key, occ: [part index] }
+  //   parts    the song's parts: { start, end, occNo }
+  //   cellFor  bar index -> { text, rest, tags }
+  //   cueFor   cue key ("verse:2") -> the cue text, or ''
+  function chartSections({ groups, parts, cellFor = () => null, cueFor = () => '' }) {
     return groups.map((g) => {
       const first = parts[g.occ[0]];
       const count = first.end - first.start + 1;
-      const key = baseKey(g.name);
-      const data = dataFor && dataFor.sections.find((s) => baseKey(s.name) === key && s.frets.length === count);
       const cells = [];
       for (let i = 0; i < count; i++) {
-        if (data) {
-          const fret = data.frets[i];
-          if (fret === null || fret === undefined) cells.push({ kind: 'rest' });
-          else cells.push({ kind: data.stabs && data.stabs.includes(i + 1) ? 'stab' : 'note', note: noteOnD(fret, transpose), bar: first.start + i });
-        } else {
-          const note = lowestNote(bars[first.start + i]);
-          cells.push(note ? { kind: 'note', note, bar: first.start + i } : { kind: 'rest', bar: first.start + i });
-        }
+        const bar = first.start + i;
+        const info = cellFor(bar) || {};
+        cells.push({ kind: cellKind(info), text: info.text || '', bar, tags: info.tags || [] });
       }
-      // one line per time the section is played: "Verse 1", "Verse 2"… (or just the name when it is played once)
-      const lines = g.occ.map((pi, k) => (g.occ.length > 1 ? `${baseKey(g.name).replace(/^./, (c) => c.toUpperCase())} ${k + 1}` : g.name.replace(/\s*\d+$/, '')));
-      return { name: g.name, group: g.key, cells, lines, fromData: !!data };
+      const key = baseKey(g.name);
+      // one line per time the section is sung: "Verse 1", "Verse 2"… (or just the name when it is sung once)
+      const lines = g.occ.map((pi, k) => ({
+        label: g.occ.length > 1 ? `${key.replace(/^./, (c) => c.toUpperCase())} ${k + 1}` : g.name.replace(/\s*\d+$/, ''),
+        cue: cueFor(`${key}:${k + 1}`) || '',
+        key: `${key}:${k + 1}`,
+      }));
+      return { name: g.name, group: g.key, cells, lines };
     });
   }
 
-  SM.chart = { chartSections, noteOnD, baseKey };
+  // The tags a chart can carry. The quick tags are offered in the editor.
+  const QUICK_TAGS = ['Stab', 'Rest', 'Slide', 'Fill', 'Hit', 'Pickup'];
+
+  SM.chart = { chartSections, cellKind, baseKey, QUICK_TAGS };
 })(typeof window !== 'undefined' ? window : globalThis);

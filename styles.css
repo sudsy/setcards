@@ -953,3 +953,52 @@ body.compact .edit-icon { display: block; }
 /* the chord diagrams toggle, beside the capo on the guitar row */
 body.compact .chord-diag-toggle { min-height: 44px; }
 .chord-diag-toggle[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+/* chart editor (Edit on the chart view) */
+.chart-editor { position: fixed; inset: 0; z-index: 30; background: var(--bg); color: var(--ink); display: flex; flex-direction: column; overflow: hidden; }
+.chart-editor[hidden] { display: none; }
+.ce-top { display: flex; align-items: center; gap: 10px; padding: calc(8px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px)); border-bottom: 1px solid var(--line); }
+.ce-top h1 { margin: 0; font-size: 1.1rem; }
+.ce-grow { flex: 1; min-width: 0; }
+.ce-sub { color: var(--muted); font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ce-done { min-height: 44px; padding: 0 16px; border-radius: 8px; border: 0; background: var(--accent); color: var(--bg); font-weight: 600; }
+.ce-steps { display: flex; gap: 6px; overflow-x: auto; padding: 8px max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px)); }
+.ce-steps button { flex: none; min-height: 36px; padding: 0 12px; border-radius: 18px; border: 1px solid var(--seg, var(--line)); background: var(--surface); color: var(--ink); }
+.ce-steps button.on { background: var(--seg, var(--accent)); color: var(--bg); }
+.ce-body { flex: 1; overflow-y: auto; padding: 8px max(16px, env(safe-area-inset-right, 0px)) 24px max(16px, env(safe-area-inset-left, 0px)); display: grid; gap: 14px; align-content: start; }
+.ce-help { color: var(--muted); font-size: 0.85rem; margin: 0; }
+.ce-lbl { font-size: 0.75rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.ce-sec { border: 1px solid var(--line); border-left: 4px solid var(--seg, var(--line)); border-radius: 10px; padding: 12px; background: var(--surface); display: grid; gap: 8px; min-width: 0; }
+.ce-sec-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.ce-sec-head h2 { margin: 0; font-size: 1rem; }
+.ce-n { color: var(--muted); font-size: 0.8rem; }
+.ce-in { width: 100%; min-height: 44px; box-sizing: border-box; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font: inherit; }
+.ce-cells { display: grid; grid-template-columns: repeat(var(--cols, 8), minmax(0, 1fr)); gap: 4px; }
+.ce-cell { min-height: 44px; padding: 0; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font-family: var(--font-display); font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.ce-cell.stab { border-color: var(--c-chorus); color: var(--c-chorus); }
+.ce-cell.slide { border-color: var(--c-bridge); }
+.ce-cell.rest { border-style: dashed; color: var(--muted); font-weight: 500; }
+.ce-cell.sel { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ce-cue { display: grid; grid-template-columns: 7rem minmax(0, 1fr); gap: 8px; align-items: center; }
+.ce-cue-in { min-height: 44px; box-sizing: border-box; width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font: inherit; }
+.ce-shape-row { display: flex; gap: 8px; overflow-x: auto; }
+.ce-shape { flex: none; width: 96px; }
+.ce-sheet { position: fixed; left: 0; right: 0; bottom: 0; background: var(--surface); border-top: 1px solid var(--line); border-radius: 14px 14px 0 0; padding: 12px max(16px, env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); display: grid; gap: 10px; box-shadow: 0 -8px 24px rgb(0 0 0 / 0.2); max-height: 70vh; overflow-y: auto; }
+.ce-sheet[hidden] { display: none; }
+.ce-sheet-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.ce-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ce-tag { display: inline-flex; align-items: center; gap: 4px; padding: 4px 4px 4px 10px; border-radius: 16px; border: 1px solid var(--t, var(--line)); color: var(--t, var(--ink)); }
+.ce-tag button { min-width: 28px; min-height: 28px; border: 0; background: none; color: inherit; font-size: 1rem; }
+.ce-tag-in { flex: 1 1 180px; min-height: 44px; box-sizing: border-box; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font: inherit; }
+.ce-quick { display: flex; flex-wrap: wrap; gap: 6px; }
+.ce-q { min-height: 40px; padding: 0 12px; border-radius: 16px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+.ce-q.on { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.ce-close { min-height: 44px; border-radius: 8px; border: 0; background: var(--accent); color: var(--bg); font-weight: 600; }
+
+/* the chart at phone size: the capo and chord diagram state under the title, section names above fixed-size bar boxes that wrap */
+.chart-status { color: var(--ink); font-size: 0.75rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chart-status[hidden] { display: none; }
+.chart-card .chart-name { font-family: var(--font-display); font-weight: 600; font-size: 14px; line-height: 16px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--seg); margin-bottom: 4px; }
+body.compact .chart-cells { display: flex; flex-wrap: wrap; gap: 3px; }
+body.compact .chart-cell { width: 34px; min-height: 36px; font-size: 15px; }
+.chart-cell sub { font-size: 9px; font-weight: 600; line-height: 1; vertical-align: baseline; position: relative; top: -0.1em; margin-left: 1px; }

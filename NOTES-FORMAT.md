@@ -29,6 +29,16 @@ The app and the notes tool both check notes with `js/notes.js`, so an edit made 
 
 Any other field is reported as unknown, so a typo is caught rather than silently kept.
 
+## Chart
+
+`chart` holds the song's own chart, written by the chart editor (Edit on the chart view). Nothing is stored in the app for a new song, so the chart is empty until it is entered.
+
+- `notes`: bass notes, keyed by bar number (0-based), space separated in the editor. `-` is a rest bar.
+- `tags`: tags per bar number, a list of strings such as `Stab`, `Rest`, `Slide`, `Fill`, `Hit`, `Pickup`. A bar can have several. `Stab` gives the stab colour.
+- `cues`: lyric cues, keyed by `section:k`, where `k` is the time the section is sung (1, 2, ...). Shared by bass and guitar.
+
+Guitar charts use `chords` (the sounding chord per bar, as the cards store it) and do not use `chart.notes`.
+
 ## Editing with the tool
 
 `scripts/notes-tool.mjs` reads and changes a notes file. Bar numbers count from 1, as the app shows them.

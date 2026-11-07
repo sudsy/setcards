@@ -9,7 +9,7 @@
   const FORMAT = 'setcards/1';
   const STATUSES = ['proposed', 'learning', 'ready'];
   const KEYS_OF_NOTES = ['format', 'title', 'artist', 'sections', 'chords', 'youtubeUrl', 'status', 'capo', 'transpose', 'tempo',
-    'key', 'bandKey', 'originalKey', 'tabKey', 'tabFile', 'drumKit', 'drumFeel', 'click', 'simile', 'roleNotes', 'audio', 'meta', 'updatedAt'];
+    'key', 'bandKey', 'originalKey', 'tabKey', 'tabFile', 'drumKit', 'drumFeel', 'click', 'simile', 'roleNotes', 'audio', 'meta', 'updatedAt', 'chart'];
 
   const isInt = (n, min, max) => Number.isInteger(n) && n >= min && (max === undefined || n <= max);
   const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);

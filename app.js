@@ -6,9 +6,9 @@
   const $ = (id) => document.getElementById(id);
 
   const els = {
-    songTitle: $('songTitle'), songMeta: $('songMeta'),
+    songTitle: $('songTitle'), songMeta: $('songMeta'), chartStatus: $('chartStatus'), capoSel: $('capoSel'),
     structure: $('structure'),
-    viewSelTop: $('viewSelTop'), viewSelSet: $('viewSelSet'), roleSel: $('roleSel'), chart: $('chart'),
+    viewSelTop: $('viewSelTop'), viewSelSet: $('viewSelSet'), roleSel: $('roleSel'), chart: $('chart'), chartEditor: $('chartEditor'),
     sectionHead: $('sectionHead'), sectionName: $('sectionName'), sectionBars: $('sectionBars'),
     prevBtn: $('prevBtn'), nextBtn: $('nextBtn'),
     editBtn: $('editBtn'), editPanel: $('editPanel'), sectionList: $('sectionList'),
@@ -56,7 +56,7 @@
   ];
 
   /* ---------------- per-device preferences ---------------- */
-  const prefs = Object.assign({ role: 'bass', view: 'cards', zoom: 1, stave: 'tab', last: null, tracks: {}, cardsTab: {}, chords: {}, transpose: {} }, readJson('setcards:prefs'));
+  const prefs = Object.assign({ role: 'bass', view: 'cards', zoom: 1, stave: 'tab', last: null, tracks: {}, cardsTab: {}, chords: {}, transpose: {}, viewBySong: {} }, readJson('setcards:prefs'));
   prefs.chords = prefs.chords || {};
   prefs.transpose = prefs.transpose || {};
   function readJson(k) { try { return JSON.parse(localStorage.getItem(k)) || {}; } catch (e) { return {}; } }
@@ -561,7 +561,8 @@
       t.dataset.bars = p.bars;   // shown after the name, so you know how long to wait
       // a part with no notes is drawn as a gap, unless its chords are shown: then it has a card, and a solid chip
       t.classList.toggle('rest', !!p.empty && !role().cues && !showChords());
-      t.textContent = p.label;
+      // the chart shows one letter and the bar count for each part, to fit the whole song on the screen
+      t.textContent = prefs.view === 'chart' ? `${p.label[0].toUpperCase()} ${p.bars}` : p.label;
       t.title = `${p.label} · ${plural(p.bars, 'bar')} · bars ${p.start + 1}–${p.end + 1}${p.empty ? ' · nothing to play' : ` · ${p.summary}`}`;
       t.addEventListener('click', () => {
         if (prefs.view === 'cards') { scrollToCard(i); playFromPart(i); }
@@ -671,39 +672,25 @@
   function songNoteRow() {
     const row = document.createElement('div');
     row.className = 'song-note-row';
-    // a capo is for guitar only: the chord shapes it changes are guitar shapes
-    if (prefs.role === 'guitar') {
-      row.appendChild(capoPicker());
-      // the chord diagrams: the same setting as "Show chords" in the song settings
-      const diag = document.createElement('button');
-      diag.type = 'button';
-      diag.className = 'toggle chord-diag-toggle';
-      diag.textContent = 'Chord diagrams';
-      diag.setAttribute('aria-pressed', String(showChords()));
-      diag.addEventListener('click', () => setShowChords(!showChords()));
-      row.appendChild(diag);
-    }
     row.appendChild(noteBlock(null));
     return row;
   }
-  function capoPicker() {
-    const sel = document.createElement('select');
-    sel.className = 'capo-pick' + (capoOf() ? ' on' : '');
-    sel.setAttribute('aria-label', 'Capo fret');
-    sel.title = 'Capo: the chord shapes shown are for this fret';
-    sel.innerHTML = '<option value="0">No capo</option>' + Array.from({ length: 12 }, (_, i) => `<option value="${i + 1}">Capo ${i + 1}</option>`).join('');
-    sel.value = String(capoOf());
-    sel.addEventListener('change', () => {
-      const fret = Number(sel.value);
-      if (fret) state.notes.capo = fret; else delete state.notes.capo;
-      saveNotes();
-      // only the chord names change, so the tab and the rest of the song stay as they are
-      applyAnnotations();
-      if (prefs.view === 'tab') api.render(); else renderCards();
-    });
-    return sel;
+  // the capo is set in the song settings; only the chord names change, so the tab and the rest of the song stay as they are
+  function setCapo(fret) {
+    if (fret) state.notes.capo = fret; else delete state.notes.capo;
+    saveNotes();
+    applyAnnotations();
+    updateChartStatus();
+    if (prefs.view === 'tab') api.render(); else redrawCards();
   }
-
+  // the chart shows the capo and the chord diagrams setting as text under the title, for guitar
+  function updateChartStatus() {
+    const show = prefs.view === 'chart' && !!state.score && !!role().diagrams;
+    els.chartStatus.hidden = !show;
+    if (show) els.chartStatus.textContent = `${capoOf() ? `Capo ${capoOf()}` : 'No capo'} · Chord diagrams ${showChords() ? 'on' : 'off'}`;
+  }
+  // a chord as its root and a subscript quality, so Gmaj7 and Am take the width of one letter
+  const chordHtml = (text) => text.split(' ').map((t) => { const m = t.match(/^([A-G][#b]?)(.+)$/); return m ? `${esc(m[1])}<sub>${esc(m[2])}</sub>` : esc(t); }).join(' ');
   function noteBlock(partKey, partName) {
     const text = getNote(partKey);
     const label = `${role().label} note`;
@@ -1008,6 +995,8 @@
   function setView(v) {
     if (v === prefs.view) return;
     prefs.view = v;
+    // the display mode is remembered for each song, on this device only
+    if (state.song) prefs.viewBySong[state.song.key] = v;
     savePrefs();
     followScroll();
     applyViewChrome();
@@ -1031,6 +1020,7 @@
 
   function applyViewChrome() {
     applyPaged();
+    if (state.score) renderMap();
     const cards = prefs.view === 'cards';
     const chart = prefs.view === 'chart';
     const tab = prefs.view === 'tab';
@@ -1040,22 +1030,35 @@
     els.chart.hidden = !chart;
     els.tab.hidden = !tab;
     els.sectionHead.hidden = !tab;
+    compactClass();
+    if (!chart && !els.chartEditor.hidden) closeChartEditor();
     if ((cards || chart) && state.editing) setEditing(false);
+    updateChartStatus();
   }
 
-  // The chart: one card per section, a cell for each bar showing the bass note it starts on, and a lyric cue line for
-  // each time the section is played (see js/chart.js).
+  // The chart: one card per section, a cell for each bar, and a lyric cue line for each time the section is sung. It is
+  // the song's own chart (notes.chart, and the song's chords for guitar): nothing shows until it is entered.
+  const chartNotes = () => (state.notes && state.notes.chart) || {};
+  // What a bar holds, for the chart: its bass note, or for guitar its sounding chord, and its tags.
+  function chartCellInfo(bar) {
+    const c = chartNotes();
+    const tags = (c.tags && c.tags[bar]) || [];
+    if (role().diagrams) {
+      const raw = state.notes && state.notes.chords && state.notes.chords[bar];
+      if (raw === '-') return { rest: true, tags };
+      return { text: chordsAt(bar).map((n) => SM.chords.soundingOf(n, capoOf())).join(' '), tags };
+    }
+    const n = (c.notes && c.notes[bar]) || '';
+    if (n === '-' || tags.includes('Rest')) return { rest: true, tags };
+    return { text: n, tags };
+  }
+  const chartCueFor = (key) => chartNotes().cues?.[key] || '';
+  const REST_ICON = '<svg viewBox="0 0 12 14" width="12" height="14" aria-hidden="true" style="display:block;margin:auto"><path d="M0 3h12" stroke="currentColor" stroke-width="1"></path><rect x="2" y="3" width="8" height="4" fill="currentColor"></rect></svg>';
   function renderChart() {
     const box = els.chart;
     box.innerHTML = '';
+    updateChartStatus();
     if (!state.score || !state.groups.length) return;
-    const track = state.score.tracks[state.trackIndex];
-    const data = SM.chartData[state.song && state.song.title] || null;
-    const sections = SM.chart.chartSections({
-      groups: state.groups, parts: state.parts, bars: track && track.staves[0] ? track.staves[0].bars : [],
-      dataFor: data, transpose: transposeSemis(),
-    });
-    const rest = '<svg viewBox="0 0 12 14" width="12" height="14" aria-hidden="true" style="display:block;margin:auto"><path d="M0 3h12" stroke="currentColor" stroke-width="1"></path><rect x="2" y="3" width="8" height="4" fill="currentColor"></rect></svg>';
     // the guitar row (capo and the chord diagrams toggle) at the top, as in the cards
     box.appendChild(songNoteRow());
     // the chord diagrams, above the chart, when they are shown for this instrument
@@ -1068,34 +1071,43 @@
         box.appendChild(strip);
       }
     }
-    sections.forEach((sec) => {
+    SM.chart.chartSections({ groups: state.groups, parts: state.parts, cellFor: chartCellInfo, cueFor: chartCueFor }).forEach((sec) => {
       const group = state.groups.find((g) => g.key === sec.group);
       const card = document.createElement('section');
       card.className = 'card chart-card';
       card.dataset.group = sec.group;
       card.style.setProperty('--seg', segColor(group ? group.kind : ''));
+      // the section name sits above its bars, which then have the full width of the card
+      const name = document.createElement('div');
+      name.className = 'chart-name';
+      name.textContent = sec.name;
+      card.appendChild(name);
       const cells = document.createElement('div');
       cells.className = 'chart-cells';
       cells.style.setProperty('--cols', String(Math.min(9, sec.cells.length)));
       sec.cells.forEach((c) => {
-        // each bar is a button: tapping it opens the bar (see openBarFromChart)
+        // each bar is a button: a tap opens the bar (see attachBarPress)
         const d = document.createElement('button');
         d.type = 'button';
-        d.className = 'chart-cell' + (c.kind === 'stab' ? ' stab' : '') + (c.kind === 'rest' ? ' rest' : '');
-        d.setAttribute('aria-label', `Bar ${c.bar + 1}${c.kind === 'rest' ? ', rest' : `, ${c.note}`}`);
-        if (c.kind === 'rest') d.innerHTML = rest; else d.textContent = c.note;
+        d.className = 'chart-cell' + (c.kind === 'empty' ? ' empty' : c.kind === 'stab' ? ' stab' : c.kind === 'slide' ? ' slide' : c.kind === 'rest' ? ' rest' : '');
+        d.setAttribute('aria-label', `Bar ${c.bar + 1}${c.kind === 'rest' ? ', rest' : c.text ? `, ${c.text}` : ''}`);
+        if (c.kind === 'rest') d.innerHTML = REST_ICON; else if (role().diagrams) d.innerHTML = chordHtml(c.text); else d.textContent = c.text;
         attachBarPress(d, c.bar);
         cells.appendChild(d);
       });
       const lines = document.createElement('div');
       lines.className = 'card-lines';
-      sec.lines.forEach((text) => {
+      sec.lines.forEach((line) => {
         const row = document.createElement('div');
         row.className = 'layout';
         const when = document.createElement('span');
         when.className = 'when';
-        when.textContent = text;
+        when.textContent = line.label;
+        const cue = document.createElement('span');
+        cue.className = 'cue-text';
+        cue.textContent = line.cue;
         row.appendChild(when);
+        row.appendChild(cue);
         lines.appendChild(row);
       });
       card.appendChild(cells);
@@ -1265,7 +1277,7 @@
   const onTheme = () => {
     styleTab(api);
     api.updateSettings();
-    if (state.score) { if (prefs.view === 'tab') api.render(); else renderCards(); }
+    if (state.score) { if (prefs.view === 'tab') api.render(); else redrawCards(); }
   };
   if (themeQuery.addEventListener) themeQuery.addEventListener('change', onTheme);
   new MutationObserver(onTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
@@ -1831,6 +1843,10 @@
     updateBanner();
     resetDisplay();
     if (state.editing) setEditing(false);
+    // this song's own display mode, if it was used before on this device
+    if (prefs.viewBySong[key]) prefs.view = prefs.viewBySong[key];
+    followScroll();
+    applyViewChrome();
     // a song's video is not shown until it is asked for
     if (!refresh) state.videoOn = false;
     if (!refresh || mediaKey(song.notes) !== prevVideo) setupVideo();
@@ -2005,13 +2021,13 @@
     renderMap();
     renderEditList();
     saveNotes();
-    if (prefs.view === 'tab') selectView(state.view, { keepVideo: true }); else renderCards();
+    if (prefs.view === 'tab') selectView(state.view, { keepVideo: true }); else redrawCards();
   }
 
   function chordsChanged() {
     applyAnnotations();
     saveNotes();
-    if (prefs.view === 'tab') api.render(); else renderCards();
+    if (prefs.view === 'tab') api.render(); else redrawCards();
   }
 
   const trashIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 11v6M14 11v6M7 7l1 12h8l1-12M9 7V4h6v3"/></svg>';
@@ -2183,7 +2199,7 @@
     closeDialog(els.barDlg);
     sectionsChanged();
   });
-  els.editBtn.addEventListener('click', () => setEditing(!state.editing));
+  els.editBtn.addEventListener('click', () => (prefs.view === 'chart' ? openChartEditor() : setEditing(!state.editing)));
   els.doneEditBtn.addEventListener('click', () => setEditing(false));
 
   // Looks for each part's notes elsewhere in the tab and marks those bars as the same part.
@@ -3267,6 +3283,8 @@
     els.zoomRange.value = prefs.zoom;
     els.zoomOut.textContent = `${Math.round(prefs.zoom * 100)}%`;
     els.ytInput.value = state.notes.youtubeUrl || '';
+    els.capoSel.value = String(capoOf());
+    els.capoSel.closest('.capo-field').hidden = !role().diagrams;
     els.audioRemove.hidden = !state.notes.audio;
     const feel = drumFeelOf();
     els.drumFeel.value = String(feel.ms);
@@ -3307,14 +3325,14 @@
     savePrefs();
     syncChordToggles();
     applyChordVisibility();
+    updateChartStatus();
     if (prefs.view === 'tab') api.render(); else redrawCards();
   }
   function syncChordToggles() {
     els.showChords.checked = showChords();
     document.querySelectorAll('.chord-diag-toggle').forEach((b) => b.setAttribute('aria-pressed', String(showChords())));
   }
-  // A long press on a bar in the chart opens it in a card: a guitar bar shows its chord diagram, and a bass bar shows
-  // its tab. A tap does nothing, so scrolling the chart does not open bars.
+  // A tap on a bar in the chart opens it in a card: a guitar bar shows its chord diagram, and a bass bar shows its tab.
   let barMini = null;
   function openBarFromChart(bar) {
     els.barPeekTitle.textContent = `Bar ${bar + 1}`;
@@ -3345,29 +3363,232 @@
     els.barPeekBody.innerHTML = '';
   });
   // A bar opens on a long press (about half a second). A touch that moves is a scroll, so it does not count.
+  // A tap on a bar opens it. A touch that moves is a scroll, so it does not open the bar.
   function attachBarPress(el, bar) {
-    let timer = null, fired = false, sx = 0, sy = 0;
-    const start = (x, y) => {
-      fired = false; sx = x; sy = y;
-      clearTimeout(timer);
-      timer = setTimeout(() => { fired = true; openBarFromChart(bar); }, 500);
-    };
-    const move = (x, y) => { if (Math.hypot(x - sx, y - sy) > 10) clearTimeout(timer); };
-    const stop = () => clearTimeout(timer);
-    el.addEventListener('touchstart', (e) => start(e.touches[0].clientX, e.touches[0].clientY), { passive: true });
-    el.addEventListener('touchmove', (e) => move(e.touches[0].clientX, e.touches[0].clientY), { passive: true });
-    el.addEventListener('touchend', stop);
-    el.addEventListener('touchcancel', stop);
-    el.addEventListener('mousedown', (e) => start(e.clientX, e.clientY));
-    el.addEventListener('mousemove', (e) => { if (e.buttons) move(e.clientX, e.clientY); });
-    el.addEventListener('mouseup', stop);
-    el.addEventListener('mouseleave', stop);
-    el.addEventListener('contextmenu', (e) => e.preventDefault());
-    el.addEventListener('click', (e) => {
-      if (fired) { fired = false; e.preventDefault(); return; }   // the tap that ends a long press
-      if (e.detail === 0) openBarFromChart(bar);                   // from the keyboard
+    let moved = false, sx = 0, sy = 0;
+    el.addEventListener('touchstart', (e) => { moved = false; sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+    el.addEventListener('touchmove', (e) => { if (Math.hypot(e.touches[0].clientX - sx, e.touches[0].clientY - sy) > 10) moved = true; }, { passive: true });
+    el.addEventListener('click', () => {
+      if (moved) { moved = false; return; }
+      openBarFromChart(bar);
     });
   }
+  /* ---------------- the chart editor (from the pencil on the chart) ---------------- */
+  // Changes are kept in a draft until Done saves them; Back leaves the chart as it was.
+  let chartDraft = null;
+  const chartEditorGuitar = () => !!role().diagrams;
+  const CE_BACK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';
+  const TAG_COLOURS = { Stab: 'var(--c-chorus)', Slide: 'var(--c-bridge)' };
+  function openChartEditor() {
+    if (!state.score || !state.notes) return;
+    const c = chartNotes();
+    const chords = {};
+    const origChords = {};
+    state.score.masterBars.forEach((_, b) => {
+      const raw = state.notes.chords && state.notes.chords[b];
+      const text = raw === '-' ? '-' : chordsAt(b).map((n) => SM.chords.soundingOf(n, capoOf())).join(' ');
+      chords[b] = text;
+      origChords[b] = text;
+    });
+    chartDraft = {
+      bass: { ...(c.notes || {}) },
+      tags: JSON.parse(JSON.stringify(c.tags || {})),
+      cues: { ...(c.cues || {}) },
+      chords, origChords, step: 'all', sheetBar: null,
+    };
+    els.chartEditor.hidden = false;
+    renderChartEditor();
+  }
+  function closeChartEditor() {
+    chartDraft = null;
+    els.chartEditor.hidden = true;
+    els.chartEditor.innerHTML = '';
+  }
+  // Done: the draft becomes the song's chart (notes.chart), and its guitar chords are stored as the cards store them.
+  function commitChartDraft() {
+    const d = chartDraft;
+    const n = state.notes;
+    if (!d || !n || !state.score) return;
+    const tidy = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => (Array.isArray(v) ? v.length : v !== '' && v !== undefined)));
+    n.chart = { notes: tidy(d.bass), tags: tidy(d.tags), cues: tidy(d.cues) };
+    if (chartEditorGuitar()) {
+      n.chords = n.chords || {};
+      state.score.masterBars.forEach((_, b) => {
+        const v = (d.chords[b] || '').trim();
+        if (v === d.origChords[b]) return;
+        if (!v) delete n.chords[b];
+        else if (v === '-') n.chords[b] = '-';
+        else n.chords[b] = SM.chords.transposeText(v, -transposeSemis());
+      });
+    }
+    closeChartEditor();
+    chordsChanged();
+    toast('Chart saved');
+  }
+  // The chart editor's bars, and the sections it shows for the chosen step.
+  const ceBarText = (b) => (chartEditorGuitar() ? chartDraft.chords[b] || '' : chartDraft.bass[b] || '');
+  function ceCellHtml(b) {
+    const text = ceBarText(b);
+    const tags = chartDraft.tags[b] || [];
+    const rest = text === '-' || tags.includes('Rest');
+    const cls = ['ce-cell', tags.includes('Stab') ? 'stab' : '', tags.includes('Slide') ? 'slide' : '', rest ? 'rest' : '', b === chartDraft.sheetBar ? 'sel' : ''].filter(Boolean).join(' ');
+    const label = rest ? 'rest' : (text || '·');
+    return `<button type="button" class="${cls}" data-bar="${b}" aria-label="Bar ${b + 1}${rest ? ', rest' : text ? `, ${esc(text)}` : ''}">${esc(label)}</button>`;
+  }
+  function ceUpdateCell(b) {
+    const btn = els.chartEditor.querySelector(`.ce-cell[data-bar="${b}"]`);
+    if (btn) btn.outerHTML = ceCellHtml(b);
+  }
+  function ceSectionHtml(g) {
+    const d = chartDraft;
+    const first = state.parts[g.occ[0]];
+    const bars = [];
+    for (let b = first.start; b <= first.end; b++) bars.push(b);
+    const value = bars.map((b) => ceBarText(b)).join(' ');
+    const base = SM.chart.baseKey(g.name);
+    const cues = g.occ.map((pi, k) => {
+      const key = `${base}:${k + 1}`;
+      const label = g.occ.length > 1 ? `${base.replace(/^./, (c) => c.toUpperCase())} ${k + 1}` : g.name.replace(/\s*\d+$/, '');
+      return `<div class="ce-cue"><span>${esc(label)}</span><input class="ce-cue-in" data-cue="${esc(key)}" aria-label="${esc(label)} cue" value="${esc(d.cues[key] || '')}"></div>`;
+    }).join('');
+    return `<section class="ce-sec" style="--seg:${segColor(g.kind)}">
+      <div class="ce-sec-head"><h2>${esc(g.name)}</h2><span class="ce-n">${g.occ.length > 1 ? `${g.occ.length} times · ` : ''}bars ${first.start + 1} to ${first.end + 1}</span></div>
+      <div class="ce-lbl">${chartEditorGuitar() ? 'Real chords (sounding)' : 'Notes'}</div>
+      <input class="ce-in" data-start="${first.start}" data-count="${bars.length}" aria-label="${esc(g.name)} ${chartEditorGuitar() ? 'chords' : 'notes'}" value="${esc(value)}">
+      <div class="ce-cells" style="--cols:${Math.min(9, bars.length)}">${bars.map(ceCellHtml).join('')}</div>
+      <div class="ce-lbl">Lyric cues</div>
+      ${cues}
+    </section>`;
+  }
+  function renderChartEditor() {
+    const d = chartDraft;
+    const box = els.chartEditor;
+    const guitar = chartEditorGuitar();
+    const capo = capoOf();
+    // the shapes to play, for the guitar: each distinct chord of the chart, moved down by the capo
+    let shapes = '';
+    if (guitar) {
+      const names = [];
+      Object.values(d.chords).forEach((text) => text.split(/\s+/).filter((t) => t && t !== '-').forEach((t) => {
+        const shape = SM.chords.shapeOf(t, capo);
+        if (!names.includes(shape)) names.push(shape);
+      }));
+      shapes = `<div class="ce-shapes"><div class="ce-lbl">Shapes to play${capo ? ` at capo ${capo}` : ''}</div>
+        <div class="ce-shape-row">${names.length ? names.map((n) => `<div class="ce-shape">${SM.chords.diagram(n)}</div>`).join('') : '<p class="ce-help">No chords yet.</p>'}</div></div>`;
+    }
+    const groups = state.groups.filter((g) => d.step === 'all' || d.step === g.key);
+    box.innerHTML = `
+      <header class="ce-top">
+        <button type="button" class="icon-btn" data-ce="back" aria-label="Back">${CE_BACK}</button>
+        <div class="ce-grow"><h1>Edit chart</h1><div class="ce-sub">${esc(state.song.artist || '')} · ${guitar ? 'Guitar' : 'Bass'}${guitar && capo ? ` · Capo ${capo}` : ''} · ${state.score.masterBars.length} bars</div></div>
+        <button type="button" class="ce-done" data-ce="done">Done</button>
+      </header>
+      <nav class="ce-steps" aria-label="Sections">
+        <button type="button" class="${d.step === 'all' ? 'on' : ''}" data-step="all" style="--seg:var(--accent)">All</button>
+        ${state.groups.map((g) => `<button type="button" class="${d.step === g.key ? 'on' : ''}" data-step="${esc(g.key)}" style="--seg:${segColor(g.kind)}">${esc(g.name)}</button>`).join('')}
+      </nav>
+      <div class="ce-body">
+        ${shapes}
+        <p class="ce-help">${guitar
+          ? 'Type one chord per bar, separated by spaces. Type - for a rest bar. Tap a bar to add tags. Lyric cues are shared with bass, so editing them here updates both charts.'
+          : 'Type one note per bar, separated by spaces. Tap a bar below to mark it as a stab, rest or slide. Lyric cues go under each time the section is sung.'}</p>
+        ${groups.map(ceSectionHtml).join('')}
+      </div>
+      <div class="ce-sheet" hidden></div>`;
+    if (d.sheetBar !== null) ceOpenSheet();
+  }
+  function ceOpenSheet() {
+    const d = chartDraft;
+    const b = d.sheetBar;
+    const sheet = els.chartEditor.querySelector('.ce-sheet');
+    const g = state.groups.find((x) => { const p = state.parts[x.occ[0]]; return b >= p.start && b <= p.end; });
+    const text = ceBarText(b);
+    const tags = d.tags[b] || [];
+    const quick = SM.chart.QUICK_TAGS.map((t) => `<button type="button" class="ce-q${tags.includes(t) ? ' on' : ''}" data-quick="${t}">${t}</button>`).join('');
+    sheet.hidden = false;
+    sheet.innerHTML = `
+      <div class="ce-sheet-head"><b>${esc(g ? g.name : '')}, bar ${b + 1}</b><small>${chartEditorGuitar() ? 'Chord' : 'Note'} ${esc(text || '—')}</small></div>
+      <div class="ce-tags">${tags.map((t) => `<span class="ce-tag" style="--t:${TAG_COLOURS[t] || 'var(--muted)'}">${esc(t)} <button type="button" data-untag="${esc(t)}" aria-label="Remove ${esc(t)}">×</button></span>`).join('')}
+        <input class="ce-tag-in" aria-label="Add a tag or note" placeholder="Add a tag, e.g. fill, hit, pickup"></div>
+      <div class="ce-quick">${quick}</div>
+      <button type="button" class="ce-close" data-ce="sheet-close">Done with bar</button>`;
+  }
+  function ceSetTags(b, list) {
+    if (list.length) chartDraft.tags[b] = list; else delete chartDraft.tags[b];
+  }
+  function ceToggleTag(b, tag) {
+    const d = chartDraft;
+    const list = (d.tags[b] || []).slice();
+    const i = list.indexOf(tag);
+    if (i >= 0) list.splice(i, 1); else list.push(tag);
+    ceSetTags(b, list);
+    if (tag === 'Rest') {
+      // the Rest tag is a rest bar: it is typed as "-", as the field shows it
+      if (chartEditorGuitar()) d.chords[b] = i >= 0 ? '' : '-';
+      else d.bass[b] = i >= 0 ? '' : '-';
+    }
+  }
+  function ceAddTag(b, raw) {
+    const t = String(raw || '').trim().replace(/^./, (c) => c.toUpperCase());
+    if (!t) return;
+    const list = (chartDraft.tags[b] || []).slice();
+    if (!list.includes(t)) list.push(t);
+    ceSetTags(b, list);
+  }
+  els.chartEditor.addEventListener('click', (e) => {
+    const t = e.target.closest('button');
+    if (!t || !chartDraft) return;
+    const d = chartDraft;
+    if (t.dataset.ce === 'done') commitChartDraft();
+    else if (t.dataset.ce === 'back') closeChartEditor();
+    else if (t.dataset.ce === 'sheet-close') { d.sheetBar = null; renderChartEditor(); }
+    else if (t.dataset.step !== undefined) { d.step = t.dataset.step; renderChartEditor(); }
+    else if (t.dataset.untag !== undefined) { ceSetTags(d.sheetBar, (d.tags[d.sheetBar] || []).filter((x) => x !== t.dataset.untag)); ceUpdateCell(d.sheetBar); ceOpenSheet(); }
+    else if (t.dataset.quick !== undefined) {
+      ceToggleTag(d.sheetBar, t.dataset.quick);
+      ceUpdateCell(d.sheetBar);
+      if (t.dataset.quick === 'Rest') ceRefreshSection(d.sheetBar);
+      ceOpenSheet();
+    }
+    else if (t.dataset.bar !== undefined) { d.sheetBar = Number(t.dataset.bar); renderChartEditor(); }
+  });
+  // The section field shows its bars again after a bar changes from the tag sheet.
+  function ceRefreshSection(b) {
+    const input = [...els.chartEditor.querySelectorAll('.ce-in')].find((i) => b >= Number(i.dataset.start) && b < Number(i.dataset.start) + Number(i.dataset.count));
+    if (input) {
+      const start = Number(input.dataset.start);
+      const count = Number(input.dataset.count);
+      const vals = [];
+      for (let i = 0; i < count; i++) vals.push(ceBarText(start + i));
+      input.value = vals.join(' ');
+    }
+  }
+  els.chartEditor.addEventListener('input', (e) => {
+    const d = chartDraft;
+    if (!d) return;
+    if (e.target.matches('.ce-in')) {
+      // one entry per bar, in order, for the bars of the section
+      const start = Number(e.target.dataset.start);
+      const count = Number(e.target.dataset.count);
+      const toks = e.target.value.split(/\s+/).filter(Boolean);
+      for (let i = 0; i < count; i++) {
+        const b = start + i;
+        const v = toks[i] || '';
+        if (chartEditorGuitar()) d.chords[b] = v; else d.bass[b] = v;
+        ceUpdateCell(b);
+      }
+    } else if (e.target.matches('.ce-cue-in')) {
+      d.cues[e.target.dataset.cue] = e.target.value.trim();
+    }
+  });
+  els.chartEditor.addEventListener('keydown', (e) => {
+    if (!chartDraft || chartDraft.sheetBar === null || !e.target.matches('.ce-tag-in') || e.key !== 'Enter') return;
+    e.preventDefault();
+    ceAddTag(chartDraft.sheetBar, e.target.value);
+    ceUpdateCell(chartDraft.sheetBar);
+    ceOpenSheet();
+  });
+
   function applyChordVisibility() {
     const show = showChords();
     const els2 = api.settings.notation.elements;
@@ -3377,6 +3598,9 @@
     return true;
   }
   els.showChords.addEventListener('change', () => setShowChords(els.showChords.checked));
+  // the capo is chosen in the song settings, and the chart shows it as text under the title
+  els.capoSel.innerHTML = '<option value="0">No capo</option>' + Array.from({ length: 12 }, (_, i) => `<option value="${i + 1}">Capo ${i + 1}</option>`).join('');
+  els.capoSel.addEventListener('change', () => setCapo(Number(els.capoSel.value)));
   els.showTabCards.addEventListener('change', () => {
     prefs.cardsTab[prefs.role] = els.showTabCards.checked;
     savePrefs();
@@ -3387,7 +3611,7 @@
     savePrefs();
     api.settings.display.staveProfile = STAVES[r.value];
     api.updateSettings();
-    if (prefs.view === 'tab') api.render(); else renderCards();
+    if (prefs.view === 'tab') api.render(); else redrawCards();
   }));
   els.zoomRange.addEventListener('input', () => { els.zoomOut.textContent = `${Math.round(els.zoomRange.value * 100)}%`; });
   function setZoom(z) {
@@ -3396,7 +3620,7 @@
     savePrefs();
     api.settings.display.scale = z;
     api.updateSettings();
-    if (prefs.view === 'tab') api.render(); else renderCards();
+    if (prefs.view === 'tab') api.render(); else redrawCards();
     toast(`Tab size ${Math.round(z * 100)}%`);
   }
   els.zoomRange.addEventListener('change', () => setZoom(Number(els.zoomRange.value)));

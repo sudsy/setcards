@@ -21,13 +21,6 @@ async function openDemo(page, path = '/') {
 
 // Picks the view: the top bar dropdown on wide screens, or the song settings on phones.
 // Holds the pointer on an element for longer than a tap (a long press).
-async function longPress(page, locator) {
-  const box = await locator.boundingBox();
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
-  await page.waitForTimeout(650);
-  await page.mouse.up();
-}
 
 async function pickView(page, view) {
   if (await page.locator('#viewSelTop').isVisible()) {
@@ -286,7 +279,7 @@ test('the drums-only button is hidden for a song without a drum track', async ({
   await expect(page.locator('#drumsBtn')).toBeHidden();
 });
 
-test('a capo is chosen at the top of the song, and shows the chord shapes to play', async ({ page }) => {
+test('the capo is chosen in the song settings, and the chart shows it under the title', async ({ page }) => {
   await openDemo(page);
   await chooseRole(page, 'Guitar');
   // a chord on the first bar, then the capo changes the shape shown for it
@@ -296,29 +289,39 @@ test('a capo is chosen at the top of the song, and shows the chord shapes to pla
   await page.click('#chordForm button[type=submit]');
   await expect(first).toHaveText('Dm7');
   const before = await first.textContent();
-  await page.selectOption('.capo-pick', '2');
+  await page.click('#settingsBtn');
+  await page.selectOption('#capoSel', '2');
+  await page.click('#settingsDlg [data-close]');
   await expect(first).not.toHaveText(before);
-  await expect(page.locator('.capo-pick')).toHaveValue('2');
   await expect(page.locator('#songMeta')).not.toContainText('Capo');
-  // the capo is kept with the song: it is still set after going back to the list and in the full tab
+  // the capo is kept with the song: it is still set after going back to the list
   await page.click('#backBtn');
   await page.locator('.song-row .song-open', { hasText: 'Low Road (demo)' }).click();
-  await expect(page.locator('.capo-pick')).toHaveValue('2');
-  await page.selectOption('.capo-pick', '0');
+  await page.click('#settingsBtn');
+  await expect(page.locator('#capoSel')).toHaveValue('2');
+  await page.selectOption('#capoSel', '0');
+  await page.click('#settingsDlg [data-close]');
   await expect(first).toHaveText(before);
-  // the capo is chosen with the cards, so the full tab has no capo control
-  await page.selectOption('.capo-pick', '2');
+  // the chart shows the capo as text under the title, and only in the chart view
+  await page.click('#settingsBtn');
+  await page.selectOption('#capoSel', '2');
+  await page.click('#settingsDlg [data-close]');
+  await pickView(page, 'chart');
+  await expect(page.locator('#chartStatus')).toHaveText('Capo 2 · Chord diagrams on');
   await pickView(page, 'tab');
-  await expect(page.locator('.capo-pick')).toHaveCount(0);
+  await expect(page.locator('#chartStatus')).toBeHidden();
 });
 
 test('the capo is only offered to guitar, not bass', async ({ page }) => {
   await openDemo(page);
   await chooseRole(page, 'Bass');
-  await expect(page.locator('.song-note-row')).toBeVisible();
-  await expect(page.locator('.capo-pick')).toHaveCount(0);
+  await page.click('#settingsBtn');
+  await expect(page.locator('#capoSel')).toBeHidden();
+  await page.click('#settingsDlg [data-close]');
   await chooseRole(page, 'Guitar');
-  await expect(page.locator('.capo-pick')).toHaveCount(1);
+  await page.click('#settingsBtn');
+  await expect(page.locator('#capoSel')).toBeVisible();
+  await page.click('#settingsDlg [data-close]');
 });
 
 test('the click in drum-free bars is a side stick on the first beat, and is left out of an export', async ({ page }) => {
@@ -440,7 +443,7 @@ test('the play bar has back to the beginning and no loop button', async ({ page 
   await expect.poll(() => page.evaluate(() => Math.abs(window.setcardsTest.state().tick - window.setcardsTest.state().parts[1].start))).toBeLessThanOrEqual(1);
 });
 
-test('the chart view shows a card per section, with the bass note each bar starts on', async ({ page }) => {
+test('the chart view is empty until the chart is entered in the editor, and then shows its notes', async ({ page }) => {
   const errors = watchErrors(page);
   await page.addInitScript(() => localStorage.setItem('setcards:prefs', JSON.stringify({ mode: 'solo', view: 'chart' })));
   await page.goto('/');
@@ -460,11 +463,19 @@ test('the chart view shows a card per section, with the bass note each bar start
   await page.locator('#attachInput').setInputFiles({ name: 'baby.gp', mimeType: 'application/octet-stream', buffer: Buffer.from(bytes) });
   await expect(page.locator('#chart .chart-card').first()).toBeVisible({ timeout: 20000 });
   await expect(page.locator('#chart .chart-card')).toHaveCount(5);
-  const chorus = page.locator('#chart .chart-card').nth(3);
-  await expect(chorus.locator('.chart-cell.stab')).toHaveCount(2);
-  await expect(page.locator('#chart .chart-card').first().locator('.chart-cell')).toHaveText(['G', 'G']);
-  await expect(page.locator('#chart .chart-card').nth(4).locator('.chart-cell.rest')).toHaveCount(1);
+  // nothing is built in: the bars are empty and the chart has no notes until they are entered
+  const intro = page.locator('#chart .chart-card').first();
+  await expect(intro.locator('.chart-cell')).toHaveCount(2);
+  await expect(intro.locator('.chart-cell').first()).toHaveText('');
   await expect(page.locator('#chart .card-lines .layout').first().locator('.when')).toHaveText('Intro');
+  // the pencil on the chart opens the editor; Done saves the notes into this song
+  await page.click('#editBtn');
+  await expect(page.locator('#chartEditor')).toBeVisible();
+  await expect(page.locator('#chartEditor h1')).toHaveText('Edit chart');
+  await page.locator('#chartEditor .ce-sec').first().locator('.ce-in').fill('G G');
+  await page.click('#chartEditor [data-ce=done]');
+  await expect(page.locator('#chartEditor')).toBeHidden();
+  await expect(intro.locator('.chart-cell')).toHaveText(['G', 'G']);
   await expect(page.locator('#viewSelTop')).toHaveValue('chart');
   expect(errors).toEqual([]);
 });
@@ -484,11 +495,9 @@ test('tapping a bar in the chart opens its tab for bass, and its chord diagram f
   const bytes = new alphaTab.exporter.Gp7Exporter().export(imp.readScore(), new alphaTab.Settings());
   await page.locator('#attachInput').setInputFiles({ name: 'baby.gp', mimeType: 'application/octet-stream', buffer: Buffer.from(bytes) });
   await expect(page.locator('#chart .chart-card').first()).toBeVisible({ timeout: 20000 });
-  // a tap does nothing (it can be the end of a scroll); a long press opens the bar, with its tab for bass
+  // a short tap opens the bar, with its tab for bass
   const bassCell = page.locator('#chart .chart-card').nth(1).locator('.chart-cell').nth(2);
   await bassCell.click();
-  await expect(page.locator('#barPeekDlg')).toBeHidden();
-  await longPress(page, bassCell);
   await expect(page.locator('#barPeekDlg')).toBeVisible();
   await expect(page.locator('#barPeekTitle')).toHaveText('Bar 5');
   await expect(page.locator('#barPeekBody .bar-peek-tab')).toBeVisible();
@@ -496,13 +505,15 @@ test('tapping a bar in the chart opens its tab for bass, and its chord diagram f
   // guitar: the tap shows the chord diagram for the bar, and the diagrams toggle follows the setting
   await pickView(page, 'chart');
   await chooseRole(page, 'Guitar');
-  await expect(page.locator('.chord-diag-toggle')).toHaveAttribute('aria-pressed', 'true');
-  await longPress(page, page.locator('#chart .chart-card').first().locator('.chart-cell').first());
+  await expect(page.locator('#chartStatus')).toHaveText('No capo · Chord diagrams on');
+  await page.locator('#chart .chart-card').first().locator('.chart-cell').first().click();
   await expect(page.locator('#barPeekDlg')).toBeVisible();
   await expect(page.locator('#barPeekTitle')).toHaveText('Bar 1');
   await page.click('#barPeekDlg [data-close]');
-  await page.locator('.chord-diag-toggle').click();
-  await expect(page.locator('.chord-diag-toggle')).toHaveAttribute('aria-pressed', 'false');
+  await page.click('#settingsBtn');
+  await page.uncheck('#showChords');
+  await page.click('#settingsDlg [data-close]');
+  await expect(page.locator('#chartStatus')).toHaveText('No capo · Chord diagrams off');
   await page.click('#settingsBtn');
   await expect(page.locator('#showChords')).not.toBeChecked();
   await page.locator('#settingsDlg [data-close]').click();

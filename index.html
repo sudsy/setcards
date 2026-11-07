@@ -68,6 +68,7 @@
       <div class="song-id">
         <div id="songTitle" class="song-title">Setcards</div>
         <div id="songMeta" class="song-meta"></div>
+        <div id="chartStatus" class="chart-status" hidden></div>
       </div>
       <button id="editBtn" class="text-btn edit-btn" aria-pressed="false" aria-label="Edit">
         <span class="edit-word">Edit</span>
@@ -151,6 +152,7 @@
       <div id="loading" class="loading">Loading…</div>
       <section id="noTab" class="no-tab-page" hidden></section>
       <div id="chart" class="chart-view" hidden></div>
+      <div id="chartEditor" class="chart-editor" hidden></div>
       <div id="cards" class="cards"></div>
       <div id="tab" hidden></div>
     </main>
@@ -314,6 +316,7 @@
     </label>
     <label class="check"><input id="showTabCards" type="checkbox"> Show tab on the cards</label>
     <label class="check"><input id="showChords" type="checkbox"> Show chords</label>
+    <label class="field capo-field"><span>Capo</span><select id="capoSel" aria-label="Capo fret"></select></label>
     <fieldset class="field">
       <legend>Notation</legend>
       <div class="seg">
@@ -450,7 +453,6 @@
   <script src="js/kits.js"></script>
   <script src="js/soundfont.js"></script>
   <script src="js/notes.js"></script>
-  <script src="js/chart-data.js"></script>
   <script src="js/chart.js"></script>
   <script src="js/storage-core.js"></script>
   <script src="js/storage-device.js"></script>
