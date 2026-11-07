@@ -1078,14 +1078,19 @@ for (const [w, h] of [[375, 667], [393, 852], [430, 932]]) {
     await expect(page.locator('#loading')).toBeHidden();
     await expect(page.locator('body')).toHaveClass(/compact/);
     const r = await page.evaluate(() => {
+      // every section's boxes sit on one line, and the cards run close to the screen edges
+      const oneLine = [...document.querySelectorAll('#chart .chart-card')].every((card) => new Set([...card.querySelectorAll('.chart-cell')].map((c) => Math.round(c.getBoundingClientRect().top))).size <= 1);
+      const cardLeft = Math.min(...[...document.querySelectorAll('#chart .chart-card')].map((c) => c.getBoundingClientRect().left));
       const spilled = [...document.querySelectorAll('#chart .chart-card')].filter((card) => {
         const cr = card.getBoundingClientRect();
         return [...card.querySelectorAll('.chart-cell')].some((c) => { const b = c.getBoundingClientRect(); return b.right > cr.right + 1 || b.left < cr.left - 1; });
       }).length;
       const pb = document.getElementById('playBtn').getBoundingClientRect();
-      return { overflowX: document.documentElement.scrollWidth - window.innerWidth, spilled, playInView: pb.bottom <= window.innerHeight && pb.right <= window.innerWidth && pb.left >= 0 && pb.width > 0 };
+      return { oneLine, cardLeft, overflowX: document.documentElement.scrollWidth - window.innerWidth, spilled, playInView: pb.bottom <= window.innerHeight && pb.right <= window.innerWidth && pb.left >= 0 && pb.width > 0 };
     });
     expect(r.overflowX).toBeLessThanOrEqual(0);
+    expect(r.oneLine).toBe(true);
+    expect(r.cardLeft).toBeLessThanOrEqual(12);
     expect(r.spilled).toBe(0);
     expect(r.playInView).toBe(true);
     // ⋯ opens the other playback controls as a sheet, and closes again
