@@ -558,11 +558,12 @@
       t.style.setProperty('--seg', segColor(p.kind));
       t.dataset.index = i;
       t.dataset.group = p.group.key;
-      t.dataset.bars = p.bars;   // shown after the name, so you know how long to wait
+      // shown after the name, so you know how long to wait (the chart shows the count in its card instead)
+      if (prefs.view !== 'chart') t.dataset.bars = p.bars;
       // a part with no notes is drawn as a gap, unless its chords are shown: then it has a card, and a solid chip
       t.classList.toggle('rest', !!p.empty && !role().cues && !showChords());
       // the chart shows one letter and the bar count for each part, to fit the whole song on the screen
-      t.textContent = prefs.view === 'chart' ? `${p.label[0].toUpperCase()} ${p.bars}` : p.label;
+      t.textContent = prefs.view === 'chart' ? p.label[0].toUpperCase() : p.label;
       t.title = `${p.label} · ${plural(p.bars, 'bar')} · bars ${p.start + 1}–${p.end + 1}${p.empty ? ' · nothing to play' : ` · ${p.summary}`}`;
       t.addEventListener('click', () => {
         if (prefs.view === 'cards') { scrollToCard(i); playFromPart(i); }
@@ -1083,7 +1084,11 @@
       // the section name sits above its bars, which then have the full width of the card
       const name = document.createElement('div');
       name.className = 'chart-name';
-      name.textContent = sec.name;
+      name.append(sec.name);
+      const count = document.createElement('span');
+      count.className = 'chart-count';
+      count.textContent = String(sec.cells.length);
+      name.appendChild(count);
       card.appendChild(name);
       const cells = document.createElement('div');
       cells.className = 'chart-cells';

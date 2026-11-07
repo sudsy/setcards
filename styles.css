@@ -1001,7 +1001,7 @@ body.compact .chord-diag-toggle { min-height: 44px; }
 .chart-card .chart-name { font-family: var(--font-display); font-weight: 600; font-size: 14px; line-height: 16px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--seg); margin-bottom: 4px; }
 body.compact .chart-cells { display: flex; flex-wrap: wrap; gap: 3px; }
 /* the boxes share the width of the card: nine fit a row, from 28px on a narrow phone to 34px on a wide one */
-body.compact .chart-cell { width: clamp(28px, calc((100% - 24px) / 9), 34px); min-height: 36px; font-size: 15px; }
+body.compact .chart-cell { width: clamp(26px, calc((100% - 24px) / 9), 32px); min-height: 36px; font-size: 15px; }
 .chart-cell sub { font-size: 9px; font-weight: 600; line-height: 1; vertical-align: baseline; position: relative; top: -0.1em; margin-left: 1px; }
 
 /* the chart on a phone: the play button floats over the chart, and ⋯ opens the other playback controls as a sheet */
@@ -1020,3 +1020,6 @@ body.chart-view.compact.player-open .playerbar {
   flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between;
   padding: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
 }
+/* the chart on a phone runs gutter to gutter, and each section's bar count sits beside its name */
+body.chart-view.compact .chart-view { padding-left: 0; padding-right: 0; }
+.chart-card .chart-count { color: var(--muted); font-weight: 500; margin-left: 6px; letter-spacing: 0; }
