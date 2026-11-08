@@ -109,6 +109,9 @@ body {
 }
 [hidden] { display: none !important; }
 button, input, select { font: inherit; color: inherit; }
+/* iPhone zooms the page when a field under 16px is focused, and a quick double tap zooms it too; neither should happen here */
+html, body { touch-action: manipulation; }
+input, select, textarea { font-size: 16px; }
 button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--accent-fill); outline-offset: 2px; }
 svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
