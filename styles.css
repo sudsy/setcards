@@ -1030,3 +1030,37 @@ body.chart-view.compact .chart-view { margin-left: 0; margin-right: 0; padding-l
 body.chart-view.compact .structure { flex-wrap: nowrap; max-height: none; gap: 3px; }
 body.chart-view.compact .structure .step { flex: 1 1 0; min-width: 0; padding: 0 2px; justify-content: center; }
 
+/* set lists: the Songs / Set lists switch on the home screen, and the set list screen */
+.home-switch { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; margin: 8px 0; background: var(--surface); }
+.home-switch[hidden] { display: none; }
+.seg-btn { min-height: 40px; border: 0; background: none; color: var(--ink); font-weight: 600; }
+.seg-btn.on { background: var(--ink); color: var(--bg); }
+.setlists-wrap { display: grid; gap: 8px; padding-bottom: 12px; }
+.setlists-wrap[hidden] { display: none; }
+.setlist-row { display: grid; gap: 2px; text-align: left; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); min-height: 44px; }
+.setlist-row .sl-name { font-family: var(--font-display); font-weight: 600; font-size: 1.1rem; }
+.setlist-row .sl-meta { color: var(--muted); font-size: 0.82rem; }
+.setlist-view { position: fixed; inset: 0; z-index: 25; background: var(--bg); color: var(--ink); display: flex; flex-direction: column; overflow: hidden; }
+.setlist-view[hidden] { display: none; }
+.sl-top { display: flex; align-items: center; gap: 8px; padding: calc(8px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px)); border-bottom: 1px solid var(--line); background: var(--surface); }
+.sl-top h1 { margin: 0; font-size: 1.15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sl-grow { flex: 1; min-width: 0; }
+.sl-sub { color: var(--muted); font-size: 0.8rem; }
+.sl-name-in { width: 100%; min-height: 40px; box-sizing: border-box; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; font-size: 1.05rem; padding: 0 8px; }
+.sl-body, .sl-songs { flex: 1; min-height: 0; overflow-y: auto; list-style: none; margin: 0; padding: 12px max(16px, env(safe-area-inset-right, 0px)) 24px max(16px, env(safe-area-inset-left, 0px)); display: grid; gap: 8px; align-content: start; }
+.sl-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.sl-row.dim { opacity: 0.65; }
+.sl-num { font-family: var(--font-display); font-weight: 700; font-size: 1.2rem; color: var(--muted); text-align: center; }
+.sl-info { display: grid; gap: 2px; min-width: 0; }
+.sl-info b { font-family: var(--font-display); font-weight: 600; font-size: 1.05rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sl-info small { color: var(--muted); font-size: 0.78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sl-move { display: flex; gap: 6px; }
+.sl-move .icon-btn { width: 40px; height: 40px; border: 1px solid var(--line); border-radius: 8px; }
+.sl-move .icon-btn:disabled { opacity: 0.35; }
+.sl-pick { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 10px; align-items: center; text-align: left; min-height: 48px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); }
+.sl-pick.on { border-color: var(--ink); }
+.sl-tick { width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid var(--line); display: grid; place-items: center; font-size: 14px; }
+.sl-pick.on .sl-tick { background: var(--accent-fill); border-color: var(--accent-fill); color: var(--accent-ink); }
+.sl-foot { display: flex; justify-content: space-between; gap: 12px; padding: 10px max(16px, env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); border-top: 1px solid var(--line); background: var(--surface); }
+.text-btn.danger { color: #b3261e; }
+

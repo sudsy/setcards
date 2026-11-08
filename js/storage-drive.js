@@ -132,6 +132,7 @@
     // per song ("Title - Artist") holding that song's notes and Guitar Pro file.
     const FOLDER_TYPE = 'application/vnd.google-apps.folder';
     const TABS_NAME = 'Tabs';
+    const SETLISTS_NAME = 'Set lists';
     let tabsFolder = null;
 
     // Everything directly inside any of the given folders.
@@ -220,6 +221,14 @@
       const created = await api.createFolder(name, parentId);
       (filesCache || (filesCache = [])).push(created);
       return created;
+    }
+    // The "Set lists" folder in the band folder; made only when asked for.
+    async function setlistsFolder(create) {
+      const f = folder();
+      if (!f) return null;
+      const found = (await childrenOf([f.id])).find((x) => x.mimeType === FOLDER_TYPE && x.name === SETLISTS_NAME);
+      if (found || !create) return found || null;
+      return makeFolder(SETLISTS_NAME, f.id);
     }
     async function ensureTabsFolder() {
       if (!tabsFolder) await listFolder();
@@ -629,6 +638,33 @@
         return updated;
       },
       // Drum kits are .sf2 files in the band folder, so everyone in the band can choose from them.
+      // Set lists: one JSON file each, in a "Set lists" folder in the band folder (made when the first is saved).
+      setlists: {
+        async list() {
+          if (!folder()) return [];
+          const dir = await setlistsFolder(false);
+          if (!dir) return [];
+          const files = (await childrenOf([dir.id])).filter((x) => x.mimeType !== FOLDER_TYPE && x.name.endsWith(SM.setlists.SUFFIX));
+          const out = [];
+          for (const x of files) {
+            // a file that is not a set list is left out, and the others still show
+            try { const list = SM.setlists.parse(await api.getText(x.id)); if (list) out.push({ id: x.id, list }); } catch (e) { /* skipped */ }
+          }
+          return out;
+        },
+        async write(id, list) {
+          const body = SM.setlists.serialise(list);
+          const name = SM.setlists.fileNameFor(list.name);
+          if (id) {
+            await api.replaceMedia(id, body, 'application/json', { fields: 'id' });
+            await api.updateFile(id, { name }, { fields: 'id' });
+            return id;
+          }
+          const dir = await setlistsFolder(true);
+          return (await api.createFile({ name, parents: [dir.id], mimeType: 'application/json' }, body, 'application/json', 'id')).id;
+        },
+        remove: (id) => trash(id)
+      },
       async listDrumKits() {
         const f = folder();
         if (!f) return [];

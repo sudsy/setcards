@@ -116,8 +116,34 @@
     }
   };
 
+  // Set lists kept on this device, for solo use and for a band before its folder is connected. Each is one entry.
+  const setlistDevice = (() => {
+    const KEY = 'setcards:setlists';
+    const readAll = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; } };
+    const writeAll = (all) => { try { localStorage.setItem(KEY, JSON.stringify(all)); } catch (e) { /* storage full or off */ } };
+    return {
+      async list() {
+        const all = readAll();
+        return Object.keys(all).map((id) => ({ id, list: SM.setlists.parse(all[id]) })).filter((x) => x.list);
+      },
+      async write(id, list) {
+        const all = readAll();
+        const nid = id || `local-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+        all[nid] = SM.setlists.serialise(list);
+        writeAll(all);
+        return nid;
+      },
+      async remove(id) {
+        const all = readAll();
+        delete all[id];
+        writeAll(all);
+      }
+    };
+  })();
+
   const library = {
     sources,
+    setlistDevice,
     kits,
     audio,
     key: (sourceId, id) => `${sourceId}:${id}`,

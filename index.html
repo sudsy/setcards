@@ -53,12 +53,19 @@
         </div>
       </section>
       <section id="bandBox" class="band-box" hidden></section>
+      <div id="homeSwitch" class="home-switch" role="group" aria-label="Songs or set lists" hidden>
+        <button id="tabSongs" class="seg-btn on" type="button" aria-pressed="true">Songs</button>
+        <button id="tabSets" class="seg-btn" type="button" aria-pressed="false">Set lists</button>
+      </div>
       <div id="songListWrap" class="song-list-wrap"></div>
+      <div id="setlistsWrap" class="setlists-wrap" hidden></div>
     </main>
     <footer class="playerbar home-foot">
       <button id="addSongBtn" class="file-btn" type="button">Add a song</button>
     </footer>
   </div>
+
+  <section id="setlistView" class="setlist-view" hidden aria-label="Set list"></section>
 
   <div id="songView" class="app" hidden>
     <header class="topbar">
@@ -461,6 +468,7 @@
   <script src="js/storage-device.js"></script>
   <script src="js/drive-api.js"></script>
   <script src="js/storage-drive.js"></script>
+  <script src="js/setlists.js"></script>
   <script src="js/storage.js"></script>
   <script src="demo.js"></script>
   <script src="app.js"></script>

@@ -1176,3 +1176,75 @@ test('the chart editor offers the fields for the instrument in use', async ({ pa
   await expect(page.locator('#chartEditor')).toBeHidden();
   expect(errors).toEqual([]);
 });
+
+// Set lists (on this device; the band folder version is kept in the same format)
+test('a set list is made, ordered and changed on the set view, and kept after a reload', async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.addInitScript(() => { if (!localStorage.getItem('setcards:prefs')) localStorage.setItem('setcards:prefs', JSON.stringify({ mode: 'solo' })); });
+  await page.goto('/');
+  await page.locator('#addDemoBtn').click();
+  await page.click('#addSongBtn');
+  await page.fill('#addTitle', 'Second Song');
+  await page.click('#addForm button[type=submit]');
+  await expect(page.locator('#noTab h2')).toHaveText('No tab yet');
+  await page.evaluate(() => history.back());
+  await expect(page.locator('.song-row .song-open', { hasText: 'Low Road (demo)' })).toBeVisible();
+
+  // the Set lists switch shows the set lists, which start empty
+  await page.click('#tabSets');
+  await expect(page.locator('#setlistsWrap')).toBeVisible();
+  await expect(page.locator('#songListWrap')).toBeHidden();
+  await expect(page.locator('#setlistsWrap')).toContainText('No set lists yet');
+
+  // a new set list opens in edit mode: name it, then tick its songs
+  await page.click('#addSongBtn');
+  await expect(page.locator('#setlistView')).toBeVisible();
+  await page.fill('#slNameIn', 'Friday gig');
+  await page.locator('#slNameIn').press('Tab');
+  await page.locator('.sl-pick', { hasText: 'Low Road (demo)' }).click();
+  await page.locator('.sl-pick', { hasText: 'Second Song' }).click();
+  await page.click('#setlistView [data-sl=done]');
+
+  // the set view lists the songs in the order they were added; the second is moved up
+  await expect(page.locator('#setlistView .sl-songs li')).toHaveCount(2);
+  await expect(page.locator('#setlistView .sl-songs li').first()).toContainText('Low Road (demo)');
+  await page.locator('#setlistView [data-sl=up][data-i="1"]').click();
+  await expect(page.locator('#setlistView .sl-songs li').first()).toContainText('Second Song');
+
+  // the song with no tab is shown as such
+  await expect(page.locator('#setlistView .sl-songs li').first()).toContainText('No tab yet');
+
+  // after a reload the set list is still there, in the same order
+  await page.reload();
+  await expect(page.locator('#setlistsWrap .setlist-row')).toContainText('Friday gig');
+  await page.locator('#setlistsWrap .setlist-row', { hasText: 'Friday gig' }).click();
+  await expect(page.locator('#setlistView .sl-songs li').first()).toContainText('Second Song');
+  await page.click('#setlistView [data-sl=back]');
+  await expect(page.locator('#setlistsWrap')).toBeVisible();
+  await page.click('#tabSongs');
+  await expect(page.locator('#songListWrap')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('a set list can be duplicated and deleted', async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.addInitScript(() => { if (!localStorage.getItem('setcards:prefs')) localStorage.setItem('setcards:prefs', JSON.stringify({ mode: 'solo', homeTab: 'sets' })); });
+  await page.goto('/');
+  await page.click('#addSongBtn');
+  await page.fill('#slNameIn', 'Practice');
+  await page.locator('#slNameIn').press('Tab');
+  await page.click('#setlistView [data-sl=done]');
+  await page.click('#setlistView [data-sl=dup]');
+  await expect(page.locator('#setlistView h1')).toHaveText('Practice copy');
+  await page.click('#setlistView [data-sl=back]');
+  await expect(page.locator('#setlistsWrap .setlist-row')).toHaveCount(2);
+
+  // deleting asks once, then deletes on the second tap
+  await page.locator('#setlistsWrap .setlist-row', { hasText: 'Practice copy' }).click();
+  await page.click('#setlistView [data-sl=del]');
+  await expect(page.locator('#setlistView [data-sl=del]')).toHaveText('Tap again to delete');
+  await page.click('#setlistView [data-sl=del]');
+  await expect(page.locator('#setlistView')).toBeHidden();
+  await expect(page.locator('#setlistsWrap .setlist-row')).toHaveCount(1);
+  expect(errors).toEqual([]);
+});

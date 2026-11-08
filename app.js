@@ -26,7 +26,7 @@
     noteEditBar: $('noteEditBar'), noteEditCount: $('noteEditCount'), noteDiscard: $('noteDiscard'), noteSave: $('noteSave'),
     myTrDown: $('myTrDown'), myTrUp: $('myTrUp'), myTrOut: $('myTrOut'), myTrReset: $('myTrReset'),
     tempoInput: $('tempoInput'), statusSel: $('statusSel'), noTab: $('noTab'),
-    addSongBtn: $('addSongBtn'), addDlg: $('addDlg'), addForm: $('addForm'), addTitle: $('addTitle'), addArtist: $('addArtist'),
+    addSongBtn: $('addSongBtn'), homeSwitch: $('homeSwitch'), tabSongs: $('tabSongs'), tabSets: $('tabSets'), setlistsWrap: $('setlistsWrap'), setlistView: $('setlistView'), addDlg: $('addDlg'), addForm: $('addForm'), addTitle: $('addTitle'), addArtist: $('addArtist'),
     addYt: $('addYt'), addStatus: $('addStatus'),
     noteDlg: $('noteDlg'), noteTitle: $('noteTitle'), noteHint: $('noteHint'), noteForm: $('noteForm'), noteText: $('noteText'), noteClear: $('noteClear'),
     settingsBtn: $('settingsBtn'), settingsDlg: $('settingsDlg'), trackSel: $('trackSel'),
@@ -2880,6 +2880,16 @@
   // The list is built off screen and only swapped in when it differs from what is shown, so a refresh that
   // finds nothing new doesn't move anything on screen.
   async function renderHome() {
+    const sets = prefs.homeTab === 'sets' && !!prefs.mode;
+    els.homeSwitch.hidden = !prefs.mode;
+    els.tabSongs.classList.toggle('on', !sets);
+    els.tabSongs.setAttribute('aria-pressed', String(!sets));
+    els.tabSets.classList.toggle('on', sets);
+    els.tabSets.setAttribute('aria-pressed', String(sets));
+    els.songListWrap.hidden = sets;
+    els.setlistsWrap.hidden = !sets;
+    els.addSongBtn.textContent = sets ? 'New set list' : 'Add a song';
+    if (sets) { els.bandBox.hidden = true; await renderSetlists(); return; }
     const fresh = document.createElement('div');
     await buildHome(fresh);
     addSortBar(fresh);
@@ -3243,6 +3253,7 @@
   }
 
   els.addSongBtn.addEventListener('click', () => {
+    if (prefs.homeTab === 'sets') { newSetlist(); return; }
     els.addForm.reset();
     els.addStatus.value = 'proposed';
     els.shareUploadWrap.hidden = !(inBand() && drive.connected() && drive.signedIn());
@@ -3614,6 +3625,194 @@
     ceUpdateCell(chartDraft.sheetBar);
     ceOpenSheet();
   });
+
+  /* ---------------- set lists (the Set lists switch on the home screen) ---------------- */
+  // A set list is kept in the band folder when the band is connected and signed in; otherwise on this device.
+  const setlistInBand = () => inBand() && drive.connected() && drive.signedIn();
+  const setlistStore = () => (setlistInBand() ? drive.setlists : SM.library.setlistDevice);
+  let setlistCur = null;      // { id, list, editing, library } the set list open on screen; library: the songs it can use, once loaded
+
+  // The songs the band (or this device) has, with the keys set lists use.
+  async function libraryForSetlists() {
+    if (setlistInBand()) {
+      const songs = await drive.list().catch(() => drive.listSaved().catch(() => []));
+      return songs.map((s) => ({ key: SM.library.key(drive.id, s.id), title: s.title || '', artist: s.artist || '', hasTab: s.hasTab !== false }));
+    }
+    const local = SM.library.sources.local;
+    const songs = await local.list().catch(() => []);
+    return songs.map((s) => ({ key: SM.library.key(local.id, s.id), title: s.title || '', artist: s.artist || '', hasTab: s.hasTab !== false }));
+  }
+
+  const setlistPlace = () => (setlistInBand() ? 'Saved to the band folder' : 'Kept on this phone only');
+
+  // The set lists, as rows under the Set lists switch. A tap opens one.
+  async function renderSetlists() {
+    const wrap = els.setlistsWrap;
+    const items = await setlistStore().list().catch(() => []);
+    if (!prefs.homeTab || prefs.homeTab !== 'sets') return;
+    wrap.textContent = '';
+    if (!items.length) {
+      const p = document.createElement('p');
+      p.className = 'fine';
+      p.textContent = 'No set lists yet. Tap New set list to make one.';
+      wrap.appendChild(p);
+      return;
+    }
+    items.sort((a, b) => (b.list.updatedAt || 0) - (a.list.updatedAt || 0)).forEach((x) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'setlist-row';
+      const name = document.createElement('span');
+      name.className = 'sl-name';
+      name.textContent = x.list.name;
+      const meta = document.createElement('span');
+      meta.className = 'sl-meta';
+      meta.textContent = `${plural(x.list.songs.length, 'song')} · ${setlistPlace()}`;
+      b.append(name, meta);
+      b.addEventListener('click', () => openSetlist(x.id, x.list));
+      wrap.appendChild(b);
+    });
+  }
+
+  async function newSetlist() {
+    const list = SM.setlists.blank('');
+    setlistCur = { id: null, list, editing: true, library: await libraryForSetlists() };
+    await saveSetlist(list);
+    renderSetlistView();
+    els.setlistView.hidden = false;
+  }
+
+  async function openSetlist(id, list) {
+    setlistCur = { id, list, editing: false, library: null };
+    openSetlistView();
+    setlistCur.library = await libraryForSetlists();
+    renderSetlistView();
+  }
+
+  function openSetlistView() {
+    els.setlistView.hidden = false;
+    renderSetlistView();
+  }
+
+  function closeSetlist() {
+    setlistCur = null;
+    els.setlistView.hidden = true;
+    els.setlistView.textContent = '';
+    renderSetlists();
+  }
+
+  // Each change is saved as it is made. If the band folder cannot be reached, the change stays on screen and is saved again on the next change.
+  async function saveSetlist(list) {
+    if (!setlistCur) return;
+    setlistCur.list = { ...list, updatedAt: Date.now() };
+    try {
+      setlistCur.id = await setlistStore().write(setlistCur.id, setlistCur.list);
+    } catch (e) {
+      toast('Could not save the set list to the band folder. Changes will be saved with the next change.');
+    }
+  }
+
+  const setlistKeyLabel = (s) => (s.missing ? 'No longer in the band’s songs' : s.playable ? s.artist : 'No tab yet');
+
+  function renderSetlistView() {
+    const cur = setlistCur;
+    const box = els.setlistView;
+    if (!cur) return;
+    const list = cur.list;
+    const library = cur.library || [];
+    const byKey = new Map(library.map((s) => [s.key, s]));
+    const back = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>`;
+    if (cur.editing) {
+      // choosing the songs in the set: ticks for the band's songs, and the songs in the set that the band no longer has
+      const inSet = new Set(list.songs.map((s) => s.key));
+      const rows = [
+        ...list.songs.filter((s) => !byKey.has(s.key)).map((s) => ({ key: s.key, title: s.title, artist: 'No longer in the band’s songs', on: true })),
+        ...library.map((s) => ({ key: s.key, title: s.title, artist: s.hasTab ? s.artist : 'No tab yet', on: inSet.has(s.key) }))
+      ];
+      box.innerHTML = `
+        <header class="sl-top">
+          <button class="icon-btn" type="button" data-sl="done" aria-label="Done">${back}</button>
+          <div class="sl-grow"><input class="sl-name-in" id="slNameIn" aria-label="Set list name" value="">
+            <div class="sl-sub">Tick the songs in this set</div></div>
+          <button class="text-btn primary" type="button" data-sl="done">Done</button>
+        </header>
+        <div class="sl-body">
+          ${rows.map((r) => `<button class="sl-pick${r.on ? ' on' : ''}" type="button" data-sl="toggle" data-key="${esc(r.key)}">
+            <span class="sl-tick" aria-hidden="true">${r.on ? '✓' : ''}</span>
+            <span class="sl-info"><b>${esc(r.title)}</b><small>${esc(r.artist)}</small></span>
+          </button>`).join('') || '<p class="fine">The band has no songs yet. Add a song first.</p>'}
+        </div>`;
+      box.querySelector('#slNameIn').value = list.name;
+      return;
+    }
+    const songs = SM.setlists.resolve(list, byKey);
+    box.innerHTML = `
+      <header class="sl-top">
+        <button class="icon-btn" type="button" data-sl="back" aria-label="Set lists">${back}</button>
+        <div class="sl-grow"><h1></h1><div class="sl-sub">${esc(plural(list.songs.length, 'song'))} · ${esc(setlistPlace())}</div></div>
+        <button class="text-btn" type="button" data-sl="edit">Edit</button>
+      </header>
+      <ol class="sl-songs">
+        ${songs.map((s, i) => `<li class="sl-row${s.missing || !s.playable ? ' dim' : ''}">
+          <span class="sl-num">${i + 1}</span>
+          <span class="sl-info"><b>${esc(s.title || 'Untitled')}</b><small>${esc(setlistKeyLabel(s))}</small></span>
+          <span class="sl-move">
+            <button class="icon-btn" type="button" data-sl="up" data-i="${i}" aria-label="Move up"${i === 0 ? ' disabled' : ''}>↑</button>
+            <button class="icon-btn" type="button" data-sl="down" data-i="${i}" aria-label="Move down"${i === songs.length - 1 ? ' disabled' : ''}>↓</button>
+          </span>
+        </li>`).join('') || '<li class="fine">No songs in this set yet. Tap Edit to add some.</li>'}
+      </ol>
+      <div class="sl-foot">
+        <button class="text-btn" type="button" data-sl="dup">Duplicate list</button>
+        <button class="text-btn danger" type="button" data-sl="del">Delete set list</button>
+      </div>`;
+    box.querySelector('h1').textContent = list.name;
+  }
+
+  els.setlistView.addEventListener('click', async (e) => {
+    const t = e.target.closest('[data-sl]');
+    if (!t || !setlistCur) return;
+    const cur = setlistCur;
+    const act = t.dataset.sl;
+    if (act === 'back') closeSetlist();
+    else if (act === 'edit') { cur.editing = true; renderSetlistView(); }
+    else if (act === 'done') { cur.editing = false; renderSetlistView(); }
+    else if (act === 'up' || act === 'down') {
+      await saveSetlist(SM.setlists.move(cur.list, Number(t.dataset.i), act === 'up' ? -1 : 1));
+      renderSetlistView();
+    } else if (act === 'toggle') {
+      const key = t.dataset.key;
+      const library = cur.library || [];
+      const song = library.find((s) => s.key === key) || cur.list.songs.find((s) => s.key === key);
+      const next = SM.setlists.has(cur.list, key) ? SM.setlists.remove(cur.list, key) : SM.setlists.add(cur.list, song);
+      await saveSetlist(next);
+      renderSetlistView();
+    } else if (act === 'dup') {
+      const copy = { ...SM.setlists.blank(`${cur.list.name} copy`), songs: cur.list.songs.slice() };
+      setlistCur = { id: null, list: copy, editing: false, library: cur.library };
+      await saveSetlist(copy);
+      renderSetlistView();
+    } else if (act === 'del') {
+      // two taps: the first asks, the second deletes (a dialog cannot be shown with a confirmation here)
+      if (!t.dataset.armed) { t.dataset.armed = '1'; t.textContent = 'Tap again to delete'; return; }
+      if (cur.id) await setlistStore().remove(cur.id).catch(() => toast('Could not delete the set list from the band folder.'));
+      closeSetlist();
+    }
+  });
+  els.setlistView.addEventListener('change', async (e) => {
+    if (!setlistCur || !setlistCur.editing || e.target.id !== 'slNameIn') return;
+    const name = e.target.value.trim();
+    await saveSetlist({ ...setlistCur.list, name: name || SM.setlists.DEFAULT_NAME });
+  });
+
+  // The Songs / Set lists switch on the home screen.
+  function setHomeTab(tab) {
+    prefs.homeTab = tab;
+    savePrefs();
+    renderHome();
+  }
+  els.tabSongs.addEventListener('click', () => setHomeTab('songs'));
+  els.tabSets.addEventListener('click', () => setHomeTab('sets'));
 
   function applyChordVisibility() {
     const show = showChords();
