@@ -1350,3 +1350,26 @@ test('tapping a song in a set list opens it the same way as the song list', asyn
   expect(errors).toEqual([]);
 });
 
+
+// The main screen asks Google quietly again on a refresh when the sign-in has run out (no pop-up, no tap needed).
+test('the main screen asks Google quietly on a refresh, and shows the band’s songs when it answers', async ({ page }) => {
+  const errors = watchErrors(page);
+  await fakeDrive(page, { signedIn: false });
+  await page.addInitScript(() => {
+    window.fakeBandSongs = [{ id: 's1', title: 'Autumn-Leaves', artist: 'Eva Cassidy', fileName: 'a.gp', hasTab: true, addedAt: 1, updatedAt: 1, order: 0, notes: { format: 'setcards/1', title: 'Autumn-Leaves', artist: 'Eva Cassidy', sections: [], chords: {}, updatedAt: 1 } }];
+  });
+  await page.goto('/');
+  await expect(page.locator('#bandBox')).toBeVisible();
+  // Google is stood in for: it answers quietly, so the token is there and the songs show
+  await page.evaluate(() => {
+    const d = SM.library.sources.drive;
+    window.nowSigned = false;
+    window.quietCalls = 0;
+    d.signedIn = () => window.nowSigned;
+    d.signInSilently = async () => { window.quietCalls++; window.nowSigned = true; return true; };
+  });
+  await page.click('#syncBtn');
+  await expect(page.locator('.song-row')).toHaveCount(1);
+  expect(await page.evaluate(() => window.quietCalls)).toBe(1);
+  expect(errors).toEqual([]);
+});

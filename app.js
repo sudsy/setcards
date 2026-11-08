@@ -1750,6 +1750,8 @@
   els.syncBtn.addEventListener('click', () => {
     if (updateWaiting) { refreshForUpdate(); return; }
     if (swRegistration) swRegistration.update().catch(() => {}).then(() => { if (updateWaiting && els.homeView.hidden === false) refreshForUpdate(); });
+    // a refresh asks Google quietly again, if the sign-in has run out
+    silentTried = false;
     if (!syncTasks.has('songs')) renderHome();
     // on the Set lists tab a refresh sends the set lists to the band folder, and takes the band's down
     if (prefs.homeTab === 'sets') syncSetlistsNow();
@@ -2881,7 +2883,17 @@
 
   // The list is built off screen and only swapped in when it differs from what is shown, so a refresh that
   // finds nothing new doesn't move anything on screen.
+  // On the main screen, when the band's sign-in has run out, Google is asked quietly once per refresh. If it answers,
+  // the band's songs show without the sign-in button. Opening a song never asks.
+  let silentTried = false;
+  function trySilentSignIn() {
+    if (silentTried || !prefs.mode || !inBand() || !drive.connected() || drive.signedIn()) return;
+    silentTried = true;
+    drive.signInSilently().then((ok) => { if (ok) { syncReadOnly(); renderHome(); } });
+  }
+
   async function renderHome() {
+    trySilentSignIn();
     const sets = prefs.homeTab === 'sets' && !!prefs.mode;
     els.homeSwitch.hidden = !prefs.mode;
     els.tabSongs.classList.toggle('on', !sets);

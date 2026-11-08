@@ -475,6 +475,15 @@
       wasSignedIn: () => !!ls.get('setcards:driveSignedIn'),
       // interactive: may open Google's sign-in; otherwise Google is asked to renew access without showing anything
       signIn: (interactive = true) => signIn(interactive),
+      // Asks Google again without any window or pop-up (prompt 'none'). True when a token comes back; false when Google
+      // needs the person, or does not answer in time. Used on the main screen only; the sign-in button stays as the fallback.
+      async signInSilently() {
+        if (hasToken()) return true;
+        try {
+          await Promise.race([signIn(false), new Promise((_, reject) => setTimeout(() => reject(new Error('no answer')), 8000))]);
+          return true;
+        } catch (e) { return false; }
+      },
       folder,
       available: () => !!cfg().clientId && !!folder(),
       setClient(c) { ls.set('setcards:google', c); },
