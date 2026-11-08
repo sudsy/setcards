@@ -3645,48 +3645,72 @@
 
   const setlistPlace = () => (setlistInBand() ? 'Saved to the band folder' : 'Kept on this phone only');
 
-  // The set lists, as rows under the Set lists switch. A tap opens one.
+  // The set lists already loaded, kept in this session so the list shows at once. Kept per place (band or this device).
+  let setlistCache = null;    // { where, items: [{ id, list }] }
+  let setlistWrites = Promise.resolve();
+
+  // The set lists as rows under the Set lists switch. The rows show at once from what is loaded; the band folder is checked after.
   async function renderSetlists() {
     const wrap = els.setlistsWrap;
-    const items = await setlistStore().list().catch(() => []);
-    if (!prefs.homeTab || prefs.homeTab !== 'sets') return;
-    wrap.textContent = '';
-    if (!items.length) {
-      const p = document.createElement('p');
-      p.className = 'fine';
-      p.textContent = 'No set lists yet. Tap New set list to make one.';
-      wrap.appendChild(p);
-      return;
-    }
-    items.sort((a, b) => (b.list.updatedAt || 0) - (a.list.updatedAt || 0)).forEach((x) => {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'setlist-row';
-      const name = document.createElement('span');
-      name.className = 'sl-name';
-      name.textContent = x.list.name;
-      const meta = document.createElement('span');
-      meta.className = 'sl-meta';
-      meta.textContent = `${plural(x.list.songs.length, 'song')} · ${setlistPlace()}`;
-      b.append(name, meta);
-      b.addEventListener('click', () => openSetlist(x.id, x.list));
-      wrap.appendChild(b);
-    });
+    const where = setlistInBand() ? 'band' : 'device';
+    const draw = (items) => {
+      if (prefs.homeTab !== 'sets') return;
+      wrap.textContent = '';
+      if (!items.length) {
+        const p = document.createElement('p');
+        p.className = 'fine';
+        p.textContent = 'No set lists yet. Tap New set list to make one.';
+        wrap.appendChild(p);
+        return;
+      }
+      [...items].sort((a, b) => (b.list.updatedAt || 0) - (a.list.updatedAt || 0)).forEach((x) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'setlist-row';
+        const name = document.createElement('span');
+        name.className = 'sl-name';
+        name.textContent = x.list.name;
+        const meta = document.createElement('span');
+        meta.className = 'sl-meta';
+        meta.textContent = `${plural(x.list.songs.length, 'song')} · ${setlistPlace()}`;
+        b.append(name, meta);
+        b.addEventListener('click', () => openSetlist(x.id, x.list));
+        wrap.appendChild(b);
+      });
+    };
+    if (setlistCache && setlistCache.where === where) draw(setlistCache.items);
+    else wrap.textContent = '';
+    // a write still in progress is finished first, so the list read back includes it
+    await setlistWrites;
+    const fresh = await setlistStore().list().catch(() => null);
+    if (!fresh) return;
+    setlistCache = { where, items: fresh };
+    draw(fresh);
   }
 
-  async function newSetlist() {
-    const list = SM.setlists.blank('');
-    setlistCur = { id: null, list, editing: true, library: await libraryForSetlists() };
-    await saveSetlist(list);
-    renderSetlistView();
-    els.setlistView.hidden = false;
+  function upsertSetlistCache(id, list) {
+    if (!setlistCache) return;
+    const i = setlistCache.items.findIndex((x) => x.id === id);
+    if (i >= 0) setlistCache.items[i] = { id, list };
+    else setlistCache.items.push({ id, list });
   }
 
-  async function openSetlist(id, list) {
-    setlistCur = { id, list, editing: false, library: null };
+  function newSetlist() {
+    setlistCur = { id: null, list: SM.setlists.blank(''), editing: true, library: null, dirty: true, deleted: false };
     openSetlistView();
-    setlistCur.library = await libraryForSetlists();
-    renderSetlistView();
+    loadSetlistLibrary(setlistCur);
+  }
+
+  function openSetlist(id, list) {
+    setlistCur = { id, list, editing: false, library: null, dirty: false, deleted: false };
+    openSetlistView();
+    loadSetlistLibrary(setlistCur);
+  }
+
+  // The band's songs are fetched in the background, so the set view shows at once.
+  async function loadSetlistLibrary(cur) {
+    cur.library = await libraryForSetlists().catch(() => []);
+    if (setlistCur === cur) renderSetlistView();
   }
 
   function openSetlistView() {
@@ -3694,23 +3718,42 @@
     renderSetlistView();
   }
 
+  // Closes the set view. Anything changed is saved first.
   function closeSetlist() {
+    flushSetlist();
     setlistCur = null;
     els.setlistView.hidden = true;
     els.setlistView.textContent = '';
     renderSetlists();
   }
 
-  // Each change is saved as it is made. If the band folder cannot be reached, the change stays on screen and is saved again on the next change.
-  async function saveSetlist(list) {
+  // A change is shown straight away and saved when the set view or the editor is left. It is not written on every tap.
+  function changeSetlist(list) {
     if (!setlistCur) return;
     setlistCur.list = { ...list, updatedAt: Date.now() };
-    try {
-      setlistCur.id = await setlistStore().write(setlistCur.id, setlistCur.list);
-    } catch (e) {
-      toast('Could not save the set list to the band folder. Changes will be saved with the next change.');
-    }
+    setlistCur.dirty = true;
   }
+
+  // Writes the set list, one write after another. If the band folder cannot be reached, the change stays and is written next time.
+  function flushSetlist() {
+    const cur = setlistCur;
+    if (!cur || !cur.dirty || cur.deleted) return setlistWrites;
+    cur.dirty = false;
+    const list = cur.list;
+    setlistWrites = setlistWrites.then(async () => {
+      if (cur.deleted) return;
+      try {
+        cur.id = await setlistStore().write(cur.id, list);
+        upsertSetlistCache(cur.id, list);
+      } catch (e) {
+        cur.dirty = true;
+        toast('Could not save the set list to the band folder. It will be saved with the next change.');
+      }
+    });
+    return setlistWrites;
+  }
+  // If the app is put away, the change is saved then.
+  document.addEventListener('visibilitychange', () => { if (document.hidden) flushSetlist(); });
 
   const setlistKeyLabel = (s) => (s.missing ? 'No longer in the band’s songs' : s.playable ? s.artist : 'No tab yet');
 
@@ -3719,9 +3762,14 @@
     const box = els.setlistView;
     if (!cur) return;
     const list = cur.list;
-    const library = cur.library || [];
-    const byKey = new Map(library.map((s) => [s.key, s]));
     const back = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>`;
+    if (cur.library === null) {
+      box.innerHTML = `<header class="sl-top"><button class="icon-btn" type="button" data-sl="back" aria-label="Set lists">${back}</button><div class="sl-grow"><h1></h1></div></header><p class="fine sl-wait">Loading the band’s songs…</p>`;
+      box.querySelector('h1').textContent = list.name;
+      return;
+    }
+    const library = cur.library;
+    const byKey = new Map(library.map((s) => [s.key, s]));
     if (cur.editing) {
       // choosing the songs in the set: ticks for the band's songs, and the songs in the set that the band no longer has
       const inSet = new Set(list.songs.map((s) => s.key));
@@ -3732,7 +3780,7 @@
       box.innerHTML = `
         <header class="sl-top">
           <button class="icon-btn" type="button" data-sl="done" aria-label="Done">${back}</button>
-          <div class="sl-grow"><input class="sl-name-in" id="slNameIn" aria-label="Set list name" value="">
+          <div class="sl-grow"><input class="sl-name-in" id="slNameIn" aria-label="Set list name">
             <div class="sl-sub">Tick the songs in this set</div></div>
           <button class="text-btn primary" type="button" data-sl="done">Done</button>
         </header>
@@ -3776,33 +3824,43 @@
     const act = t.dataset.sl;
     if (act === 'back') closeSetlist();
     else if (act === 'edit') { cur.editing = true; renderSetlistView(); }
-    else if (act === 'done') { cur.editing = false; renderSetlistView(); }
-    else if (act === 'up' || act === 'down') {
-      await saveSetlist(SM.setlists.move(cur.list, Number(t.dataset.i), act === 'up' ? -1 : 1));
+    else if (act === 'done') {
+      cur.editing = false;
+      flushSetlist();
+      renderSetlistView();
+    } else if (act === 'up' || act === 'down') {
+      changeSetlist(SM.setlists.move(cur.list, Number(t.dataset.i), act === 'up' ? -1 : 1));
       renderSetlistView();
     } else if (act === 'toggle') {
       const key = t.dataset.key;
-      const library = cur.library || [];
-      const song = library.find((s) => s.key === key) || cur.list.songs.find((s) => s.key === key);
-      const next = SM.setlists.has(cur.list, key) ? SM.setlists.remove(cur.list, key) : SM.setlists.add(cur.list, song);
-      await saveSetlist(next);
+      const song = (cur.library || []).find((s) => s.key === key) || cur.list.songs.find((s) => s.key === key);
+      changeSetlist(SM.setlists.has(cur.list, key) ? SM.setlists.remove(cur.list, key) : SM.setlists.add(cur.list, song));
       renderSetlistView();
     } else if (act === 'dup') {
       const copy = { ...SM.setlists.blank(`${cur.list.name} copy`), songs: cur.list.songs.slice() };
-      setlistCur = { id: null, list: copy, editing: false, library: cur.library };
-      await saveSetlist(copy);
+      flushSetlist();
+      setlistCur = { id: null, list: copy, editing: false, library: cur.library, dirty: true, deleted: false };
       renderSetlistView();
     } else if (act === 'del') {
       // two taps: the first asks, the second deletes (a dialog cannot be shown with a confirmation here)
       if (!t.dataset.armed) { t.dataset.armed = '1'; t.textContent = 'Tap again to delete'; return; }
-      if (cur.id) await setlistStore().remove(cur.id).catch(() => toast('Could not delete the set list from the band folder.'));
-      closeSetlist();
+      cur.deleted = true;
+      cur.dirty = false;
+      await setlistWrites;
+      if (cur.id) {
+        await setlistStore().remove(cur.id).catch(() => toast('Could not delete the set list from the band folder.'));
+        if (setlistCache) setlistCache.items = setlistCache.items.filter((x) => x.id !== cur.id);
+      }
+      setlistCur = null;
+      els.setlistView.hidden = true;
+      els.setlistView.textContent = '';
+      renderSetlists();
     }
   });
-  els.setlistView.addEventListener('change', async (e) => {
+  els.setlistView.addEventListener('change', (e) => {
     if (!setlistCur || !setlistCur.editing || e.target.id !== 'slNameIn') return;
     const name = e.target.value.trim();
-    await saveSetlist({ ...setlistCur.list, name: name || SM.setlists.DEFAULT_NAME });
+    changeSetlist({ ...setlistCur.list, name: name || SM.setlists.DEFAULT_NAME });
   });
 
   // The Songs / Set lists switch on the home screen.

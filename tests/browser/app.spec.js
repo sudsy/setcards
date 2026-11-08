@@ -1214,7 +1214,8 @@ test('a set list is made, ordered and changed on the set view, and kept after a 
   // the song with no tab is shown as such
   await expect(page.locator('#setlistView .sl-songs li').first()).toContainText('No tab yet');
 
-  // after a reload the set list is still there, in the same order
+  // changes are saved when the set view is left, so leave it, then reload: the set list is still there, in the same order
+  await page.click('#setlistView [data-sl=back]');
   await page.reload();
   await expect(page.locator('#setlistsWrap .setlist-row')).toContainText('Friday gig');
   await page.locator('#setlistsWrap .setlist-row', { hasText: 'Friday gig' }).click();
