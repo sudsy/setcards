@@ -1279,3 +1279,53 @@ test.describe('the band song list on a phone', () => {
     expect(wide.rows).toBe(0);
   });
 });
+
+// Set lists in a band: they are kept on the phone, and go to the band's folder only on a normal refresh.
+test('a band set list is kept on the phone, goes to the band folder on refresh, and shows without a connection', async ({ page }) => {
+  const errors = watchErrors(page);
+  await fakeDrive(page);
+  await page.addInitScript(() => {
+    window.fakeBandSongs = [{ id: 's1', title: 'Autumn-Leaves', artist: 'Eva Cassidy', fileName: 'a.gp', hasTab: true, addedAt: 1, updatedAt: 1, order: 0, notes: { format: 'setcards/1', title: 'Autumn-Leaves', artist: 'Eva Cassidy', sections: [], chords: {}, updatedAt: 1 } }];
+  });
+  await page.goto('/');
+  await expect(page.locator('.song-row')).toHaveCount(1);
+  // the band folder's set list calls are stood in for: they record what would be sent
+  await page.evaluate(() => {
+    const sl = SM.library.sources.drive.setlists;
+    window.sent = [];
+    window.fakeOffline = false;
+    window.folderFiles = new Map();
+    sl.write = async (id, list) => { if (window.fakeOffline) throw new Error('offline'); const fid = id || `drv-${window.folderFiles.size + 1}`; window.sent.push(list.name); window.folderFiles.set(fid, list); return fid; };
+    sl.list = async () => { if (window.fakeOffline) throw new Error('offline'); return [...window.folderFiles].map(([id, list]) => ({ id, list })); };
+  });
+  await page.click('#tabSets');
+  await page.click('#addSongBtn');
+  await page.fill('#slNameIn', 'Gig');
+  await page.locator('#slNameIn').press('Tab');
+  await page.locator('.sl-pick', { hasText: 'Autumn-Leaves' }).click();
+  await page.click('#setlistView [data-sl=done]');
+  await page.click('#setlistView [data-sl=back]');
+  // the set list is on the phone at once, and nothing has gone to the band folder yet
+  await expect(page.locator('#setlistsWrap .setlist-row')).toContainText('Gig');
+  await expect(page.locator('#setlistsWrap .setlist-row')).toContainText('Not sent to the band yet');
+  expect(await page.evaluate(() => window.sent.length)).toBe(0);
+
+  // a normal refresh sends it to the band folder
+  await page.click('#syncBtn');
+  await expect.poll(() => page.evaluate(() => window.sent.join(','))).toBe('Gig');
+  await expect(page.locator('#setlistsWrap .setlist-row')).toContainText('Kept on this phone and in the band folder');
+
+  // without a connection the set lists still show, and changes wait for the next refresh
+  await page.evaluate(() => { window.fakeOffline = true; });
+  await page.click('#tabSongs');
+  await page.click('#tabSets');
+  await expect(page.locator('#setlistsWrap .setlist-row')).toContainText('Gig');
+  await page.locator('#setlistsWrap .setlist-row', { hasText: 'Gig' }).click();
+  await page.click('#setlistView [data-sl=edit]');
+  await page.locator('.sl-pick', { hasText: 'Autumn-Leaves' }).click();
+  await page.click('#setlistView [data-sl=done]');
+  await page.click('#setlistView [data-sl=back]');
+  await expect(page.locator('#setlistsWrap .setlist-row')).toContainText('0 songs');
+  await expect(page.locator('#setlistsWrap .setlist-row')).toContainText('Not sent to the band yet');
+  expect(errors).toEqual([]);
+});

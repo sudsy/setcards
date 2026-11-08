@@ -116,34 +116,23 @@
     }
   };
 
-  // Set lists kept on this device, for solo use and for a band before its folder is connected. Each is one entry.
-  const setlistDevice = (() => {
-    const KEY = 'setcards:setlists';
-    const readAll = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; } };
+  // Set lists kept on this phone, one store for each place (a band folder, or solo use). Each set list is a record:
+  // { id, list, driveId, dirty, deleted }. Changes are kept here at once; a band's changes go to its folder on refresh.
+  const setlistLocal = (ns) => {
+    const KEY = `setcards:setlists:${ns}`;
+    const readAll = () => { try { const o = JSON.parse(localStorage.getItem(KEY)); return o && typeof o === 'object' ? o : {}; } catch (e) { return {}; } };
     const writeAll = (all) => { try { localStorage.setItem(KEY, JSON.stringify(all)); } catch (e) { /* storage full or off */ } };
     return {
-      async list() {
-        const all = readAll();
-        return Object.keys(all).map((id) => ({ id, list: SM.setlists.parse(all[id]) })).filter((x) => x.list);
-      },
-      async write(id, list) {
-        const all = readAll();
-        const nid = id || `local-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
-        all[nid] = SM.setlists.serialise(list);
-        writeAll(all);
-        return nid;
-      },
-      async remove(id) {
-        const all = readAll();
-        delete all[id];
-        writeAll(all);
-      }
+      all() { const a = readAll(); return Object.keys(a).map((id) => ({ id, ...a[id] })); },
+      put(rec) { const a = readAll(); const { id, ...rest } = rec; a[id] = rest; writeAll(a); return rec; },
+      del(id) { const a = readAll(); delete a[id]; writeAll(a); },
+      newId: () => `local-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`
     };
-  })();
+  };
 
   const library = {
     sources,
-    setlistDevice,
+    setlistLocal,
     kits,
     audio,
     key: (sourceId, id) => `${sourceId}:${id}`,

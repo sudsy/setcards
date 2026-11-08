@@ -663,7 +663,35 @@
           const dir = await setlistsFolder(true);
           return (await api.createFile({ name, parents: [dir.id], mimeType: 'application/json' }, body, 'application/json', 'id')).id;
         },
-        remove: (id) => trash(id)
+        remove: (id) => trash(id),
+        // Brings this phone's set lists and the band folder together, on a normal refresh. Changes made here go up first,
+        // then the band's go down. If the folder cannot be reached, nothing changes on the phone.
+        async sync(local) {
+          if (!folder()) return;
+          for (const r of local.all()) {
+            if (!r.deleted && !r.dirty) continue;
+            if (r.deleted) {
+              if (r.driveId) await trash(r.driveId);
+              local.del(r.id);
+            } else {
+              let driveId;
+              try { driveId = await this.write(r.driveId, SM.setlists.parse(r.list)); } catch (e) { driveId = await this.write(null, SM.setlists.parse(r.list)); }
+              local.put({ ...r, driveId, dirty: false });
+            }
+          }
+          const remote = await this.list();
+          const records = local.all();
+          const byDrive = new Map(records.filter((r) => r.driveId).map((r) => [r.driveId, r]));
+          const remoteIds = new Set();
+          for (const x of remote) {
+            remoteIds.add(x.id);
+            const mine = byDrive.get(x.id);
+            if (!mine) local.put({ id: local.newId(), list: x.list, driveId: x.id, dirty: false, deleted: false });
+            else if (!mine.dirty && !mine.deleted && (x.list.updatedAt || 0) > ((mine.list && mine.list.updatedAt) || 0)) local.put({ ...mine, list: x.list });
+          }
+          // a list the band's folder no longer has goes too, unless it has a change here
+          for (const r of records) if (r.driveId && !remoteIds.has(r.driveId) && !r.dirty) local.del(r.id);
+        }
       },
       async listDrumKits() {
         const f = folder();

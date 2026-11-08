@@ -1751,6 +1751,8 @@
     if (updateWaiting) { refreshForUpdate(); return; }
     if (swRegistration) swRegistration.update().catch(() => {}).then(() => { if (updateWaiting && els.homeView.hidden === false) refreshForUpdate(); });
     if (!syncTasks.has('songs')) renderHome();
+    // on the Set lists tab a refresh sends the set lists to the band folder, and takes the band's down
+    if (prefs.homeTab === 'sets') syncSetlistsNow();
   });
 
   /* ---------------- loading songs ---------------- */
@@ -2889,7 +2891,7 @@
     els.songListWrap.hidden = sets;
     els.setlistsWrap.hidden = !sets;
     els.addSongBtn.textContent = sets ? 'New set list' : 'Add a song';
-    if (sets) { els.bandBox.hidden = true; await renderSetlists(); return; }
+    if (sets) { els.bandBox.hidden = true; renderSetlists(); return; }
     const fresh = document.createElement('div');
     await buildHome(fresh);
     addSortBar(fresh);
@@ -2982,6 +2984,7 @@
           const note = isOffline ? `Offline: showing the copy saved on this phone ${savedWhen(songs[0].savedAt)}.` : '';
           sec = songSections(wrap, drive, songs, drive.folder().name, note, (s) => (isOffline ? null : deleteButton(drive, s, 'Delete for the band?')));
           if (!isOffline) sendKeptChanges(songs);
+          if (!isOffline) syncSetlistsNow();
           if (!songs.length) sec.querySelector('ul').innerHTML = '<li class="fine">No songs visible yet. Add one below, or if the folder already has songs, give Setcards access to them.</li>';
         } catch (e) {
           syncEnd('songs', 'Could not check Google Drive: ' + e.message, true);
@@ -3627,15 +3630,24 @@
   });
 
   /* ---------------- set lists (the Set lists switch on the home screen) ---------------- */
-  // A set list is kept in the band folder when the band is connected and signed in; otherwise on this device.
+  // Set lists are kept on this phone, so they open and change without a connection. A band's set lists go to its folder
+  // on a normal refresh (and come down from it then), so the band sees the same set list.
+  const setlistPlaceKey = () => (inBand() && drive.folder() ? `band-${drive.folder().id}` : 'solo');
+  const setlistLocal = () => SM.library.setlistLocal(setlistPlaceKey());
   const setlistInBand = () => inBand() && drive.connected() && drive.signedIn();
-  const setlistStore = () => (setlistInBand() ? drive.setlists : SM.library.setlistDevice);
-  let setlistCur = null;      // { id, list, editing, library } the set list open on screen; library: the songs it can use, once loaded
+  let setlistCur = null;      // { id, list, editing, library, driveId, dirty }: the set list open on screen; library: the songs it can use
 
-  // The songs the band (or this device) has, with the keys set lists use.
+  // The records shown in the list: not deleted, and a set list that reads.
+  const setlistRecords = () => setlistLocal().all()
+    .filter((r) => !r.deleted)
+    .map((r) => ({ ...r, list: SM.setlists.parse(r.list) }))
+    .filter((r) => r.list);
+
+  // The band's songs, as the set list uses them. The copies on this phone are used, so this works without a connection.
   async function libraryForSetlists() {
-    if (setlistInBand()) {
-      const songs = await drive.list().catch(() => drive.listSaved().catch(() => []));
+    if (inBand() && drive.folder()) {
+      const saved = await drive.listSaved().catch(() => null);
+      const songs = saved && saved.length ? saved : await drive.list().catch(() => []);
       return songs.map((s) => ({ key: SM.library.key(drive.id, s.id), title: s.title || '', artist: s.artist || '', hasTab: s.hasTab !== false }));
     }
     const local = SM.library.sources.local;
@@ -3643,71 +3655,56 @@
     return songs.map((s) => ({ key: SM.library.key(local.id, s.id), title: s.title || '', artist: s.artist || '', hasTab: s.hasTab !== false }));
   }
 
-  const setlistPlace = () => (setlistInBand() ? 'Saved to the band folder' : 'Kept on this phone only');
+  const setlistWhere = (rec) => {
+    if (!inBand()) return 'Kept on this phone';
+    return rec && rec.dirty ? 'Not sent to the band yet' : 'Kept on this phone and in the band folder';
+  };
 
-  // The set lists already loaded, kept in this session so the list shows at once. Kept per place (band or this device).
-  let setlistCache = null;    // { where, items: [{ id, list }] }
-  let setlistWrites = Promise.resolve();
-
-  // The set lists as rows under the Set lists switch. The rows show at once from what is loaded; the band folder is checked after.
-  async function renderSetlists() {
+  // The set lists as rows under the Set lists switch. They come from this phone, so they show at once.
+  function renderSetlists() {
     const wrap = els.setlistsWrap;
-    const where = setlistInBand() ? 'band' : 'device';
-    const draw = (items) => {
-      if (prefs.homeTab !== 'sets') return;
-      wrap.textContent = '';
-      if (!items.length) {
-        const p = document.createElement('p');
-        p.className = 'fine';
-        p.textContent = 'No set lists yet. Tap New set list to make one.';
-        wrap.appendChild(p);
-        return;
-      }
-      [...items].sort((a, b) => (b.list.updatedAt || 0) - (a.list.updatedAt || 0)).forEach((x) => {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'setlist-row';
-        const name = document.createElement('span');
-        name.className = 'sl-name';
-        name.textContent = x.list.name;
-        const meta = document.createElement('span');
-        meta.className = 'sl-meta';
-        meta.textContent = `${plural(x.list.songs.length, 'song')} · ${setlistPlace()}`;
-        b.append(name, meta);
-        b.addEventListener('click', () => openSetlist(x.id, x.list));
-        wrap.appendChild(b);
-      });
-    };
-    if (setlistCache && setlistCache.where === where) draw(setlistCache.items);
-    else wrap.textContent = '';
-    // a write still in progress is finished first, so the list read back includes it
-    await setlistWrites;
-    const fresh = await setlistStore().list().catch(() => null);
-    if (!fresh) return;
-    setlistCache = { where, items: fresh };
-    draw(fresh);
-  }
-
-  function upsertSetlistCache(id, list) {
-    if (!setlistCache) return;
-    const i = setlistCache.items.findIndex((x) => x.id === id);
-    if (i >= 0) setlistCache.items[i] = { id, list };
-    else setlistCache.items.push({ id, list });
+    if (prefs.homeTab !== 'sets') return;
+    const items = setlistRecords();
+    wrap.textContent = '';
+    if (!items.length) {
+      const p = document.createElement('p');
+      p.className = 'fine';
+      p.textContent = 'No set lists yet. Tap New set list to make one.';
+      wrap.appendChild(p);
+      return;
+    }
+    items.sort((a, b) => (b.list.updatedAt || 0) - (a.list.updatedAt || 0)).forEach((x) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'setlist-row';
+      const name = document.createElement('span');
+      name.className = 'sl-name';
+      name.textContent = x.list.name;
+      const meta = document.createElement('span');
+      meta.className = 'sl-meta';
+      meta.textContent = `${plural(x.list.songs.length, 'song')} · ${setlistWhere(x)}`;
+      b.append(name, meta);
+      b.addEventListener('click', () => openSetlist(x.id, x.list));
+      wrap.appendChild(b);
+    });
   }
 
   function newSetlist() {
-    setlistCur = { id: null, list: SM.setlists.blank(''), editing: true, library: null, dirty: true, deleted: false };
+    const list = SM.setlists.blank('');
+    setlistCur = { id: null, list, editing: true, library: null, driveId: null, dirty: true };
+    putSetlist();
     openSetlistView();
     loadSetlistLibrary(setlistCur);
   }
 
   function openSetlist(id, list) {
-    setlistCur = { id, list, editing: false, library: null, dirty: false, deleted: false };
+    const rec = setlistLocal().all().find((r) => r.id === id) || {};
+    setlistCur = { id, list, editing: false, library: null, driveId: rec.driveId || null, dirty: !!rec.dirty };
     openSetlistView();
     loadSetlistLibrary(setlistCur);
   }
 
-  // The band's songs are fetched in the background, so the set view shows at once.
+  // The band's songs are read in the background, so the set view shows at once.
   async function loadSetlistLibrary(cur) {
     cur.library = await libraryForSetlists().catch(() => []);
     if (setlistCur === cur) renderSetlistView();
@@ -3718,42 +3715,49 @@
     renderSetlistView();
   }
 
-  // Closes the set view. Anything changed is saved first.
   function closeSetlist() {
-    flushSetlist();
     setlistCur = null;
     els.setlistView.hidden = true;
     els.setlistView.textContent = '';
     renderSetlists();
   }
 
-  // A change is shown straight away and saved when the set view or the editor is left. It is not written on every tap.
+  // Saves the open set list on this phone, at once. In a band it is sent to the folder on the next normal refresh.
+  function putSetlist() {
+    const cur = setlistCur;
+    if (!cur) return;
+    if (!cur.id) cur.id = setlistLocal().newId();
+    cur.dirty = inBand() || cur.dirty;
+    setlistLocal().put({ id: cur.id, list: cur.list, driveId: cur.driveId || null, dirty: cur.dirty, deleted: false });
+  }
+
+  // A change is shown straight away and kept on this phone.
   function changeSetlist(list) {
     if (!setlistCur) return;
     setlistCur.list = { ...list, updatedAt: Date.now() };
-    setlistCur.dirty = true;
+    putSetlist();
   }
 
-  // Writes the set list, one write after another. If the band folder cannot be reached, the change stays and is written next time.
-  function flushSetlist() {
-    const cur = setlistCur;
-    if (!cur || !cur.dirty || cur.deleted) return setlistWrites;
-    cur.dirty = false;
-    const list = cur.list;
-    setlistWrites = setlistWrites.then(async () => {
-      if (cur.deleted) return;
-      try {
-        cur.id = await setlistStore().write(cur.id, list);
-        upsertSetlistCache(cur.id, list);
-      } catch (e) {
-        cur.dirty = true;
-        toast('Could not save the set list to the band folder. It will be saved with the next change.');
-      }
-    });
-    return setlistWrites;
+  // Sends this phone's set lists to the band folder and takes the band's down. Runs on a normal refresh only.
+  let setlistsSyncing = false;
+  async function syncSetlistsNow() {
+    if (!setlistInBand() || setlistsSyncing) return;
+    setlistsSyncing = true;
+    syncStart('setlists', 'Sending set lists to the band folder…');
+    try {
+      await drive.setlists.sync(setlistLocal());
+    } catch (e) {
+      // no connection: the set lists stay on this phone, and go up on the next refresh
+    } finally {
+      setlistsSyncing = false;
+      syncEnd('setlists', null);
+    }
+    if (setlistCur) {
+      const rec = setlistLocal().all().find((r) => r.id === setlistCur.id);
+      if (rec) { setlistCur.driveId = rec.driveId || null; setlistCur.dirty = !!rec.dirty; }
+    }
+    renderSetlists();
   }
-  // If the app is put away, the change is saved then.
-  document.addEventListener('visibilitychange', () => { if (document.hidden) flushSetlist(); });
 
   const setlistKeyLabel = (s) => (s.missing ? 'No longer in the band’s songs' : s.playable ? s.artist : 'No tab yet');
 
@@ -3797,7 +3801,7 @@
     box.innerHTML = `
       <header class="sl-top">
         <button class="icon-btn" type="button" data-sl="back" aria-label="Set lists">${back}</button>
-        <div class="sl-grow"><h1></h1><div class="sl-sub">${esc(plural(list.songs.length, 'song'))} · ${esc(setlistPlace())}</div></div>
+        <div class="sl-grow"><h1></h1><div class="sl-sub">${esc(plural(list.songs.length, 'song'))} · ${esc(setlistWhere(cur))}</div></div>
         <button class="text-btn" type="button" data-sl="edit">Edit</button>
       </header>
       <ol class="sl-songs">
@@ -3817,18 +3821,15 @@
     box.querySelector('h1').textContent = list.name;
   }
 
-  els.setlistView.addEventListener('click', async (e) => {
+  els.setlistView.addEventListener('click', (e) => {
     const t = e.target.closest('[data-sl]');
     if (!t || !setlistCur) return;
     const cur = setlistCur;
     const act = t.dataset.sl;
     if (act === 'back') closeSetlist();
     else if (act === 'edit') { cur.editing = true; renderSetlistView(); }
-    else if (act === 'done') {
-      cur.editing = false;
-      flushSetlist();
-      renderSetlistView();
-    } else if (act === 'up' || act === 'down') {
+    else if (act === 'done') { cur.editing = false; renderSetlistView(); }
+    else if (act === 'up' || act === 'down') {
       changeSetlist(SM.setlists.move(cur.list, Number(t.dataset.i), act === 'up' ? -1 : 1));
       renderSetlistView();
     } else if (act === 'toggle') {
@@ -3838,23 +3839,18 @@
       renderSetlistView();
     } else if (act === 'dup') {
       const copy = { ...SM.setlists.blank(`${cur.list.name} copy`), songs: cur.list.songs.slice() };
-      flushSetlist();
-      setlistCur = { id: null, list: copy, editing: false, library: cur.library, dirty: true, deleted: false };
+      setlistCur = { id: null, list: copy, editing: false, library: cur.library, driveId: null, dirty: true };
+      putSetlist();
       renderSetlistView();
     } else if (act === 'del') {
       // two taps: the first asks, the second deletes (a dialog cannot be shown with a confirmation here)
       if (!t.dataset.armed) { t.dataset.armed = '1'; t.textContent = 'Tap again to delete'; return; }
-      cur.deleted = true;
-      cur.dirty = false;
-      await setlistWrites;
+      // in a band the removal goes to the folder on the next refresh; a set list only on this phone is just removed
       if (cur.id) {
-        await setlistStore().remove(cur.id).catch(() => toast('Could not delete the set list from the band folder.'));
-        if (setlistCache) setlistCache.items = setlistCache.items.filter((x) => x.id !== cur.id);
+        if (inBand()) setlistLocal().put({ id: cur.id, list: cur.list, driveId: cur.driveId || null, dirty: true, deleted: true });
+        else setlistLocal().del(cur.id);
       }
-      setlistCur = null;
-      els.setlistView.hidden = true;
-      els.setlistView.textContent = '';
-      renderSetlists();
+      closeSetlist();
     }
   });
   els.setlistView.addEventListener('change', (e) => {
