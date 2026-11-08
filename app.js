@@ -3807,7 +3807,7 @@
       <ol class="sl-songs">
         ${songs.map((s, i) => `<li class="sl-row${s.missing || !s.playable ? ' dim' : ''}">
           <span class="sl-num">${i + 1}</span>
-          <span class="sl-info"><b>${esc(s.title || 'Untitled')}</b><small>${esc(setlistKeyLabel(s))}</small></span>
+          <button class="sl-open" type="button" data-sl="open" data-key="${esc(s.key)}"><span class="sl-info"><b>${esc(s.title || 'Untitled')}</b><small>${esc(setlistKeyLabel(s))}</small></span></button>
           <span class="sl-move">
             <button class="icon-btn" type="button" data-sl="up" data-i="${i}" aria-label="Move up"${i === 0 ? ' disabled' : ''}>↑</button>
             <button class="icon-btn" type="button" data-sl="down" data-i="${i}" aria-label="Move down"${i === songs.length - 1 ? ' disabled' : ''}>↓</button>
@@ -3828,6 +3828,14 @@
     const act = t.dataset.sl;
     if (act === 'back') closeSetlist();
     else if (act === 'edit') { cur.editing = true; renderSetlistView(); }
+    else if (act === 'open') {
+      // opens the song the same way the song list does
+      const key = t.dataset.key;
+      const lib = (cur.library || []).find((x) => x.key === key);
+      if (!lib) { toast('This song is no longer in the band’s songs'); return; }
+      closeSetlist();
+      openFromList(key, lib.title);
+    }
     else if (act === 'done') { cur.editing = false; renderSetlistView(); }
     else if (act === 'up' || act === 'down') {
       changeSetlist(SM.setlists.move(cur.list, Number(t.dataset.i), act === 'up' ? -1 : 1));

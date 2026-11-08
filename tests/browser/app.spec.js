@@ -1329,3 +1329,24 @@ test('a band set list is kept on the phone, goes to the band folder on refresh, 
   await expect(page.locator('#setlistsWrap .setlist-row')).toContainText('Not sent to the band yet');
   expect(errors).toEqual([]);
 });
+
+test('tapping a song in a set list opens it the same way as the song list', async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.addInitScript(() => { if (!localStorage.getItem('setcards:prefs')) localStorage.setItem('setcards:prefs', JSON.stringify({ mode: 'solo' })); });
+  await page.goto('/');
+  await page.locator('#addDemoBtn').click();
+  await page.click('#tabSets');
+  await page.click('#addSongBtn');
+  await page.fill('#slNameIn', 'Gig');
+  await page.locator('#slNameIn').press('Tab');
+  await page.locator('.sl-pick', { hasText: 'Low Road (demo)' }).click();
+  await page.click('#setlistView [data-sl=done]');
+  await page.click('#setlistView [data-sl=back]');
+  await page.locator('#setlistsWrap .setlist-row', { hasText: 'Gig' }).click();
+  await page.locator('#setlistView .sl-open', { hasText: 'Low Road (demo)' }).click();
+  await expect(page.locator('#setlistView')).toBeHidden();
+  await expect(page.locator('#songTitle')).toHaveText('Low Road (demo)');
+  await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
+  expect(errors).toEqual([]);
+});
+
