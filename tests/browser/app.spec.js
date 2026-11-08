@@ -1373,3 +1373,27 @@ test('the main screen asks Google quietly on a refresh, and shows the band’s s
   expect(await page.evaluate(() => window.quietCalls)).toBe(1);
   expect(errors).toEqual([]);
 });
+
+test('going back from a song opened from a set list returns to that set list', async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.addInitScript(() => { if (!localStorage.getItem('setcards:prefs')) localStorage.setItem('setcards:prefs', JSON.stringify({ mode: 'solo' })); });
+  await page.goto('/');
+  await page.locator('#addDemoBtn').click();
+  await page.click('#tabSets');
+  await page.click('#addSongBtn');
+  await page.fill('#slNameIn', 'Gig');
+  await page.locator('#slNameIn').press('Tab');
+  await page.locator('.sl-pick', { hasText: 'Low Road (demo)' }).click();
+  await page.click('#setlistView [data-sl=done]');
+  await page.click('#setlistView [data-sl=back]');
+  await page.locator('#setlistsWrap .setlist-row', { hasText: 'Gig' }).click();
+  await page.locator('#setlistView .sl-open', { hasText: 'Low Road (demo)' }).click();
+  await expect(page.locator('#songTitle')).toHaveText('Low Road (demo)');
+  await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
+  // back from the song returns to the set list it came from, not the song list
+  await page.click('#backBtn');
+  await expect(page.locator('#setlistView')).toBeVisible();
+  await expect(page.locator('#setlistView h1')).toHaveText('Gig');
+  expect(errors).toEqual([]);
+});
+

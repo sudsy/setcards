@@ -2736,6 +2736,8 @@
     document.title = 'Setcards';
     await flushSave();   // so the list shows what was just changed
     renderHome();
+    // a song opened from a set list goes back to that set list
+    if (setlistReturn) { const id = setlistReturn; setlistReturn = null; reopenSetlist(id); }
   }
 
   // Opening a song adds a step to the browser's history, so the back gesture returns to the list instead of leaving the app.
@@ -3647,6 +3649,15 @@
   const setlistPlaceKey = () => (inBand() && drive.folder() ? `band-${drive.folder().id}` : 'solo');
   const setlistLocal = () => SM.library.setlistLocal(setlistPlaceKey());
   const setlistInBand = () => inBand() && drive.connected() && drive.signedIn();
+  let setlistReturn = null;   // the set list a song was opened from, shown again when the song is closed
+  function reopenSetlist(id) {
+    const rec = setlistRecords().find((r) => r.id === id);
+    if (!rec) return;
+    prefs.homeTab = 'sets';
+    savePrefs();
+    renderHome();
+    openSetlist(id, rec.list);
+  }
   let setlistCur = null;      // { id, list, editing, library, driveId, dirty }: the set list open on screen; library: the songs it can use
 
   // The records shown in the list: not deleted, and a set list that reads.
@@ -3841,10 +3852,11 @@
     if (act === 'back') closeSetlist();
     else if (act === 'edit') { cur.editing = true; renderSetlistView(); }
     else if (act === 'open') {
-      // opens the song the same way the song list does
+      // opens the song the same way the song list does; going back from the song returns to this set list
       const key = t.dataset.key;
       const lib = (cur.library || []).find((x) => x.key === key);
       if (!lib) { toast('This song is no longer in the band’s songs'); return; }
+      setlistReturn = cur.id || null;
       closeSetlist();
       openFromList(key, lib.title);
     }
