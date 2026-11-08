@@ -1249,3 +1249,33 @@ test('a set list can be duplicated and deleted', async ({ page }) => {
   await expect(page.locator('#setlistsWrap .setlist-row')).toHaveCount(1);
   expect(errors).toEqual([]);
 });
+
+// The band's song list on a phone: after the server sync adds Delete to each row, nothing is wider than the screen, even with long titles.
+test.describe('the band song list on a phone', () => {
+  test.use({ isMobile: true, hasTouch: true, viewport: { width: 412, height: 915 }, deviceScaleFactor: 2.625 });
+  test('stays the width of the screen after the sync, with long titles', async ({ page }) => {
+    await fakeDrive(page);
+    const notes = (title, artist, key, n) => ({ format: 'setcards/1', title, artist, status: 'learning', tempo: 120, sections: Array.from({ length: n }, (_, i) => ({ id: `x${i}`, start: i * 4, name: `Part ${i + 1}` })), chords: {}, meta: { key, tempo: 120 }, updatedAt: 1 });
+    const long = 'A very long song title that keeps going well past the width of the phone screen';
+    const songs = [
+      { id: 's1', title: 'Autumn-Leaves', artist: 'Eva Cassidy', fileName: 'a.gp', hasTab: true, addedAt: 1, updatedAt: 1, order: 0, notes: notes('Autumn-Leaves', 'Eva Cassidy', 'Bbm', 6) },
+      { id: 's2', title: long, artist: 'A band with a long name too', fileName: 'b.gp', hasTab: true, addedAt: 2, updatedAt: 2, order: 1, notes: notes(long, 'A band with a long name too', 'Eb', 8) }
+    ];
+    await page.addInitScript((songs) => {
+      window.fakeBandSongs = songs;
+      window.fakeSavedSongs = songs.map((s) => ({ ...s, savedAt: Date.now() }));
+      // the server answer is held back, so the saved copy is what shows first
+      window.fakeListWait = new Promise((r) => { window.releaseSync = r; });
+    }, songs);
+    await page.goto('/');
+    await expect(page.locator('.song-row')).toHaveCount(2);
+    await page.evaluate(() => window.releaseSync());
+    await expect(page.locator('.song-row').first().locator('.song-del')).toBeVisible();
+    const wide = await page.evaluate(() => ({
+      page: document.documentElement.scrollWidth - innerWidth,
+      rows: [...document.querySelectorAll('#songListWrap .song-row')].filter((r) => r.getBoundingClientRect().right > innerWidth + 1).length
+    }));
+    expect(wide.page).toBeLessThanOrEqual(0);
+    expect(wide.rows).toBe(0);
+  });
+});
