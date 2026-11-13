@@ -1397,3 +1397,38 @@ test('going back from a song opened from a set list returns to that set list', a
   expect(errors).toEqual([]);
 });
 
+
+// An edit made while Google Drive cannot be reached is kept on the device, and shows again once the connection is back.
+test('an edit made offline is kept, and is still there after reconnecting', async ({ page }) => {
+  const errors = watchErrors(page);
+  await fakeDrive(page);
+  await page.addInitScript(() => {
+    window.fakeBandSongs = [{ id: 's1', title: 'Autumn-Leaves', artist: 'Old Artist', fileName: 'a.gp', hasTab: false, addedAt: 1, updatedAt: 1, order: 0, notes: { format: 'setcards/1', title: 'Autumn-Leaves', artist: 'Old Artist', sections: [], chords: {}, updatedAt: 1 } }];
+  });
+  await page.goto('/');
+  await expect(page.locator('.song-row')).toHaveCount(1);
+  await page.locator('.song-row .song-open').first().click();
+  await expect(page.locator('#songTitle')).toHaveText('Autumn-Leaves');
+  // the connection drops: saving to Drive fails
+  await page.evaluate(() => {
+    const d = SM.library.sources.drive;
+    window.realSave = d.saveNotes;
+    d.saveNotes = async () => { throw new Error('offline'); };
+  });
+  await page.click('#settingsBtn');
+  await page.fill('#songArtistInput', 'Offline Edit');
+  await page.locator('#songArtistInput').press('Tab');
+  await page.click('#settingsDlg [data-close]');
+  await expect(page.locator('#songMeta')).toContainText('Offline Edit');
+  // the save to Drive has been tried and has failed: the edit is kept on this device
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('setcards:overlay:drive:s1') || ''), { timeout: 10000 }).toContain('Offline Edit');
+  // the connection returns; the edit should now reach the band's copy, without anything else being done
+  await page.evaluate(() => { SM.library.sources.drive.saveNotes = window.realSave; window.dispatchEvent(new Event('online')); });
+  await expect.poll(() => page.evaluate(() => window.fakeBandSongs[0].notes.artist), { timeout: 10000 }).toBe('Offline Edit');
+  await page.click('#backBtn');
+  await expect(page.locator('.song-row .song-open').first()).toBeVisible();
+  await page.locator('.song-row .song-open').first().click();
+  await page.click('#settingsBtn');
+  await expect(page.locator('#songArtistInput')).toHaveValue('Offline Edit');
+  expect(errors).toEqual([]);
+});

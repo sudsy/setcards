@@ -2997,7 +2997,7 @@
           const isOffline = songs.length && songs[0].offline;
           const note = isOffline ? `Offline: showing the copy saved on this phone ${savedWhen(songs[0].savedAt)}.` : '';
           sec = songSections(wrap, drive, songs, drive.folder().name, note, (s) => (isOffline ? null : deleteButton(drive, s, 'Delete for the band?')));
-          if (!isOffline) sendKeptChanges(songs);
+          if (!isOffline) sendKeptNow();
           if (!isOffline) syncSetlistsNow();
           if (!songs.length) sec.querySelector('ul').innerHTML = '<li class="fine">No songs visible yet. Add one below, or if the folder already has songs, give Setcards access to them.</li>';
         } catch (e) {
@@ -3066,15 +3066,24 @@
   }
 
   // Changes that couldn't reach Drive were kept on this phone; send them now that it can be reached.
-  function sendKeptChanges(songs) {
-    songs.forEach((sg) => {
-      const key = SM.library.key('drive', sg.id);
+  // Edits kept on this device for band songs are sent as soon as the connection is back, not only on a list refresh.
+  // The band's copy is read first: a copy newer than the kept edit wins, and the kept edit is left where it is.
+  async function sendKeptNow() {
+    if (!inBand() || !drive.signedIn() || !navigator.onLine) return;
+    const prefix = 'setcards:overlay:';
+    const keys = Object.keys(localStorage).filter((k) => k.startsWith(prefix + 'drive:')).map((k) => k.slice(prefix.length));
+    for (const key of keys) {
       const kept = SM.library.overlay.get(key);
-      if (kept && (!sg.notes || (kept.updatedAt || 0) > (sg.notes.updatedAt || 0))) {
-        SM.library.saveNotes(key, kept).then((r) => { if (!r.local) toast(`Sent your changes to “${sg.title}”`); });
+      if (!kept) continue;
+      const remote = await drive.open(key.slice('drive:'.length)).catch(() => null);
+      if (!remote) continue;   // the band's folder cannot be reached yet: kept, and tried again later
+      if ((kept.updatedAt || 0) > ((remote.notes && remote.notes.updatedAt) || 0)) {
+        const r = await SM.library.saveNotes(key, kept);
+        if (!r.local) toast(`Sent your changes to “${remote.title}”`);
       }
-    });
+    }
   }
+  window.addEventListener('online', () => { sendKeptNow(); });
 
   // Moves a draft into the band folder, with its sections and chords.
   async function shareDraft(s) {
