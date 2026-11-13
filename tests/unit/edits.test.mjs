@@ -169,3 +169,27 @@ test('two fields changed on two copies merge into one copy with both changes', (
   assert.equal(m.notes.artist, 'Band A');
   assert.deepEqual(m.overwritten, []);
 });
+
+test('a step records what changed, with the value before and after each field', () => {
+  const st = E.step({ title: 'A', chords: { 1: 'G' } }, { title: 'B', chords: { 1: 'G', 2: 'Am' } }, 7);
+  assert.equal(st.at, 7);
+  assert.equal(st.changes.length, 2);
+  assert.deepEqual(st.changes[0].path, ['title']);
+  assert.deepEqual(st.changes[1].path, ['chords', '2']);
+  assert.equal(E.step({ title: 'A' }, { title: 'A' }), null);
+});
+
+test('undoing and redoing a step put the values back and forth, including a field that did not exist', () => {
+  const before = { title: 'A' };
+  const after = { title: 'B', chords: { 2: 'Am' } };
+  const st = E.step(before, after);
+  const back = E.applyStep(after, st, 'undo');
+  assert.deepEqual(back, { title: 'A' });
+  assert.deepEqual(E.applyStep(back, st, 'redo'), after);
+});
+
+test('a step survives being saved to a file', () => {
+  const st = E.step({ title: 'A' }, { title: 'B', chords: { 2: 'Am' } });
+  const back = JSON.parse(JSON.stringify(st));
+  assert.deepEqual(E.applyStep({ title: 'B', chords: { 2: 'Am' } }, back, 'undo'), { title: 'A' });
+});

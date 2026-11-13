@@ -173,5 +173,26 @@
     };
   }
 
-  SM.edits = { UNDO_LIMIT, UNDO_BYTES, getPath, setPath, create, setField, undo, redo, merge, toFile, fromFile, content, stampsOf, diff, stampChanges, record };
+  // One undoable step: what changed between two copies of the notes, with the value before and after each field.
+  // Returns null when nothing changed.
+  function step(prev, next, at = Date.now()) {
+    const changes = diff(content(prev), content(next)).map((path) => ({
+      path,
+      before: box(getPath(content(prev), path)),
+      after: box(getPath(content(next), path))
+    }));
+    return changes.length ? { at, changes } : null;
+  }
+
+  // The notes with a step applied, backwards ('undo': the before values) or forwards ('redo': the after values).
+  function applyStep(notes, st, direction) {
+    let out = content(notes);
+    for (const c of st.changes) out = setPath(out, c.path, unbox(direction === 'undo' ? c.before : c.after));
+    return out;
+  }
+
+  // Keeps the newest steps within the count and size limits.
+  const trimSteps = (steps) => trim(steps);
+
+  SM.edits = { UNDO_LIMIT, UNDO_BYTES, getPath, setPath, create, setField, undo, redo, merge, toFile, fromFile, content, stampsOf, diff, stampChanges, record, step, applyStep, trimSteps };
 })(typeof window !== 'undefined' ? window : globalThis);

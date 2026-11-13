@@ -1590,3 +1590,26 @@ test('a conflict can be settled by using this phone’s version, which then reac
   expect(errors).toEqual([]);
 });
 
+
+// Undo and redo in the edit panel: a change is undone and redone, the song is shown again, and edit mode stays on.
+test('undo and redo step back and forth through the changes to a song', async ({ page }) => {
+  const errors = watchErrors(page);
+  await openDemo(page);
+  await expect(page.locator('#songTitle')).toHaveText('Low Road (demo)');
+  await page.click('#settingsBtn');
+  await page.fill('#songTitleInput', 'Changed once');
+  await page.locator('#songTitleInput').press('Tab');
+  await page.click('#settingsDlg [data-close]');
+  await expect(page.locator('#songTitle')).toHaveText('Changed once');
+  await page.click('#editBtn');
+  await expect(page.locator('#undoBtn')).toBeEnabled();
+  await expect(page.locator('#redoBtn')).toBeDisabled();
+  await page.click('#undoBtn');
+  await expect(page.locator('#songTitle')).toHaveText('Low Road (demo)');
+  await expect(page.locator('body')).toHaveClass(/editing/);
+  await expect(page.locator('#redoBtn')).toBeEnabled();
+  await page.click('#redoBtn');
+  await expect(page.locator('#songTitle')).toHaveText('Changed once');
+  await expect(page.locator('#redoBtn')).toBeDisabled();
+  expect(errors).toEqual([]);
+});

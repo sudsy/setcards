@@ -14,7 +14,7 @@
     editBtn: $('editBtn'), editPanel: $('editPanel'), sectionList: $('sectionList'),
     findRepeatsBtn: $('findRepeatsBtn'), suggestBtn: $('suggestBtn'), useMarkersBtn: $('useMarkersBtn'), doneEditBtn: $('doneEditBtn'),
     syncBtn: $('syncBtn'), scroller: $('scroller'), tab: $('tab'), cards: $('cards'), loading: $('loading'), drop: $('drop'),
-    noticeBtn: $('noticeBtn'), noticeDlg: $('noticeDlg'), noticeText: $('noticeText'), conflictBox: $('conflictBox'),
+    noticeBtn: $('noticeBtn'), noticeDlg: $('noticeDlg'), noticeText: $('noticeText'), conflictBox: $('conflictBox'), undoBtn: $('undoBtn'), redoBtn: $('redoBtn'),
     playBtn: $('playBtn'), skipBtn: $('skipBtn'), drumsBtn: $('drumsBtn'), speedSel: $('speedSel'),
     videoBtn: $('videoBtn'), videoPanel: $('videoPanel'), playerStatus: $('playerStatus'),
     homeView: $('homeView'), songView: $('songView'), backBtn: $('backBtn'), bandName: $('bandName'), homeRoleBtn: $('homeRoleBtn'),
@@ -189,6 +189,7 @@
     const notes = state.notes;
     // on this phone at once; the band's folder gets it a few seconds later, as one save
     SM.library.stage(key, notes);
+    refreshUndoButtons();
     notes.title = state.song.title;
     notes.artist = state.song.artist;
     // the same checks the notes tool makes: a problem is logged, and the notes are still saved
@@ -273,6 +274,29 @@
     });
     box.append(p, ul, actions);
   }
+  // Undo and redo for the song open: each step is one save made on this phone, and the song is shown again after it.
+  function refreshUndoButtons() {
+    if (!state.song) return;
+    els.undoBtn.disabled = !SM.library.canUndo(state.song.key);
+    els.redoBtn.disabled = !SM.library.canRedo(state.song.key);
+  }
+  async function stepHistory(direction) {
+    if (!state.song) return;
+    const key = state.song.key;
+    const title = state.song.title;
+    const editing = state.editing;
+    const notes = direction === 'undo' ? SM.library.undo(key) : SM.library.redo(key);
+    if (!notes) return;
+    // a save still waiting would put back the version before the step, so it is dropped
+    clearTimeout(saveTimer);
+    pendingSave = null;
+    await SM.library.saveNotes(key, { ...notes }, { record: false });
+    await openSong(key, title);
+    if (editing && !state.editing) setEditing(true);
+  }
+  els.undoBtn.addEventListener('click', () => stepHistory('undo'));
+  els.redoBtn.addEventListener('click', () => stepHistory('redo'));
+
   async function resolveSongConflict(choice) {
     const key = state.song.key;
     const title = state.song.title;
@@ -298,6 +322,7 @@
     els.noticeBtn.hidden = !msgs.length;
     els.noticeText.textContent = msgs.join(' ');
     renderConflictBox();
+    refreshUndoButtons();
     if (!msgs.length) closeDialog(els.noticeDlg);
   }
   els.noticeBtn.addEventListener('click', () => els.noticeDlg.showModal());

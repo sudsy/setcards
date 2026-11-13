@@ -136,12 +136,31 @@
     set: (key, rec) => ls.set('setcards:synced:' + key, rec)
   };
 
+  // Undo and redo for each song: the steps taken on this phone. Kept here only, not in the song's file.
+  const history = {
+    get: (key) => { const h = ls.get('setcards:history:' + key); return h && Array.isArray(h.undo) ? { undo: h.undo, redo: h.redo || [] } : { undo: [], redo: [] }; },
+    set: (key, h) => ls.set('setcards:history:' + key, h)
+  };
+
   // A random id for this device, so each change says which device made it.
   const deviceId = () => {
     let d = ls.get('setcards:device');
     if (!d) { d = Math.random().toString(36).slice(2, 10); ls.set('setcards:device', d); }
     return d;
   };
+
+  // Moves the last step from one stack to the other, and returns the notes with it applied.
+  function moveStep(key, direction) {
+    const from = direction === 'undo' ? 'undo' : 'redo';
+    const to = direction === 'undo' ? 'redo' : 'undo';
+    const h = history.get(key);
+    if (!h[from].length) return null;
+    const st = h[from][h[from].length - 1];
+    const current = overlay.get(key) || synced.get(key) || {};
+    const notes = SM.edits.applyStep(SM.edits.content(current), st, direction);
+    history.set(key, { ...h, [from]: h[from].slice(0, -1), [to]: SM.edits.trimSteps([...h[to], st]) });
+    return notes;
+  }
 
   // Works out the copy to show for a song: the band's copy, this phone's unsent edits, or both merged field by field.
   // Writes the agreed copy and the phone's copy, and keeps the band's version aside when a field changed in both places.
@@ -208,10 +227,18 @@
 
     // Records a change on this phone, at once. Each field that differs from the agreed copy is stamped with the time
     // and the device. Returns the record to keep on this phone, and to send to the band's folder.
-    stage(key, notes) {
+    stage(key, notes, { record = true } = {}) {
       const now = Date.now();
       const base = synced.get(key);
       const kept = overlay.get(key);
+      // a change made here is an undo step; saving the same change again adds nothing (only what differs from the last copy)
+      if (record && library.parse(key).source && library.parse(key).source.canWrite) {
+        const st = SM.edits.step(SM.edits.content(kept || base || {}), SM.edits.content(notes), now);
+        if (st) {
+          const h = history.get(key);
+          history.set(key, { undo: SM.edits.trimSteps([...h.undo, st]), redo: [] });
+        }
+      }
       const baseDoc = base ? { notes: SM.edits.content(base), stamps: SM.edits.stampsOf(base) } : { notes: {}, stamps: {} };
       const from = { notes: SM.edits.content(notes), stamps: SM.edits.stampsOf(kept || base) };
       const doc = SM.edits.stampChanges(baseDoc, from, { at: now, device: deviceId() });
@@ -220,6 +247,15 @@
       overlay.set(key, rec);
       return rec;
     },
+
+    // Whether there is a change to undo or redo for a song.
+    canUndo(key) { return history.get(key).undo.length > 0; },
+    canRedo(key) { return history.get(key).redo.length > 0; },
+
+    // Steps back (or forward) one change. Returns the notes to show and save, or null when there is nothing to undo (redo).
+    // The step is moved to the other stack, so it can be undone again or redone.
+    undo(key) { return moveStep(key, 'undo'); },
+    redo(key) { return moveStep(key, 'redo'); },
 
     // The fields changed in both places, and both versions, for a song whose conflict has not been cleared yet.
     conflict(key) { return ls.get('setcards:conflict:' + key); },
@@ -240,9 +276,9 @@
 
     // Saves notes to the song's source, or to this browser if the source is read only or unreachable. The copy on this
     // phone is always kept first, so an edit is not lost when the band's folder cannot be reached.
-    async saveNotes(key, notes) {
+    async saveNotes(key, notes, opts) {
       const { source, id } = library.parse(key);
-      const rec = library.stage(key, notes);
+      const rec = library.stage(key, notes, opts);
       if (!source || !source.canWrite) return { local: true };
       try {
         await source.saveNotes(id, { ...rec });
