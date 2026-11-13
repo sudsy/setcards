@@ -1083,3 +1083,6 @@ body.chart-view.compact .structure .step { flex: 1 1 0; min-width: 0; padding: 0
 .conflict-list { margin: 0; padding-left: 18px; font-size: 0.9rem; }
 .conflict-actions { display: flex; flex-wrap: wrap; gap: 12px; }
 
+/* the Songs / Set lists switch and the set lists share the song list's width, and sit in the same place */
+#homeView .home-switch, #homeView .setlists-wrap { max-width: 760px; width: 100%; margin-left: auto; margin-right: auto; }
+
