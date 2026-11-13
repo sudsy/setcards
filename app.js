@@ -3530,8 +3530,35 @@
       tags: JSON.parse(JSON.stringify(c.tags || {})),
       cues: { ...(c.cues || {}) },
       chords, origChords, step: 'all', sheetBar: null,
+      // undo and redo for this draft: the states before each change (typing in one go is one change)
+      hist: [], redo: [], histAt: 0,
     };
     els.chartEditor.hidden = false;
+    renderChartEditor();
+  }
+  // Records the draft before a change, so it can be undone. Typing that carries on for a moment is one change.
+  function ceSnap(typing) {
+    const d = chartDraft;
+    if (!d) return;
+    const now = Date.now();
+    if (!typing || now - d.histAt > 1500) {
+      d.hist.push(JSON.stringify({ bass: d.bass, tags: d.tags, cues: d.cues, chords: d.chords }));
+      if (d.hist.length > 50) d.hist.shift();
+      d.redo = [];
+    }
+    d.histAt = now;
+    // the header is not redrawn while typing, so its buttons are updated here
+    const undo = els.chartEditor.querySelector('[data-ce=undo]');
+    const redo = els.chartEditor.querySelector('[data-ce=redo]');
+    if (undo) undo.disabled = !d.hist.length;
+    if (redo) redo.disabled = !d.redo.length;
+  }
+  function ceStep(from, to) {
+    const d = chartDraft;
+    if (!d || !d[from].length) return;
+    to.push(JSON.stringify({ bass: d.bass, tags: d.tags, cues: d.cues, chords: d.chords }));
+    const s = JSON.parse(d[from].pop());
+    Object.assign(d, { bass: s.bass, tags: s.tags, cues: s.cues, chords: s.chords, histAt: 0 });
     renderChartEditor();
   }
   function closeChartEditor() {
@@ -3621,6 +3648,8 @@
       <header class="ce-top">
         <button type="button" class="icon-btn" data-ce="back" aria-label="Back">${CE_BACK}</button>
         <div class="ce-grow"><h1>Edit chart</h1><div class="ce-sub">${esc(state.song.artist || '')} · ${guitar ? 'Guitar' : 'Bass'}${guitar && capo ? ` · Capo ${capo}` : ''} · ${state.score.masterBars.length} bars</div></div>
+        <button type="button" class="ce-hist" data-ce="undo" aria-label="Undo"${d.hist.length ? '' : ' disabled'}>Undo</button>
+        <button type="button" class="ce-hist" data-ce="redo" aria-label="Redo"${d.redo.length ? '' : ' disabled'}>Redo</button>
         <button type="button" class="ce-done" data-ce="done">Done</button>
       </header>
       <nav class="ce-steps" aria-label="Sections">
@@ -3683,8 +3712,11 @@
     else if (t.dataset.ce === 'back') closeChartEditor();
     else if (t.dataset.ce === 'sheet-close') { d.sheetBar = null; renderChartEditor(); }
     else if (t.dataset.step !== undefined) { d.step = t.dataset.step; renderChartEditor(); }
-    else if (t.dataset.untag !== undefined) { ceSetTags(d.sheetBar, (d.tags[d.sheetBar] || []).filter((x) => x !== t.dataset.untag)); ceUpdateCell(d.sheetBar); ceOpenSheet(); }
+    else if (t.dataset.ce === 'undo') ceStep('hist', d.redo);
+    else if (t.dataset.ce === 'redo') ceStep('redo', d.hist);
+    else if (t.dataset.untag !== undefined) { ceSnap(false); ceSetTags(d.sheetBar, (d.tags[d.sheetBar] || []).filter((x) => x !== t.dataset.untag)); ceUpdateCell(d.sheetBar); ceOpenSheet(); }
     else if (t.dataset.quick !== undefined) {
+      ceSnap(false);
       ceToggleTag(d.sheetBar, t.dataset.quick);
       ceUpdateCell(d.sheetBar);
       if (t.dataset.quick === 'Rest') ceRefreshSection(d.sheetBar);
@@ -3706,6 +3738,7 @@
   els.chartEditor.addEventListener('input', (e) => {
     const d = chartDraft;
     if (!d) return;
+    ceSnap(true);
     if (e.target.matches('.ce-in')) {
       // one entry per bar, in order, for the bars of the section
       const start = Number(e.target.dataset.start);
@@ -3724,6 +3757,7 @@
   els.chartEditor.addEventListener('keydown', (e) => {
     if (!chartDraft || chartDraft.sheetBar === null || !e.target.matches('.ce-tag-in') || e.key !== 'Enter') return;
     e.preventDefault();
+    ceSnap(false);
     ceAddTag(chartDraft.sheetBar, e.target.value);
     ceUpdateCell(chartDraft.sheetBar);
     ceOpenSheet();

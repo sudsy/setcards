@@ -1613,3 +1613,24 @@ test('undo and redo step back and forth through the changes to a song', async ({
   await expect(page.locator('#redoBtn')).toBeDisabled();
   expect(errors).toEqual([]);
 });
+
+// Undo and redo in the chart editor work on the draft, before Done.
+test('the chart editor can undo and redo its changes before Done', async ({ page }) => {
+  const errors = watchErrors(page);
+  await openDemo(page);
+  await pickView(page, 'chart');
+  await page.click('#editBtn');
+  await expect(page.locator('#chartEditor')).toBeVisible();
+  const first = page.locator('#chartEditor .ce-sec').first().locator('.ce-in');
+  await first.fill('G G');
+  await expect(page.locator('#chartEditor [data-ce=undo]')).toBeEnabled();
+  await page.click('#chartEditor [data-ce=undo]');
+  await expect(first).toHaveValue(/^\s*$/);
+  await expect(page.locator('#chartEditor [data-ce=redo]')).toBeEnabled();
+  await page.click('#chartEditor [data-ce=redo]');
+  await expect(first).toHaveValue(/^G G\s*$/);
+  // nothing is saved until Done, so Back leaves the chart as it was
+  await page.click('#chartEditor [data-ce=back]');
+  await expect(page.locator('#chartEditor')).toBeHidden();
+  expect(errors).toEqual([]);
+});
