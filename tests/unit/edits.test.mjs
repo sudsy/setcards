@@ -135,3 +135,37 @@ test('a field removed on the other copy is removed when it is the later change',
   const m = E.merge(common, removed, common);
   assert.equal('4' in m.notes.chords, false);
 });
+
+test('diff finds the fields that differ, down to the key inside an object', () => {
+  assert.deepEqual(E.diff({ a: 1, c: { x: 1, y: 2 } }, { a: 2, c: { x: 1, y: 3 }, d: 4 }), [['a'], ['c', 'y'], ['d']]);
+  assert.deepEqual(E.diff({ s: [1, 2] }, { s: [1, 2] }), []);
+  assert.deepEqual(E.diff({ s: [1, 2] }, { s: [1, 3] }), [['s']]);
+});
+
+test('stamping marks only the fields that differ from the base, with the time and device', () => {
+  const base = { notes: { title: 'T', chords: { 1: 'G' } }, stamps: {} };
+  const next = { notes: { title: 'T2', chords: { 1: 'G' } }, stamps: {} };
+  const s = E.stampChanges(base, next, { at: 9, device: 'phone' });
+  assert.deepEqual(Object.keys(s.stamps), ['title']);
+  assert.deepEqual(s.stamps.title, { path: ['title'], at: 9, device: 'phone' });
+});
+
+test('a field edited and then put back to the base value is not stamped as changed', () => {
+  const base = { notes: { title: 'T' }, stamps: {} };
+  const s = E.stampChanges(base, { notes: { title: 'T' }, stamps: {} }, { at: 9 });
+  assert.deepEqual(s.stamps, {});
+});
+
+test('the bookkeeping is not content', () => {
+  assert.deepEqual(E.content({ title: 'T', updatedAt: 5, edits: { stamps: {} } }), { title: 'T' });
+});
+
+test('two fields changed on two copies merge into one copy with both changes', () => {
+  const base = { notes: { title: 'T', artist: 'A' }, stamps: {} };
+  const phone = E.stampChanges(base, { notes: { title: 'Phone T', artist: 'A' }, stamps: {} }, { at: 5, device: 'phone' });
+  const band = E.stampChanges(base, { notes: { title: 'T', artist: 'Band A' }, stamps: {} }, { at: 6, device: 'band' });
+  const m = E.merge(phone, band, base);
+  assert.equal(m.notes.title, 'Phone T');
+  assert.equal(m.notes.artist, 'Band A');
+  assert.deepEqual(m.overwritten, []);
+});

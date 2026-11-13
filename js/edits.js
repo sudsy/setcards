@@ -130,6 +130,33 @@
     return { notes, stamps, undo: local.undo, redo: local.redo, overwritten };
   }
 
+  // The notes as content: without the bookkeeping (the edit stamps, and the time of the last save).
+  const content = (notes) => { const { edits, updatedAt, ...rest } = notes || {}; return rest; };
+  const stampsOf = (copy) => (copy && copy.edits && copy.edits.stamps) || {};
+
+  const isPlain = (v) => isObj(v) && !Array.isArray(v);
+
+  // The paths where a and b differ. Objects are compared key by key; anything else (including arrays) as a whole.
+  function diff(a, b, path = [], out = []) {
+    if (same(a, b)) return out;
+    if (isPlain(a) && isPlain(b)) {
+      for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) diff(a[k], b[k], [...path, k], out);
+      return out;
+    }
+    out.push(path);
+    return out;
+  }
+
+  // Stamps each field of next that differs from base as changed at `at` by `device`. base and next are { notes, stamps }.
+  function stampChanges(base, next, { at = Date.now(), device = '' } = {}) {
+    const stamps = { ...next.stamps };
+    for (const path of diff(content(base.notes), content(next.notes))) stamps[stampKey(path)] = { path, at, device };
+    return { notes: next.notes, stamps };
+  }
+
+  // A copy as stored in a file or on this phone: the content, the time, and the stamps.
+  const record = (doc, updatedAt) => ({ ...content(doc.notes), updatedAt, edits: { stamps: doc.stamps } });
+
   // The file for a song: the notes, and the edit history.
   function toFile(doc) {
     return { ...doc.notes, edits: { stamps: doc.stamps, undo: doc.undo } };
@@ -146,5 +173,5 @@
     };
   }
 
-  SM.edits = { UNDO_LIMIT, UNDO_BYTES, getPath, setPath, create, setField, undo, redo, merge, toFile, fromFile };
+  SM.edits = { UNDO_LIMIT, UNDO_BYTES, getPath, setPath, create, setField, undo, redo, merge, toFile, fromFile, content, stampsOf, diff, stampChanges, record };
 })(typeof window !== 'undefined' ? window : globalThis);

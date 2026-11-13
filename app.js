@@ -188,7 +188,7 @@
     const key = state.song.key;
     const notes = state.notes;
     // on this phone at once; the band's folder gets it a few seconds later, as one save
-    SM.library.overlay.set(key, { ...notes, updatedAt: Date.now() });
+    SM.library.stage(key, notes);
     notes.title = state.song.title;
     notes.artist = state.song.artist;
     // the same checks the notes tool makes: a problem is logged, and the notes are still saved
@@ -216,7 +216,7 @@
     clearTimeout(saveTimer);
     if (!pendingSave) return Promise.resolve();
     // The page may close before the real save finishes, so keep an instant copy that wins on next open.
-    if (leaving === true) SM.library.overlay.set(pendingSave.key, Object.assign({}, pendingSave.notes, { updatedAt: Date.now() }));
+    if (leaving === true) SM.library.stage(pendingSave.key, pendingSave.notes);
     return pendingSave();
   }
   window.addEventListener('pagehide', () => flushSave(true));
@@ -240,7 +240,7 @@
   function updateBanner() {
     const s = state.song;
     const msgs = [];
-    if (s && s.conflict) msgs.push('This song was also changed in the band folder while you had edits here that were not sent yet. Your edits are shown, and the band’s version is kept on this phone.');
+    if (s && s.conflict) msgs.push('Some fields were changed here and in the band folder at the same time. The newer change is shown, and the band’s version is kept on this phone.');
     if (s && s.offline) msgs.push('Offline: this is the copy saved on this phone. Changes are kept here and sent to the band when you’re back online.');
     else if (s && s.localOnly) msgs.push('Your changes to this song are saved in this browser only. Add the song to a band folder to share them.');
     if (s && state.score && state.partMissing) msgs.push(missingPartText());
@@ -3070,23 +3070,18 @@
 
   // Changes that couldn't reach Drive were kept on this phone; send them now that it can be reached.
   // Edits kept on this device for band songs are sent as soon as the connection is back, not only on a list refresh.
-  // The band's copy is read first: a copy newer than the kept edit wins, and the kept edit is left where it is.
+  // Each song is read and merged first (field by field), and anything still unsent is then saved.
   async function sendKeptNow() {
     if (!inBand() || !drive.signedIn() || !navigator.onLine) return;
-    const prefix = 'setcards:overlay:';
-    const keys = Object.keys(localStorage).filter((k) => k.startsWith(prefix + 'drive:')).map((k) => k.slice(prefix.length));
+    const prefix = 'setcards:overlay:drive:';
+    const keys = Object.keys(localStorage).filter((k) => k.startsWith(prefix)).map((k) => k.slice('setcards:overlay:'.length));
     for (const key of keys) {
+      const song = await SM.library.open(key).catch(() => null);   // the merge is written as part of opening
+      if (!song) continue;   // the band's folder cannot be reached yet: kept, and tried again later
       const kept = SM.library.overlay.get(key);
       if (!kept) continue;
-      const remote = await drive.open(key.slice('drive:'.length)).catch(() => null);
-      if (!remote) continue;   // the band's folder cannot be reached yet: kept, and tried again later
-      const sy = SM.library.synced.get(key);
-      const syncedAt = sy ? sy.updatedAt : 0;
-      // only when the band's copy has not changed since the copies last agreed; a change to both is a conflict, shown on open
-      if ((kept.updatedAt || 0) > syncedAt && ((remote.notes && remote.notes.updatedAt) || 0) <= syncedAt) {
-        const r = await SM.library.saveNotes(key, kept);
-        if (!r.local) toast(`Sent your changes to “${remote.title}”`);
-      }
+      const r = await SM.library.saveNotes(key, { ...kept });
+      if (!r.local) toast(`Sent your changes to “${song.title}”`);
     }
   }
   window.addEventListener('online', () => { sendKeptNow(); });

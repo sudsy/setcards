@@ -1491,8 +1491,50 @@ test('a song changed in the band and on this phone is flagged, and the band’s 
   // the song is opened again: the phone's edit shows, with a warning, and the band's version is kept on the phone
   await page.click('#backBtn');
   await page.locator('.song-row .song-open').first().click();
-  await expect(page.locator('#songMeta')).toContainText('Phone Edit');
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('setcards:conflict:drive:s1') || 'null').artist)).toBe('Band Edit');
-  await expect(page.locator('#noticeBtn')).toBeVisible();
+  // the later change (the band's) is shown, and both versions are kept on the phone
+  await expect(page.locator('#songMeta')).toContainText('Band Edit');
+  const kept = await page.evaluate(() => JSON.parse(localStorage.getItem('setcards:conflict:drive:s1') || 'null'));
+  expect(kept.local.artist).toBe('Phone Edit');
+  expect(kept.remote.artist).toBe('Band Edit');
+  await expect(page.locator('#noticeText')).toContainText('at the same time');
+  expect(errors).toEqual([]);
+});
+
+// Field by field: a title changed here and an artist changed in the band's folder are both kept, with no conflict.
+test('a change to a different field on each side is merged, not flagged', async ({ page }) => {
+  const errors = watchErrors(page);
+  await fakeDrive(page);
+  await page.addInitScript(() => {
+    window.fakeBandSongs = [{ id: 's1', title: 'Autumn-Leaves', artist: 'Old Artist', fileName: 'a.gp', hasTab: false, addedAt: 1, updatedAt: 1, order: 0, notes: { format: 'setcards/1', title: 'Autumn-Leaves', artist: 'Old Artist', sections: [], chords: {}, updatedAt: 1 } }];
+  });
+  await page.goto('/');
+  await page.locator('.song-row .song-open').first().click();
+  await expect(page.locator('#songTitle')).toHaveText('Autumn-Leaves');
+  // an edit reaches the band, so the phone knows the band's copy
+  await page.click('#settingsBtn');
+  await page.fill('#songArtistInput', 'First Edit');
+  await page.locator('#songArtistInput').press('Tab');
+  await page.click('#settingsDlg [data-close]');
+  await expect.poll(() => page.evaluate(() => window.fakeBandSongs[0].notes.artist)).toBe('First Edit');
+  // then the connection drops, and the title is changed here
+  await page.evaluate(() => { SM.library.sources.drive.saveNotes = () => Promise.reject(new Error('offline')); });
+  await page.click('#settingsBtn');
+  await page.fill('#songTitleInput', 'Phone Title');
+  await page.locator('#songTitleInput').press('Tab');
+  await page.click('#settingsDlg [data-close]');
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('setcards:overlay:drive:s1') || ''), { timeout: 10000 }).toContain('Phone Title');
+  // meanwhile the artist is changed in the band's folder
+  await page.evaluate(() => {
+    window.fakeBandSongs[0].notes = { ...window.fakeBandSongs[0].notes, artist: 'Band Artist', updatedAt: Date.now() + 60000 };
+  });
+  await page.click('#backBtn');
+  await page.locator('.song-row .song-open').first().click();
+  // both changes are shown, and nothing is flagged
+  await expect(page.locator('#songMeta')).toContainText('Band Artist');
+  await page.click('#settingsBtn');
+  await expect(page.locator('#songTitleInput')).toHaveValue('Phone Title');
+  await page.click('#settingsDlg [data-close]');
+  await expect(page.locator('#noticeText')).toHaveText('');
+  expect(await page.evaluate(() => localStorage.getItem('setcards:conflict:drive:s1'))).toBeNull();
   expect(errors).toEqual([]);
 });

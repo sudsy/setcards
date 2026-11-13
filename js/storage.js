@@ -130,11 +130,47 @@
     };
   };
 
-  // When each song's notes last agreed with the band's folder (the time of that copy), kept on this phone.
+  // The copy each song last agreed on with the band's folder (its content and stamps), kept on this phone.
   const synced = {
-    get: (key) => ls.get('setcards:synced:' + key),
-    set: (key, notes) => ls.set('setcards:synced:' + key, { updatedAt: (notes && notes.updatedAt) || 0 })
+    get: (key) => { const r = ls.get('setcards:synced:' + key); return r && r.edits ? r : null; },
+    set: (key, rec) => ls.set('setcards:synced:' + key, rec)
   };
+
+  // A random id for this device, so each change says which device made it.
+  const deviceId = () => {
+    let d = ls.get('setcards:device');
+    if (!d) { d = Math.random().toString(36).slice(2, 10); ls.set('setcards:device', d); }
+    return d;
+  };
+
+  // Works out the copy to show for a song: the band's copy, this phone's unsent edits, or both merged field by field.
+  // Writes the agreed copy and the phone's copy, and keeps the band's version aside when a field changed in both places.
+  function agree(key, remoteNotes, ov) {
+    const remoteAt = remoteNotes.updatedAt || 0;
+    const base = synced.get(key);
+    let baseDoc = base ? { notes: SM.edits.content(base), stamps: SM.edits.stampsOf(base) } : null;
+    let remote = { notes: SM.edits.content(remoteNotes), stamps: SM.edits.stampsOf(remoteNotes) };
+    // every field of the band's copy that differs from the agreed copy is a change made at the copy's time, whatever
+    // stamps it carries (a copy from before stamps existed has none)
+    if (baseDoc) remote = SM.edits.stampChanges(baseDoc, remote, { at: remoteAt, device: 'band' });
+    if (!baseDoc) baseDoc = { notes: remote.notes, stamps: remote.stamps };
+    // a conflict stays flagged until its versions have been looked at and cleared (its record is kept until then)
+    const pending = () => !!ls.get('setcards:conflict:' + key);
+    const agreed = (doc) => { const rec = SM.edits.record(doc, remoteAt); synced.set(key, rec); return { notes: { ...SM.edits.content(doc.notes), updatedAt: remoteAt }, conflict: pending(), kept: false }; };
+    if (!ov) return agreed(remote);
+    const local = { notes: SM.edits.content(ov), stamps: SM.edits.stampsOf(ov) };
+    const localChanged = SM.edits.diff(baseDoc.notes, local.notes).length > 0;
+    const remoteChanged = SM.edits.diff(baseDoc.notes, remote.notes).length > 0;
+    if (!localChanged) { overlay.clear(key); return agreed(remote); }
+    if (!remoteChanged) return { notes: { ...local.notes, updatedAt: ov.updatedAt }, conflict: pending(), kept: true };
+    // both changed: each field takes the later change; a field changed in both places is listed and the other version is kept
+    const m = SM.edits.merge(local, remote, baseDoc);
+    const conflict = m.overwritten.length > 0 || pending();
+    // both versions are kept, so whichever field lost can still be seen
+    if (m.overwritten.length) ls.set('setcards:conflict:' + key, { local: local.notes, remote: remote.notes, at: Date.now() });
+    overlay.set(key, SM.edits.record({ notes: m.notes, stamps: m.stamps }, ov.updatedAt));
+    return { notes: { ...m.notes, updatedAt: ov.updatedAt }, conflict, kept: true };
+  }
 
   const library = {
     sources,
@@ -151,24 +187,16 @@
       if (!source) throw new Error('Unknown song source');
       const finish = (song) => {
         const ov = overlay.get(key);
-        const sy = synced.get(key);
-        const syncedAt = sy ? sy.updatedAt : 0;
-        const remoteAt = (song.notes && song.notes.updatedAt) || 0;
-        if (ov && !source.canWrite) {
-          if (!song.notes || (ov.updatedAt || 0) >= remoteAt) { song.notes = ov; song.localOnly = true; song.fromOverlay = true; }
-        } else if (ov && (ov.updatedAt || 0) > syncedAt) {
-          // a change made on this phone that the band's copy does not have yet
-          if (sy && song.notes && remoteAt > syncedAt) {
-            // the band's copy changed too: the phone's edit is shown, and the band's copy is kept aside, so neither is lost
-            ls.set('setcards:conflict:' + key, song.notes);
-            song.conflict = true;
-          }
-          song.notes = ov;
-          song.fromOverlay = true;
-        } else if (song.notes) {
-          synced.set(key, song.notes);
+        if (source.canWrite) {
+          const r = agree(key, song.notes || {}, ov);
+          song.notes = r.notes;
+          song.conflict = r.conflict;
+          if (r.kept) song.fromOverlay = true;
+        } else if (ov && (!song.notes || (ov.updatedAt || 0) >= ((song.notes && song.notes.updatedAt) || 0))) {
+          song.notes = ov; song.localOnly = true; song.fromOverlay = true;
         }
         song.notes = Object.assign(emptyNotes(song), song.notes || {});
+        delete song.notes.edits;
         song.key = key;
         song.canShare = source.canWrite;
         return song;
@@ -178,19 +206,33 @@
       return song;
     },
 
-    // Saves notes to the song's source, or to this browser if the source is read only or unreachable.
+    // Records a change on this phone, at once. Each field that differs from the agreed copy is stamped with the time
+    // and the device. Returns the record to keep on this phone, and to send to the band's folder.
+    stage(key, notes) {
+      const now = Date.now();
+      const base = synced.get(key);
+      const kept = overlay.get(key);
+      const baseDoc = base ? { notes: SM.edits.content(base), stamps: SM.edits.stampsOf(base) } : { notes: {}, stamps: {} };
+      const from = { notes: SM.edits.content(notes), stamps: SM.edits.stampsOf(kept || base) };
+      const doc = SM.edits.stampChanges(baseDoc, from, { at: now, device: deviceId() });
+      notes.updatedAt = now;
+      const rec = SM.edits.record(doc, now);
+      overlay.set(key, rec);
+      return rec;
+    },
+
+    // Saves notes to the song's source, or to this browser if the source is read only or unreachable. The copy on this
+    // phone is always kept first, so an edit is not lost when the band's folder cannot be reached.
     async saveNotes(key, notes) {
       const { source, id } = library.parse(key);
-      notes.updatedAt = Date.now();
-      // the copy on this phone is always kept first, so an edit is not lost if the band's folder cannot be reached
-      overlay.set(key, notes);
+      const rec = library.stage(key, notes);
       if (!source || !source.canWrite) return { local: true };
       try {
-        await source.saveNotes(id, notes);
-        synced.set(key, notes);
+        await source.saveNotes(id, { ...rec });
+        synced.set(key, rec);
         // cleared only when nothing newer was changed while the save was in progress
         const now = overlay.get(key);
-        if (now && now.updatedAt === notes.updatedAt) overlay.clear(key);
+        if (now && now.updatedAt === rec.updatedAt) overlay.clear(key);
         return { local: false };
       } catch (e) {
         return { local: true, error: e };
