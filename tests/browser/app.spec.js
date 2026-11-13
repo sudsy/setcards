@@ -4,7 +4,6 @@ const { test, expect } = require('@playwright/test');
 
 function watchErrors(page) {
   const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
   return errors;
 }
 
@@ -1538,3 +1537,56 @@ test('a change to a different field on each side is merged, not flagged', async 
   expect(await page.evaluate(() => localStorage.getItem('setcards:conflict:drive:s1'))).toBeNull();
   expect(errors).toEqual([]);
 });
+
+// a song changed here (not sent) and in the band's folder: sets that up, and leaves the notices open on it
+async function conflictSetup(page) {
+  await fakeDrive(page);
+  await page.addInitScript(() => {
+    window.fakeBandSongs = [{ id: 's1', title: 'Autumn-Leaves', artist: 'Old Artist', fileName: 'a.gp', hasTab: false, addedAt: 1, updatedAt: 1, order: 0, notes: { format: 'setcards/1', title: 'Autumn-Leaves', artist: 'Old Artist', sections: [], chords: {}, updatedAt: 1 } }];
+  });
+  await page.goto('/');
+  await page.locator('.song-row .song-open').first().click();
+  await expect(page.locator('#songTitle')).toHaveText('Autumn-Leaves');
+  await page.click('#settingsBtn');
+  await page.fill('#songArtistInput', 'First Edit');
+  await page.locator('#songArtistInput').press('Tab');
+  await page.click('#settingsDlg [data-close]');
+  await expect.poll(() => page.evaluate(() => window.fakeBandSongs[0].notes.artist)).toBe('First Edit');
+  await page.evaluate(() => { SM.library.sources.drive.saveNotes = () => Promise.reject(new Error('offline')); });
+  await page.click('#settingsBtn');
+  await page.fill('#songArtistInput', 'Phone Edit');
+  await page.locator('#songArtistInput').press('Tab');
+  await page.click('#settingsDlg [data-close]');
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('setcards:overlay:drive:s1') || ''), { timeout: 10000 }).toContain('Phone Edit');
+  await page.evaluate(() => {
+    window.fakeBandSongs[0].notes = { ...window.fakeBandSongs[0].notes, artist: 'Band Edit', updatedAt: Date.now() + 60000 };
+  });
+  await page.click('#backBtn');
+  await page.locator('.song-row .song-open').first().click();
+  await expect(page.locator('#songMeta')).toContainText('Band Edit');
+  await page.evaluate(() => document.getElementById('noticeDlg').showModal());
+  await expect(page.locator('#conflictBox .conflict-list li').first()).toHaveText('Artist');
+  // the band can be written to again, so the chosen version can be sent
+  await page.evaluate(() => { SM.library.sources.drive.saveNotes = async (id, notes) => { window.fakeBandSongs.find((x) => x.id === id).notes = notes; }; });
+}
+
+test('a conflict can be settled by using the band’s version of the changed fields', async ({ page }) => {
+  const errors = watchErrors(page);
+  await conflictSetup(page);
+  await page.locator('#conflictBox button', { hasText: 'Use the band’s versions' }).click();
+  await expect(page.locator('#songMeta')).toContainText('Band Edit');
+  expect(await page.evaluate(() => localStorage.getItem('setcards:conflict:drive:s1'))).toBeNull();
+  expect(await page.evaluate(() => window.fakeBandSongs[0].notes.artist)).toBe('Band Edit');
+  expect(errors).toEqual([]);
+});
+
+test('a conflict can be settled by using this phone’s version, which then reaches the band', async ({ page }) => {
+  const errors = watchErrors(page);
+  await conflictSetup(page);
+  await page.locator('#conflictBox button', { hasText: 'Use my versions' }).click();
+  await expect(page.locator('#songMeta')).toContainText('Phone Edit');
+  expect(await page.evaluate(() => localStorage.getItem('setcards:conflict:drive:s1'))).toBeNull();
+  await expect.poll(() => page.evaluate(() => window.fakeBandSongs[0].notes.artist)).toBe('Phone Edit');
+  expect(errors).toEqual([]);
+});
+

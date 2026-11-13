@@ -167,7 +167,7 @@
     const m = SM.edits.merge(local, remote, baseDoc);
     const conflict = m.overwritten.length > 0 || pending();
     // both versions are kept, so whichever field lost can still be seen
-    if (m.overwritten.length) ls.set('setcards:conflict:' + key, { local: local.notes, remote: remote.notes, at: Date.now() });
+    if (m.overwritten.length) ls.set('setcards:conflict:' + key, { local: local.notes, remote: remote.notes, at: Date.now(), fields: m.overwritten });
     overlay.set(key, SM.edits.record({ notes: m.notes, stamps: m.stamps }, ov.updatedAt));
     return { notes: { ...m.notes, updatedAt: ov.updatedAt }, conflict, kept: true };
   }
@@ -219,6 +219,23 @@
       const rec = SM.edits.record(doc, now);
       overlay.set(key, rec);
       return rec;
+    },
+
+    // The fields changed in both places, and both versions, for a song whose conflict has not been cleared yet.
+    conflict(key) { return ls.get('setcards:conflict:' + key); },
+
+    // Clears a conflict. 'keep' keeps the version shown; 'mine' and 'band' take this phone's or the band's version of
+    // the fields that conflicted. Returns the notes to save (or null when there is no conflict).
+    resolveConflict(key, choice) {
+      const rec = ls.get('setcards:conflict:' + key);
+      if (!rec) return null;
+      let notes = SM.edits.content(overlay.get(key) || synced.get(key) || {});
+      if (choice !== 'keep') {
+        const from = choice === 'mine' ? rec.local : rec.remote;
+        for (const path of rec.fields || []) notes = SM.edits.setPath(notes, path, SM.edits.getPath(from, path));
+      }
+      ls.del('setcards:conflict:' + key);
+      return notes;
     },
 
     // Saves notes to the song's source, or to this browser if the source is read only or unreachable. The copy on this

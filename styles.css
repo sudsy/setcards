@@ -1078,3 +1078,8 @@ body.chart-view.compact .structure .step { flex: 1 1 0; min-width: 0; padding: 0
 #homeView .home-main > * { min-width: 0; width: 100%; box-sizing: border-box; }
 #homeView .song-row, #homeView .song-open { max-width: 100%; }
 .sl-open { display: block; min-width: 0; text-align: left; background: none; border: 0; padding: 0; color: inherit; }
+.conflict-box { display: grid; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.conflict-box[hidden] { display: none; }
+.conflict-list { margin: 0; padding-left: 18px; font-size: 0.9rem; }
+.conflict-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+

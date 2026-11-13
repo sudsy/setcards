@@ -14,7 +14,7 @@
     editBtn: $('editBtn'), editPanel: $('editPanel'), sectionList: $('sectionList'),
     findRepeatsBtn: $('findRepeatsBtn'), suggestBtn: $('suggestBtn'), useMarkersBtn: $('useMarkersBtn'), doneEditBtn: $('doneEditBtn'),
     syncBtn: $('syncBtn'), scroller: $('scroller'), tab: $('tab'), cards: $('cards'), loading: $('loading'), drop: $('drop'),
-    noticeBtn: $('noticeBtn'), noticeDlg: $('noticeDlg'), noticeText: $('noticeText'),
+    noticeBtn: $('noticeBtn'), noticeDlg: $('noticeDlg'), noticeText: $('noticeText'), conflictBox: $('conflictBox'),
     playBtn: $('playBtn'), skipBtn: $('skipBtn'), drumsBtn: $('drumsBtn'), speedSel: $('speedSel'),
     videoBtn: $('videoBtn'), videoPanel: $('videoPanel'), playerStatus: $('playerStatus'),
     homeView: $('homeView'), songView: $('songView'), backBtn: $('backBtn'), bandName: $('bandName'), homeRoleBtn: $('homeRoleBtn'),
@@ -237,6 +237,56 @@
     els.songMeta.textContent = state.song.artist || '';
   }
 
+  // A conflict is reviewed in the notices: the fields changed in both places, and which version to keep.
+  const CONFLICT_LABEL = { title: 'Title', artist: 'Artist', youtubeUrl: 'YouTube link', tempo: 'Tempo', key: 'Key', status: 'Status', sections: 'Sections', chords: 'Chords', chart: 'Chart' };
+  const conflictFieldLabel = (path) => {
+    if (path[0] === 'chords' && path[1] !== undefined) return `Chord, bar ${Number(path[1]) + 1}`;
+    if (path[0] === 'chart' && path[1] === 'cues') return `Lyric cue, ${path[2] || 'line'}`;
+    if (path[0] === 'chart' && path[1] === 'notes' && path[2] !== undefined) return `Bass note, bar ${Number(path[2]) + 1}`;
+    return CONFLICT_LABEL[path[0]] || path.join(' · ');
+  };
+  function renderConflictBox() {
+    const box = els.conflictBox;
+    const key = state.song && state.song.key;
+    const rec = key && state.song.conflict ? SM.library.conflict(key) : null;
+    box.hidden = !rec;
+    // drawn once per conflict: redrawing would replace the buttons under a tap
+    if (!rec) { box.textContent = ''; box.dataset.conflict = ''; return; }
+    if (box.dataset.conflict === String(rec.at)) return;
+    box.dataset.conflict = String(rec.at);
+    box.textContent = '';
+    const p = document.createElement('p');
+    p.className = 'fine';
+    p.textContent = 'These were changed here and in the band folder. Choose which version to keep.';
+    const ul = document.createElement('ul');
+    ul.className = 'conflict-list';
+    (rec.fields || []).forEach((path) => { const li = document.createElement('li'); li.textContent = conflictFieldLabel(path); ul.appendChild(li); });
+    const actions = document.createElement('div');
+    actions.className = 'conflict-actions';
+    [['keep', 'Keep the version shown'], ['mine', 'Use my versions'], ['band', 'Use the band’s versions']].forEach(([choice, text]) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'text-btn';
+      b.textContent = text;
+      b.addEventListener('click', () => resolveSongConflict(choice));
+      actions.appendChild(b);
+    });
+    box.append(p, ul, actions);
+  }
+  async function resolveSongConflict(choice) {
+    const key = state.song.key;
+    const title = state.song.title;
+    const notes = SM.library.resolveConflict(key, choice);
+    if (!notes) return;
+    // a save still waiting from before the choice would put back the version that was not chosen, so it is dropped
+    clearTimeout(saveTimer);
+    pendingSave = null;
+    // the chosen version is saved, so it reaches the band and the other devices
+    if (choice !== 'keep') await SM.library.saveNotes(key, { ...notes });
+    closeDialog(els.noticeDlg);
+    await openSong(key, title);
+  }
+
   function updateBanner() {
     const s = state.song;
     const msgs = [];
@@ -247,6 +297,7 @@
     // notices sit behind a button in the top bar, so they never move the tab while it is played
     els.noticeBtn.hidden = !msgs.length;
     els.noticeText.textContent = msgs.join(' ');
+    renderConflictBox();
     if (!msgs.length) closeDialog(els.noticeDlg);
   }
   els.noticeBtn.addEventListener('click', () => els.noticeDlg.showModal());
