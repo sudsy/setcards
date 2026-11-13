@@ -187,6 +187,8 @@
     clearTimeout(saveTimer);
     const key = state.song.key;
     const notes = state.notes;
+    // on this phone at once; the band's folder gets it a few seconds later, as one save
+    SM.library.overlay.set(key, { ...notes, updatedAt: Date.now() });
     notes.title = state.song.title;
     notes.artist = state.song.artist;
     // the same checks the notes tool makes: a problem is logged, and the notes are still saved
@@ -238,6 +240,7 @@
   function updateBanner() {
     const s = state.song;
     const msgs = [];
+    if (s && s.conflict) msgs.push('This song was also changed in the band folder while you had edits here that were not sent yet. Your edits are shown, and the band’s version is kept on this phone.');
     if (s && s.offline) msgs.push('Offline: this is the copy saved on this phone. Changes are kept here and sent to the band when you’re back online.');
     else if (s && s.localOnly) msgs.push('Your changes to this song are saved in this browser only. Add the song to a band folder to share them.');
     if (s && state.score && state.partMissing) msgs.push(missingPartText());
@@ -1841,7 +1844,7 @@
     const prevVideo = mediaKey(state.notes);
     if (state.playing) api.stop();
     destroyMinis();
-    state.song = { key, fileTitle: song.title || (song.fileName || 'Untitled').replace(SM.SONG_EXT, ''), fileArtist: song.artist || '', title: song.notes.title || song.title || (song.fileName || 'Untitled').replace(SM.SONG_EXT, ''), artist: song.notes.artist || song.artist || '', fileName: song.fileName, canShare: song.canShare, localOnly: song.localOnly, offline: !!song.offline };
+    state.song = { key, conflict: !!song.conflict, fileTitle: song.title || (song.fileName || 'Untitled').replace(SM.SONG_EXT, ''), fileArtist: song.artist || '', title: song.notes.title || song.title || (song.fileName || 'Untitled').replace(SM.SONG_EXT, ''), artist: song.notes.artist || song.artist || '', fileName: song.fileName, canShare: song.canShare, localOnly: song.localOnly, offline: !!song.offline };
     state.notes = song.notes;
     state.notes.chords = state.notes.chords || {};
     syncReadOnly();
@@ -3077,7 +3080,10 @@
       if (!kept) continue;
       const remote = await drive.open(key.slice('drive:'.length)).catch(() => null);
       if (!remote) continue;   // the band's folder cannot be reached yet: kept, and tried again later
-      if ((kept.updatedAt || 0) > ((remote.notes && remote.notes.updatedAt) || 0)) {
+      const sy = SM.library.synced.get(key);
+      const syncedAt = sy ? sy.updatedAt : 0;
+      // only when the band's copy has not changed since the copies last agreed; a change to both is a conflict, shown on open
+      if ((kept.updatedAt || 0) > syncedAt && ((remote.notes && remote.notes.updatedAt) || 0) <= syncedAt) {
         const r = await SM.library.saveNotes(key, kept);
         if (!r.local) toast(`Sent your changes to “${remote.title}”`);
       }

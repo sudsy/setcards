@@ -1432,3 +1432,67 @@ test('an edit made offline is kept, and is still there after reconnecting', asyn
   await expect(page.locator('#songArtistInput')).toHaveValue('Offline Edit');
   expect(errors).toEqual([]);
 });
+
+// An edit is kept on the phone at once, before it has been sent to the band's folder.
+test('an edit is kept on the phone at once, before the band’s folder has it', async ({ page }) => {
+  const errors = watchErrors(page);
+  await fakeDrive(page);
+  await page.addInitScript(() => {
+    window.fakeBandSongs = [{ id: 's1', title: 'Autumn-Leaves', artist: 'Old Artist', fileName: 'a.gp', hasTab: false, addedAt: 1, updatedAt: 1, order: 0, notes: { format: 'setcards/1', title: 'Autumn-Leaves', artist: 'Old Artist', sections: [], chords: {}, updatedAt: 1 } }];
+  });
+  await page.goto('/');
+  await page.locator('.song-row .song-open').first().click();
+  await expect(page.locator('#songTitle')).toHaveText('Autumn-Leaves');
+  // the band's folder never answers, so nothing reaches it
+  await page.evaluate(() => { SM.library.sources.drive.saveNotes = () => new Promise(() => {}); });
+  await page.click('#settingsBtn');
+  await page.fill('#songArtistInput', 'Phone Edit');
+  await page.locator('#songArtistInput').press('Tab');
+  await page.click('#settingsDlg [data-close]');
+  // well before the few-second delay for the band's folder, the phone has it
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('setcards:overlay:drive:s1') || ''), { timeout: 1500 }).toContain('Phone Edit');
+  expect(await page.evaluate(() => window.fakeBandSongs[0].notes.artist)).toBe('Old Artist');
+  // and it is still there after a reload
+  await page.reload();
+  await page.locator('.song-row .song-open').first().click();
+  await page.click('#settingsBtn');
+  await expect(page.locator('#songArtistInput')).toHaveValue('Phone Edit');
+  expect(errors).toEqual([]);
+});
+
+// The band changed the song while an edit here was not sent yet: the phone's edit is shown, the band's version is kept.
+test('a song changed in the band and on this phone is flagged, and the band’s version is kept', async ({ page }) => {
+  const errors = watchErrors(page);
+  await fakeDrive(page);
+  await page.addInitScript(() => {
+    window.fakeBandSongs = [{ id: 's1', title: 'Autumn-Leaves', artist: 'Old Artist', fileName: 'a.gp', hasTab: false, addedAt: 1, updatedAt: 1, order: 0, notes: { format: 'setcards/1', title: 'Autumn-Leaves', artist: 'Old Artist', sections: [], chords: {}, updatedAt: 1 } }];
+  });
+  await page.goto('/');
+  await page.locator('.song-row .song-open').first().click();
+  await expect(page.locator('#songTitle')).toHaveText('Autumn-Leaves');
+  // a first edit reaches the band, so the phone knows the band's copy
+  await page.click('#settingsBtn');
+  await page.fill('#songArtistInput', 'First Edit');
+  await page.locator('#songArtistInput').press('Tab');
+  await page.click('#settingsDlg [data-close]');
+  await expect.poll(() => page.evaluate(() => window.fakeBandSongs[0].notes.artist)).toBe('First Edit');
+  // then the connection drops, and an edit here is not sent
+  await page.evaluate(() => { SM.library.sources.drive.saveNotes = () => Promise.reject(new Error('offline')); });
+  await page.click('#settingsBtn');
+  await page.fill('#songArtistInput', 'Phone Edit');
+  await page.locator('#songArtistInput').press('Tab');
+  await page.click('#settingsDlg [data-close]');
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('setcards:overlay:drive:s1') || ''), { timeout: 10000 }).toContain('Phone Edit');
+  // meanwhile someone changes the song in the band's folder
+  await page.evaluate(() => {
+    window.fakeBandSongs[0].notes = { ...window.fakeBandSongs[0].notes, artist: 'Band Edit', updatedAt: Date.now() + 60000 };
+    SM.library.sources.drive.saveNotes = window.realSaveForConflict || SM.library.sources.drive.saveNotes;
+  });
+  // the song is opened again: the phone's edit shows, with a warning, and the band's version is kept on the phone
+  await page.click('#backBtn');
+  await page.locator('.song-row .song-open').first().click();
+  await expect(page.locator('#songMeta')).toContainText('Phone Edit');
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('setcards:conflict:drive:s1') || 'null').artist)).toBe('Band Edit');
+  await expect(page.locator('#noticeBtn')).toBeVisible();
+  expect(errors).toEqual([]);
+});

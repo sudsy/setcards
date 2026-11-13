@@ -19,7 +19,7 @@
 (function (root) {
   'use strict';
   const SM = root.SM = root.SM || {};
-  const { NOTES_SUFFIX, SONG_EXT, emptyNotes, overlay } = SM.storeCore;
+  const { NOTES_SUFFIX, SONG_EXT, emptyNotes, overlay, ls } = SM.storeCore;
   const { local, site } = SM.storeDevice;
   const { drive } = SM.storeDrive;
 
@@ -130,8 +130,15 @@
     };
   };
 
+  // When each song's notes last agreed with the band's folder (the time of that copy), kept on this phone.
+  const synced = {
+    get: (key) => ls.get('setcards:synced:' + key),
+    set: (key, notes) => ls.set('setcards:synced:' + key, { updatedAt: (notes && notes.updatedAt) || 0 })
+  };
+
   const library = {
     sources,
+    synced,
     setlistLocal,
     kits,
     audio,
@@ -144,7 +151,23 @@
       if (!source) throw new Error('Unknown song source');
       const finish = (song) => {
         const ov = overlay.get(key);
-        if (ov && (!song.notes || (ov.updatedAt || 0) >= (song.notes.updatedAt || 0))) { song.notes = ov; song.localOnly = !source.canWrite; song.fromOverlay = true; }
+        const sy = synced.get(key);
+        const syncedAt = sy ? sy.updatedAt : 0;
+        const remoteAt = (song.notes && song.notes.updatedAt) || 0;
+        if (ov && !source.canWrite) {
+          if (!song.notes || (ov.updatedAt || 0) >= remoteAt) { song.notes = ov; song.localOnly = true; song.fromOverlay = true; }
+        } else if (ov && (ov.updatedAt || 0) > syncedAt) {
+          // a change made on this phone that the band's copy does not have yet
+          if (sy && song.notes && remoteAt > syncedAt) {
+            // the band's copy changed too: the phone's edit is shown, and the band's copy is kept aside, so neither is lost
+            ls.set('setcards:conflict:' + key, song.notes);
+            song.conflict = true;
+          }
+          song.notes = ov;
+          song.fromOverlay = true;
+        } else if (song.notes) {
+          synced.set(key, song.notes);
+        }
         song.notes = Object.assign(emptyNotes(song), song.notes || {});
         song.key = key;
         song.canShare = source.canWrite;
@@ -159,13 +182,17 @@
     async saveNotes(key, notes) {
       const { source, id } = library.parse(key);
       notes.updatedAt = Date.now();
-      if (!source || !source.canWrite) { overlay.set(key, notes); return { local: true }; }
+      // the copy on this phone is always kept first, so an edit is not lost if the band's folder cannot be reached
+      overlay.set(key, notes);
+      if (!source || !source.canWrite) return { local: true };
       try {
         await source.saveNotes(id, notes);
-        overlay.clear(key);
+        synced.set(key, notes);
+        // cleared only when nothing newer was changed while the save was in progress
+        const now = overlay.get(key);
+        if (now && now.updatedAt === notes.updatedAt) overlay.clear(key);
         return { local: false };
       } catch (e) {
-        overlay.set(key, notes);
         return { local: true, error: e };
       }
     },
