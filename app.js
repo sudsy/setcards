@@ -1449,6 +1449,14 @@
   // alphaTab draws its tab into the page after it reports a render, so the numbers are marked as they appear
   [els.tab, els.cards].forEach((box) => new MutationObserver(() => addNumberHalos(box)).observe(box, { childList: true, subtree: true }));
   api.error.on((e) => {
+    // the track remembered for this song may not be in its file (a replaced tab can have fewer): try the first track once
+    if (state.song && state.trackRetry !== state.song.key && prefs.tracks[state.song.key] && prefs.tracks[state.song.key][prefs.role]) {
+      state.trackRetry = state.song.key;
+      delete prefs.tracks[state.song.key][prefs.role];
+      savePrefs();
+      loadSource();
+      return;
+    }
     els.loading.hidden = true;
     logSound(`error: ${e && (e.message || e.name || e)}`);
     console.error(e);
@@ -2072,6 +2080,8 @@
       await flushSave();
       toast('Replacing the tab…');
       await source.replaceTab(id, bytes, file.name);
+      // the track remembered for the old file may not be in the new one, so the song starts on its first track
+      if (prefs.tracks[key]) { delete prefs.tracks[key]; savePrefs(); }
       // the notes say which file they go with, so they still match the tab after the change
       await SM.library.saveNotes(key, { ...state.notes, tabFile: file.name });
       pendingTabFile = null;

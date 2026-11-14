@@ -1701,3 +1701,21 @@ test('a song’s tab can be replaced from the settings, after the new file is co
   await page.click('#settingsDlg [data-close]');
   expect(errors).toEqual([]);
 });
+
+// A song's last track is remembered. If its file has no track at that place (a replaced tab can have fewer), it still opens.
+test('a song opens when the track remembered for it is not in its file', async ({ page }) => {
+  const errors = watchErrors(page);
+  await openDemo(page);
+  const key = await page.evaluate(() => JSON.parse(localStorage.getItem('setcards:prefs')).last);
+  await page.evaluate((key) => {
+    const p = JSON.parse(localStorage.getItem('setcards:prefs'));
+    p.tracks = p.tracks || {};
+    p.tracks[key] = { bass: 3, guitar: 3, keys: 3, vocals: 3, drums: 3 };
+    localStorage.setItem('setcards:prefs', JSON.stringify(p));
+  }, key);
+  await page.reload();
+  await page.locator('.song-row .song-open', { hasText: 'Low Road (demo)' }).click();
+  await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
+  await expect(page.locator('#toast')).not.toContainText('could not be read');
+  expect(errors).toEqual([]);
+});
