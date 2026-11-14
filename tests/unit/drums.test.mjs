@@ -70,8 +70,8 @@ test('a bar is drum-free when none of its notes are drum notes', () => {
   assert.deepEqual([...drumFreeBars(2, null, isClick)], [true, true]);
 });
 
-// The studio kit: every note the remap sends to a sample must be one the kit has, and the note it replaces must have none.
-test('the studio kit has no sample for a remapped note, and has one for the note it plays instead', async () => {
+// The default kit: it has a sample for every drum note the standard kit uses, so no note needs a substitute.
+test('the default kit has a sample for each drum note from 35 to 56, and no note is remapped', async () => {
   const fs = await import('node:fs');
   const path = await import('node:path');
   const { fileURLToPath } = await import('node:url');
@@ -79,19 +79,7 @@ test('the studio kit has no sample for a remapped note, and has one for the note
   require(path.join(root, 'js/soundfont.js'));
   const kit = new Uint8Array(fs.readFileSync(path.join(root, 'kits/drums-default.sf2')));
   const mask = globalThis.SM.soundfont.keysCovered(kit);
-  for (const [from, to] of Object.entries(globalThis.SM.drums.DEFAULT_KIT_REMAP)) {
-    assert.equal(mask[Number(from)], 0, `kit has a sample for ${from}, so it does not need the remap`);
-    assert.equal(mask[to], 1, `kit has no sample for ${to}`);
-  }
-  assert.equal(globalThis.SM.drums.kitNote(48), 47);
-  assert.equal(globalThis.SM.drums.kitNote(38), 38);
+  for (let key = 35; key <= 56; key++) assert.equal(mask[key], 1, `kit has no sample for ${key}`);
+  assert.deepEqual(globalThis.SM.drums.DEFAULT_KIT_REMAP, {});
+  assert.equal(globalThis.SM.drums.kitNote(48), 48);
 });
-
-test('the default kit plays the snare and hi-hats softer, and the kick as it is, within the MIDI velocity range', () => {
-  assert.equal(globalThis.SM.drums.kitVelocity(36, 79), 79);
-  assert.equal(globalThis.SM.drums.kitVelocity(38, 80), 36);
-  assert.equal(globalThis.SM.drums.kitVelocity(42, 100), 50);
-  assert.equal(globalThis.SM.drums.kitVelocity(38, 1), 1);
-  assert.ok(globalThis.SM.drums.kitVelocity(42, 127) <= 127);
-});
-

@@ -55,9 +55,9 @@
     return out;
   }
 
-  // The studio kit (kits/drums-default.sf2) has no sample for these drum notes, so each plays the nearest sample the kit
-  // has. Other kits are not changed. Checked against the kit in tests/unit/drums.test.mjs.
-  const DEFAULT_KIT_REMAP = { 48: 47 };
+  // The default kit (kits/drums-default.sf2, Sonic Implants "Stereo Drums Dry") has a sample for every drum note used
+  // here, so no note is remapped. Kept as a table for a kit that lacks a note. Checked in tests/unit/drums.test.mjs.
+  const DEFAULT_KIT_REMAP = {};
   const kitNote = (key) => (DEFAULT_KIT_REMAP[key] !== undefined ? DEFAULT_KIT_REMAP[key] : key);
 
   // The studio kit's levels against the kick, from recordings of the same bars: the snare and hi-hats sat too high.
