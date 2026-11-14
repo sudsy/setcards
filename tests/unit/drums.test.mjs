@@ -83,3 +83,11 @@ test('the default kit has a sample for each drum note from 35 to 56, and no note
   assert.deepEqual(globalThis.SM.drums.DEFAULT_KIT_REMAP, {});
   assert.equal(globalThis.SM.drums.kitNote(48), 48);
 });
+
+test('the default kit plays the snare and hi-hats softer, and the kick as it is, within the MIDI velocity range', () => {
+  assert.equal(globalThis.SM.drums.kitVelocity(36, 79), 79);
+  assert.equal(globalThis.SM.drums.kitVelocity(38, 80), 24);
+  assert.equal(globalThis.SM.drums.kitVelocity(42, 100), 35);
+  assert.equal(globalThis.SM.drums.kitVelocity(38, 1), 1);
+  assert.ok(globalThis.SM.drums.kitVelocity(42, 127) <= 127);
+});
