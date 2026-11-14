@@ -45,7 +45,7 @@
 
     // Asks Google for an access token. Must start from a tap the first time (Google shows a pop-up).
     // The access token lasts an hour; it is kept for this browser tab so a reload doesn't ask again.
-    const saved = (() => { try { return JSON.parse(sessionStorage.getItem('setcards:gtoken2')); } catch (e) { return null; } })();
+    const saved = (() => { try { return JSON.parse(localStorage.getItem('setcards:gtoken2')); } catch (e) { return null; } })();
     if (saved && saved.exp > Date.now() + 60000) { token = saved.token; tokenExpiry = saved.exp; }
     const hasToken = () => !!token && Date.now() < tokenExpiry - 60000;
 
@@ -65,7 +65,7 @@
             if (resp.error) return reject(new Error(resp.error_description || resp.error));
             token = resp.access_token;
             tokenExpiry = Date.now() + (resp.expires_in || 3600) * 1000;
-            try { sessionStorage.setItem('setcards:gtoken2', JSON.stringify({ token, exp: tokenExpiry })); } catch (e) { /* storage unavailable */ }
+            try { localStorage.setItem('setcards:gtoken2', JSON.stringify({ token, exp: tokenExpiry })); } catch (e) { /* storage unavailable */ }
             // remember which account was used, so the next sign-in can skip Google's account chooser
             fetch(`${API}/about?fields=user(emailAddress)`, { headers: { Authorization: 'Bearer ' + token } })
               .then((r) => (r.ok ? r.json() : null)).then((j) => { if (j && j.user) ls.set('setcards:googleHint', j.user.emailAddress); }).catch(() => {});
@@ -85,7 +85,7 @@
     const api = SM.driveApi.create({
       fetch: (...a) => fetch(...a),
       token: () => { if (!hasToken()) throw new Error('Google needs you to sign in again. Open Songs and tap Show band songs.'); return token; },
-      onUnauthorized: () => { token = null; try { sessionStorage.removeItem('setcards:gtoken2'); } catch (e) { /* storage unavailable */ } },
+      onUnauthorized: () => { token = null; try { localStorage.removeItem('setcards:gtoken2'); } catch (e) { /* storage unavailable */ } },
     });
     const call = (url, opts) => api.request(url, opts);
 
@@ -507,7 +507,7 @@
         tabsFolder = null;
         summaries.clear();
         token = null;
-        try { sessionStorage.removeItem('setcards:gtoken2'); } catch (e) { /* storage unavailable */ }
+        try { localStorage.removeItem('setcards:gtoken2'); } catch (e) { /* storage unavailable */ }
       },
       folderUrl: () => (folder() ? `https://drive.google.com/drive/folders/${folder().id}` : null),
       // A link that opens Setcards ready to join this band folder.
