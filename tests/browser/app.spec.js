@@ -366,6 +366,7 @@ test('in guitar edit mode, the chords for the whole song are typed in one box pe
   // one section in the chord panel for each section of the song, a repeated section listed once
   const cardNames = await page.locator('#cards .card .card-head h2').allTextContents();
   const songSections = await page.evaluate(() => window.setcardsTest.state().groups);
+  await page.setViewportSize({ width: 1280, height: 800 });
   await page.click('#editBtn');
   const panelNames = await page.locator('#chordPanelBody section.section > h2').allTextContents();
   expect(panelNames.length).toBe(songSections);
@@ -470,6 +471,7 @@ test('the chart view is empty until the chart is entered in the editor, and then
   await expect(intro.locator('.chart-cell').first()).toHaveText('');
   await expect(page.locator('#chart .card-lines .layout').first().locator('.when')).toHaveText('Intro');
   // the pencil on the chart opens the editor; Done saves the notes into this song
+  await page.setViewportSize({ width: 1280, height: 800 });
   await page.click('#editBtn');
   await expect(page.locator('#chartEditor')).toBeVisible();
   await expect(page.locator('#chartEditor h1')).toHaveText('Edit chart');
@@ -572,6 +574,7 @@ test('the band key, original key and tempo are recorded and shown in the song li
 });
 test('in Edit, tapping a bar starts a new section there', async ({ page }) => {
   await openDemo(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
   await page.click('#editBtn');
   await expect(page.locator('#editPanel')).toBeVisible();
   const surface = page.locator('#tab .at-surface');
@@ -1000,6 +1003,7 @@ test('in guitar edit mode, the chords can be filled from a tab part and saved', 
   const errors = watchErrors(page);
   await openDemo(page);
   await chooseRole(page, 'Guitar');
+  await page.setViewportSize({ width: 1280, height: 800 });
   await page.click('#editBtn');
   await expect(page.locator('#tabPartList .tab-part').first()).toBeVisible();
   await expect(page.locator('#tabPartList .tab-part[aria-pressed="true"]')).toHaveCount(1);
@@ -1138,6 +1142,7 @@ test('the chart editor closes when another song is opened, and each song keeps i
   await page.locator('.song-row .song-open', { hasText: 'Low Road (demo)' }).click();
   await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
   await pickView(page, 'chart');
+  await page.setViewportSize({ width: 1280, height: 800 });
   await page.click('#editBtn');
   await expect(page.locator('#chartEditor')).toBeVisible();
   await page.locator('#chartEditor .ce-sec').first().locator('.ce-in').fill('G G');
@@ -1171,6 +1176,7 @@ test('the chart editor offers the fields for the instrument in use', async ({ pa
   await openDemo(page);
   await chooseRole(page, 'Guitar');
   await pickView(page, 'chart');
+  await page.setViewportSize({ width: 1280, height: 800 });
   await page.click('#editBtn');
   await expect(page.locator('#chartEditor .ce-lbl', { hasText: 'Real chords (sounding)' }).first()).toBeVisible();
   await page.click('#chartEditor [data-ce=back]');
@@ -1603,6 +1609,7 @@ test('undo and redo step back and forth through the changes to a song', async ({
   await page.locator('#songTitleInput').press('Tab');
   await page.click('#settingsDlg [data-close]');
   await expect(page.locator('#songTitle')).toHaveText('Changed once');
+  await page.setViewportSize({ width: 1280, height: 800 });
   await page.click('#editBtn');
   await expect(page.locator('#undoBtn')).toBeEnabled();
   await expect(page.locator('#redoBtn')).toBeDisabled();
@@ -1621,6 +1628,7 @@ test('the chart editor can undo and redo its changes before Done', async ({ page
   const errors = watchErrors(page);
   await openDemo(page);
   await pickView(page, 'chart');
+  await page.setViewportSize({ width: 1280, height: 800 });
   await page.click('#editBtn');
   await expect(page.locator('#chartEditor')).toBeVisible();
   const first = page.locator('#chartEditor .ce-sec').first().locator('.ce-in');
@@ -1657,5 +1665,17 @@ test('the section strip is the same in every view, and the view can be chosen on
   await expect(page.locator('#chart')).toBeVisible();
   const phone = await labels();
   expect(phone.every((t) => t.length === 1) || phone.every((t) => t.length > 1)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+// Editing is for wider screens: a phone has no Edit button, in any view.
+test('a phone has no Edit button, and a wide screen does', async ({ page }) => {
+  const errors = watchErrors(page);
+  await openDemo(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await pickView(page, 'chart');
+  await expect(page.locator('#editBtn')).toBeHidden();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expect(page.locator('#editBtn')).toBeVisible();
   expect(errors).toEqual([]);
 });

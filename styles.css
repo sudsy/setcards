@@ -1083,4 +1083,7 @@ body.chart-view.compact .chart-view { margin-left: 0; margin-right: 0; padding-l
 #homeView .home-switch, #homeView .setlists-wrap { max-width: 760px; width: 100%; margin-left: auto; margin-right: auto; }
 .ce-hist { min-height: 36px; padding: 0 8px; border: 0; background: none; color: var(--ink); font-weight: 600; }
 .ce-hist:disabled { opacity: 0.35; }
+/* editing is for wider screens: a phone (up to 600 px wide) has no Edit button */
+@media (max-width: 600px) { #songView #editBtn { display: none; } }
+body.paged #songView #editBtn { display: none; }
 

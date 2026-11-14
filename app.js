@@ -2314,7 +2314,8 @@
     closeDialog(els.barDlg);
     sectionsChanged();
   });
-  els.editBtn.addEventListener('click', () => (prefs.view === 'chart' ? openChartEditor() : setEditing(!state.editing)));
+  // editing is for wider screens: a phone has no Edit button, and ignores the button if it is ever reached
+  els.editBtn.addEventListener('click', () => { if (window.matchMedia('(max-width: 600px)').matches) return; if (prefs.view === 'chart') openChartEditor(); else setEditing(!state.editing); });
   els.doneEditBtn.addEventListener('click', () => setEditing(false));
 
   // Looks for each part's notes elsewhere in the tab and marks those bars as the same part.
