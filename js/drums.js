@@ -55,5 +55,10 @@
     return out;
   }
 
-  SM.drums = { applyFeel, drumFreeBars, DYN_MIN, DYN_MAX };
+  // The studio kit (kits/drums-default.sf2) has no sample for these drum notes, so each plays the nearest sample the kit
+  // has. Other kits are not changed. Checked against the kit in tests/unit/drums.test.mjs.
+  const DEFAULT_KIT_REMAP = { 48: 47 };
+  const kitNote = (key) => (DEFAULT_KIT_REMAP[key] !== undefined ? DEFAULT_KIT_REMAP[key] : key);
+
+  SM.drums = { applyFeel, drumFreeBars, DYN_MIN, DYN_MAX, DEFAULT_KIT_REMAP, kitNote };
 })(typeof window !== 'undefined' ? window : globalThis);

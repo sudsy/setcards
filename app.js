@@ -1390,6 +1390,10 @@
   new MutationObserver(onTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
   api.scoreLoaded.on((score) => {
+    // the studio kit has no sample for some drum notes: those hits are played on the nearest sample it has (before the MIDI is built)
+    if (!state.notes.drumKit) {
+      score.tracks.filter((t) => t.isPercussion).forEach((t) => (t.percussionArticulations || []).forEach((a) => { a.outputMidiNumber = SM.drums.kitNote(a.outputMidiNumber); }));
+    }
     state.score = score;
     feelApplied = null;   // a new score has its own timing, so the drum feel is applied again
     applyClick();

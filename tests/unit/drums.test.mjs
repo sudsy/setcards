@@ -69,3 +69,20 @@ test('a bar is drum-free when none of its notes are drum notes', () => {
   assert.deepEqual([...drumFreeBars(3, drumBars, isClick)], [false, true, true]);
   assert.deepEqual([...drumFreeBars(2, null, isClick)], [true, true]);
 });
+
+// The studio kit: every note the remap sends to a sample must be one the kit has, and the note it replaces must have none.
+test('the studio kit has no sample for a remapped note, and has one for the note it plays instead', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const root = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))));
+  require(path.join(root, 'js/soundfont.js'));
+  const kit = new Uint8Array(fs.readFileSync(path.join(root, 'kits/drums-default.sf2')));
+  const mask = globalThis.SM.soundfont.keysCovered(kit);
+  for (const [from, to] of Object.entries(globalThis.SM.drums.DEFAULT_KIT_REMAP)) {
+    assert.equal(mask[Number(from)], 0, `kit has a sample for ${from}, so it does not need the remap`);
+    assert.equal(mask[to], 1, `kit has no sample for ${to}`);
+  }
+  assert.equal(globalThis.SM.drums.kitNote(48), 47);
+  assert.equal(globalThis.SM.drums.kitNote(38), 38);
+});
