@@ -137,6 +137,8 @@ test('picking a section while playing restarts playback at that section', async 
 test('opens a song as cards, with the song order at the top', async ({ page }) => {
   const errors = watchErrors(page);
   await openDemo(page);
+  // the full names show where they fit on one line, so this checks them on a wide screen
+  await page.setViewportSize({ width: 1800, height: 900 });
   await expect(steps(page)).toHaveText(['Whole song', 'Intro', 'Verse', 'Pre-chorus', 'Chorus', 'Verse', 'Pre-chorus', 'Chorus', 'Bridge', 'Chorus', 'Outro']);
   await expect(page.locator('.card-head h2')).toHaveText(['Intro', 'Verse', 'Pre-chorus', 'Chorus', 'Bridge', 'Outro']);
   await expect(page.locator('.mini-tab canvas').first()).toBeVisible();
@@ -580,7 +582,7 @@ test('in Edit, tapping a bar starts a new section there', async ({ page }) => {
   await expect(page.locator('#barDlg')).toBeVisible();
   await page.fill('#barName', 'Solo');
   await page.click('#barSubmit');
-  await expect(steps(page).filter({ hasText: 'Solo' })).toHaveCount(1);
+  await expect(page.locator('#structure .step[data-label="Solo"]')).toHaveCount(1);
 });
 
 test('in a band, the home screen waits for a tap before signing in to Google', async ({ page }) => {
@@ -940,13 +942,13 @@ test.describe('on a phone turned on its side', () => {
     await expect(page.locator('body')).toHaveClass(/paged/);
     await expect(page.locator('#songView .playerbar')).toBeHidden();
     await expect(page.locator('#editBtn')).toBeHidden();
-    const verse = steps(page).filter({ hasText: 'Verse' }).first();
+    const verse = page.locator('#structure .step[data-label="Verse"]').first();
     expect(Number(await verse.getAttribute('data-bars'))).toBeGreaterThan(0);
     // a tap on a later part slides its card into view, no scrolling needed
     const cards = page.locator('#cards');
-    await steps(page).filter({ hasText: 'Outro' }).click();
+    await page.locator('#structure .step[data-label="Outro"]').click();
     await expect.poll(() => cards.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
-    await expect(steps(page).filter({ hasText: 'Outro' })).toHaveClass(/in-view/);
+    await expect(page.locator('#structure .step[data-label="Outro"]')).toHaveClass(/in-view/);
     // upright again, everything is back
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.locator('body')).not.toHaveClass(/paged/);
@@ -971,7 +973,7 @@ test('a part the bass sits out has no card, and its chip says how many bars to w
   await expect(page.locator('.card').first()).toBeVisible({ timeout: 20000 });
   await expect(page.locator('.card')).toHaveCount(1);
   await expect(page.locator('.card h2')).toHaveText('Verse');
-  const intro = steps(page).filter({ hasText: 'Intro' });
+  const intro = page.locator('#structure .step[data-label="Intro"]');
   await expect(intro).toHaveClass(/rest/);
   await expect(intro).toHaveAttribute('data-bars', '4');
 });
@@ -1632,5 +1634,28 @@ test('the chart editor can undo and redo its changes before Done', async ({ page
   // nothing is saved until Done, so Back leaves the chart as it was
   await page.click('#chartEditor [data-ce=back]');
   await expect(page.locator('#chartEditor')).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
+// The section strip is the same in every view: full names when they fit on one line, letters when they do not.
+test('the section strip is the same in every view, and the view can be chosen on a phone', async ({ page }) => {
+  const errors = watchErrors(page);
+  await openDemo(page);
+  const labels = () => page.locator('#structure .step:not(.whole)').allTextContents();
+  await page.setViewportSize({ width: 1800, height: 900 });
+  await pickView(page, 'cards');
+  const cards = await labels();
+  await pickView(page, 'chart');
+  expect(await labels()).toEqual(cards);
+  await pickView(page, 'tab');
+  expect(await labels()).toEqual(cards);
+  expect(cards.every((t) => t.length > 1)).toBe(true);   // full names where they fit on one line
+  // a phone: the view can be chosen from the top bar, and the strip is letters or full names, never a mix
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('#viewSelTop')).toBeVisible();
+  await page.selectOption('#viewSelTop', 'chart');
+  await expect(page.locator('#chart')).toBeVisible();
+  const phone = await labels();
+  expect(phone.every((t) => t.length === 1) || phone.every((t) => t.length > 1)).toBe(true);
   expect(errors).toEqual([]);
 });
