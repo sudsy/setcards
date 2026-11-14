@@ -60,5 +60,13 @@
   const DEFAULT_KIT_REMAP = { 48: 47 };
   const kitNote = (key) => (DEFAULT_KIT_REMAP[key] !== undefined ? DEFAULT_KIT_REMAP[key] : key);
 
-  SM.drums = { applyFeel, drumFreeBars, DYN_MIN, DYN_MAX, DEFAULT_KIT_REMAP, kitNote };
+  // The studio kit's levels against the kick, from recordings of the same bars: the snare and hi-hats sat too high.
+  // A factor on each hit's velocity, for the default kit only. The kick is unchanged.
+  const DEFAULT_KIT_LEVEL = { 38: 0.7, 42: 0.5, 44: 0.5, 46: 0.5 };
+  const kitVelocity = (key, velocity) => {
+    const f = DEFAULT_KIT_LEVEL[key];
+    return f === undefined ? velocity : Math.max(1, Math.min(127, Math.round(velocity * f)));
+  };
+
+  SM.drums = { applyFeel, drumFreeBars, DYN_MIN, DYN_MAX, DEFAULT_KIT_REMAP, kitNote, DEFAULT_KIT_LEVEL, kitVelocity };
 })(typeof window !== 'undefined' ? window : globalThis);

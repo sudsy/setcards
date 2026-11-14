@@ -1389,6 +1389,14 @@
   if (themeQuery.addEventListener) themeQuery.addEventListener('change', onTheme);
   new MutationObserver(onTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
+  // The playback file: for the default kit, the snare and hi-hats are played a little softer against the kick.
+  api.midiLoad.on((midiFile) => {
+    if (state.notes && state.notes.drumKit) return;
+    midiFile.tracks.forEach((track) => track.events.forEach((e) => {
+      if (e.channel === 9 && e.noteVelocity !== undefined) e.noteVelocity = SM.drums.kitVelocity(e.noteKey, e.noteVelocity);
+    }));
+  });
+
   api.scoreLoaded.on((score) => {
     // the studio kit has no sample for some drum notes: those hits are played on the nearest sample it has (before the MIDI is built)
     if (!state.notes.drumKit) {
