@@ -1679,3 +1679,25 @@ test('a phone has no Edit button, and a wide screen does', async ({ page }) => {
   await expect(page.locator('#editBtn')).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+// A song's tab is replaced from its settings: the new file is chosen, confirmed, and then the song shows it.
+test('a song’s tab can be replaced from the settings, after the new file is confirmed', async ({ page }) => {
+  const errors = watchErrors(page);
+  await openDemo(page);
+  await page.click('#settingsBtn');
+  await expect(page.locator('#replaceTabField')).toBeVisible();
+  const demo = await demoGpFile();
+  await page.locator('#replaceTabInput').setInputFiles({ name: 'Replacement.gp', mimeType: 'application/octet-stream', buffer: demo.buffer });
+  // nothing changes until the replacement is confirmed
+  await expect(page.locator('#replaceTabConfirm')).toBeVisible();
+  await page.click('#replaceTabCancel');
+  await expect(page.locator('#replaceTabConfirm')).toBeHidden();
+  await page.locator('#replaceTabInput').setInputFiles({ name: 'Replacement.gp', mimeType: 'application/octet-stream', buffer: demo.buffer });
+  await page.click('#replaceTabGo');
+  await expect(page.locator('#toast')).toContainText('Tab replaced');
+  await expect(page.locator('#songTitle')).toHaveText('Low Road (demo)');
+  await page.click('#settingsBtn');
+  await expect(page.locator('#tabFileName')).toHaveText('Replacement.gp');
+  await page.click('#settingsDlg [data-close]');
+  expect(errors).toEqual([]);
+});

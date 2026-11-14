@@ -6,7 +6,7 @@
   const $ = (id) => document.getElementById(id);
 
   const els = {
-    songTitle: $('songTitle'), songMeta: $('songMeta'), chartStatus: $('chartStatus'), capoSel: $('capoSel'), songTitleInput: $('songTitleInput'), songArtistInput: $('songArtistInput'), moreBtn: $('moreBtn'),
+    songTitle: $('songTitle'), songMeta: $('songMeta'), replaceTabField: $('replaceTabField'), tabFileName: $('tabFileName'), replaceTabInput: $('replaceTabInput'), replaceTabConfirm: $('replaceTabConfirm'), replaceTabPick: $('replaceTabPick'), replaceTabGo: $('replaceTabGo'), replaceTabCancel: $('replaceTabCancel'), chartStatus: $('chartStatus'), capoSel: $('capoSel'), songTitleInput: $('songTitleInput'), songArtistInput: $('songArtistInput'), moreBtn: $('moreBtn'),
     structure: $('structure'),
     viewSelTop: $('viewSelTop'), viewSelSet: $('viewSelSet'), roleSel: $('roleSel'), chart: $('chart'), chartEditor: $('chartEditor'),
     sectionHead: $('sectionHead'), sectionName: $('sectionName'), sectionBars: $('sectionBars'),
@@ -2051,6 +2051,43 @@
   }
 
   // Attaches a Guitar Pro file to a song that didn't have one, keeping its notes, status and video.
+  // Replacing a song's tab: the new file is chosen, then confirmed. The notes stay, with the file name they now go with.
+  let pendingTabFile = null;
+  function tabPicked(file) {
+    pendingTabFile = file || null;
+    els.replaceTabConfirm.hidden = !pendingTabFile;
+    els.replaceTabPick.textContent = pendingTabFile ? `Replace “${state.song.fileName || 'the tab'}” with “${pendingTabFile.name}”? The sections and chords stay as they are.` : '';
+  }
+  async function replaceSongTab() {
+    const file = pendingTabFile;
+    if (!file || !state.song) return;
+    const key = state.song.key;
+    const title = state.song.title;
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      // the file must open before anything is changed
+      const score = AT.importer.ScoreLoader.loadScoreFromBytes(bytes, api.settings);
+      const oldBars = state.score ? state.score.masterBars.length : 0;
+      const { source, id } = SM.library.parse(key);
+      await flushSave();
+      toast('Replacing the tab…');
+      await source.replaceTab(id, bytes, file.name);
+      // the notes say which file they go with, so they still match the tab after the change
+      await SM.library.saveNotes(key, { ...state.notes, tabFile: file.name });
+      pendingTabFile = null;
+      closeDialog(els.settingsDlg);
+      await openSong(key, title);
+      const newBars = score.masterBars.length;
+      toast(oldBars && oldBars !== newBars ? `Tab replaced. It has ${newBars} bars, and the sections and chords were made for ${oldBars}. Check them.` : 'Tab replaced');
+    } catch (e) {
+      console.error(e);
+      toast(e.message && /Google|Drive/.test(e.message) ? e.message : 'That file could not be read. Setcards opens Guitar Pro 3 to 8 files and MusicXML.');
+    }
+  }
+  els.replaceTabInput.addEventListener('change', (e) => tabPicked(e.target.files[0]));
+  els.replaceTabGo.addEventListener('click', () => replaceSongTab());
+  els.replaceTabCancel.addEventListener('click', () => { els.replaceTabInput.value = ''; tabPicked(null); });
+
   async function attachTab(file) {
     if (!file) return;
     try {
@@ -3433,6 +3470,11 @@
     els.ytInput.value = state.notes.youtubeUrl || '';
     els.capoSel.value = String(capoOf());
     els.songTitleInput.value = state.notes.title || '';
+    // a song's tab can be replaced where the song is kept and can be changed (not for a read-only copy)
+    els.replaceTabField.hidden = !(state.song.hasTab && canEditSong() && SM.library.parse(state.song.key).source.replaceTab);
+    els.tabFileName.textContent = state.song.fileName || '';
+    els.replaceTabConfirm.hidden = true;
+    pendingTabFile = null;
     els.songArtistInput.value = state.notes.artist || '';
     els.songTitleInput.disabled = els.songArtistInput.disabled = !canEditSong();
     els.capoSel.closest('.capo-field').hidden = !role().diagrams;

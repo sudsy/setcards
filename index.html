@@ -280,6 +280,18 @@
     <div class="sheet-scroll">
     <label class="field"><span>Title</span><input id="songTitleInput" autocomplete="off" placeholder="From the file"></label>
     <label class="field"><span>Artist</span><input id="songArtistInput" autocomplete="off" placeholder="From the file"></label>
+    <div class="field tab-field" id="replaceTabField" hidden>
+      <span>Tab file</span>
+      <span id="tabFileName" class="fine"></span>
+      <label class="file-btn"><input id="replaceTabInput" type="file" accept=".gp,.gp3,.gp4,.gp5,.gpx,.xml,.musicxml,.mxl,.capx"> Choose a new tab file</label>
+      <div id="replaceTabConfirm" class="tab-confirm" hidden>
+        <p class="fine" id="replaceTabPick"></p>
+        <div class="tab-confirm-actions">
+          <button type="button" class="text-btn primary" id="replaceTabGo">Replace the tab</button>
+          <button type="button" class="text-btn" id="replaceTabCancel">Cancel</button>
+        </div>
+      </div>
+    </div>
     <label class="field">
       <span>What you play</span>
       <select id="roleSel"></select>
