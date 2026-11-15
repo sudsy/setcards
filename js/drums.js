@@ -13,19 +13,47 @@
   const isAnchored = (b, straight, feel) => !!feel.keyOf && straight % QUARTER === 0
     && b.notes.some((n) => ANCHOR_KEYS.includes(feel.keyOf(n)));
 
-  // Applies the drum feel to the bars. feel: { ms, loud, swell, ticksPerMs, keyOf }. memory: { straight, loudness } are
-  // WeakMaps that keep each beat's own timing and loudness, so the feel can be changed and set again later.
-  // With no feel set, every beat goes back to its own timing and loudness.
+  // The drum groups a genre's timing refers to, by drum key.
+  const KEY_CLASS = { 35: 'kick', 36: 'kick', 38: 'snare', 40: 'snare', 42: 'hat', 44: 'hat', 46: 'hat' };
+
+  // Timing by genre, from the DeMidify guide to humanizing MIDI drums (positive is late, negative is early, in ms).
+  // fixed: a fixed shift for a drum group, on every hit of it. rand: a random shift of up to ms for each loosened hit,
+  // for every hit or only for one drum group (only). Intensity scales the genre's shifts.
+  const GENRES = {
+    rock: { fixed: { kick: 4, snare: -6 } },              // snare a little ahead, kick a little behind
+    funk: { rand: { ms: 6, only: 'hat' } },              // tight kick and snare, hi-hats pushed and pulled
+    jazz: { rand: { ms: 12 } },                          // wider timing variation throughout
+    metal: { rand: { ms: 3 } },                          // tight, with a little variation
+  };
+  const GENRE_NAMES = { rock: 'Rock & pop', funk: 'Funk', jazz: 'Jazz', metal: 'Metal' };
+
+  // The genre's shift for one beat, in ticks. The fixed shifts apply on the beat as well; the random ones keep the
+  // anchored hits in place, like the loosened feel.
+  function genreShift(b, key, anchored, feel) {
+    const g = GENRES[feel.genre];
+    if (!g || !feel.keyOf) return 0;
+    const groups = new Set(b.notes.map((n) => KEY_CLASS[feel.keyOf(n)]).filter(Boolean));
+    let t = 0;
+    if (g.fixed) Object.keys(g.fixed).forEach((c) => { if (groups.has(c)) t += g.fixed[c] * feel.ticksPerMs; });
+    if (g.rand && !anchored && (!g.rand.only || groups.has(g.rand.only))) t += SM.songLogic.hitOffset(`${key}|genre`, g.rand.ms * feel.ticksPerMs);
+    return Math.round(t * (feel.intensity == null ? 1 : feel.intensity));
+  }
+
+  // Applies the drum feel to the bars. feel: { ms, loud, swell, ticksPerMs, keyOf, genre, intensity } (intensity 0 to 1).
+  // memory: { straight, loudness } are WeakMaps that keep each beat's own timing and loudness, so the feel can be changed
+  // and set again later. With no feel set, every beat goes back to its own timing and loudness.
   function applyFeel(bars, feel, memory) {
     const { ms, loud, swell, ticksPerMs } = feel;
     const { hashOf, hitOffset } = SM.songLogic;
     bars.forEach((bar) => bar.voices.forEach((v) => {
-      // timing: the loosened hits move by a fixed amount; the anchored hits (kick and backbeat on the beat) stay put
+      // timing: the loosened hits move by a fixed amount; the anchored hits (kick and backbeat on the beat) stay put;
+      // a genre adds its own shifts on top
       v.beats.forEach((b) => {
         if (!memory.straight.has(b)) memory.straight.set(b, b.playbackStart);
         const straight = memory.straight.get(b);
         const key = `${bar.index}.${v.index}.${b.index}`;
-        const move = ms && !isAnchored(b, straight, feel) ? hitOffset(key, ms * ticksPerMs) : 0;
+        const anchored = isAnchored(b, straight, feel);
+        const move = (ms && !anchored ? hitOffset(key, ms * ticksPerMs) : 0) + genreShift(b, key, anchored, feel);
         b.playbackStart = straight + move;
       });
       // loudness: the hits (beats with notes), each at its own level; a roll (a run of repeated hits) can swell
@@ -77,5 +105,5 @@
     return f === undefined ? velocity : Math.max(1, Math.min(127, Math.round(velocity * f)));
   };
 
-  SM.drums = { applyFeel, drumFreeBars, DYN_MIN, DYN_MAX, DEFAULT_KIT_REMAP, kitNote, DEFAULT_KIT_LEVEL, kitVelocity };
+  SM.drums = { applyFeel, drumFreeBars, DYN_MIN, DYN_MAX, DEFAULT_KIT_REMAP, kitNote, DEFAULT_KIT_LEVEL, kitVelocity, GENRES, GENRE_NAMES };
 })(typeof window !== 'undefined' ? window : globalThis);

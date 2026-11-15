@@ -31,7 +31,7 @@
     noteDlg: $('noteDlg'), noteTitle: $('noteTitle'), noteHint: $('noteHint'), noteForm: $('noteForm'), noteText: $('noteText'), noteClear: $('noteClear'),
     settingsBtn: $('settingsBtn'), settingsDlg: $('settingsDlg'), trackSel: $('trackSel'),
     barPeekDlg: $('barPeekDlg'), barPeekTitle: $('barPeekTitle'), barPeekBody: $('barPeekBody'),
-    zoomRange: $('zoomRange'), zoomOut: $('zoomOut'), ytInput: $('ytInput'), exportBtn: $('exportBtn'), showTabCards: $('showTabCards'), showChords: $('showChords'), audioInput: $('audioInput'), audioRemove: $('audioRemove'), kitSel: $('kitSel'), kitInput: $('kitInput'), drumFeel: $('drumFeel'), drumFeelOut: $('drumFeelOut'), drumLoud: $('drumLoud'), drumSwell: $('drumSwell'), countIn: $('countIn'), clickBars: $('clickBars'), clickLevel: $('clickLevel'), clickLevelOut: $('clickLevelOut'), countInLevel: $('countInLevel'), countInLevelOut: $('countInLevelOut'), soundLogText: $('soundLogText'), soundLogCopy: $('soundLogCopy'), appVersion: $('appVersion'),
+    zoomRange: $('zoomRange'), zoomOut: $('zoomOut'), ytInput: $('ytInput'), exportBtn: $('exportBtn'), showTabCards: $('showTabCards'), showChords: $('showChords'), audioInput: $('audioInput'), audioRemove: $('audioRemove'), kitSel: $('kitSel'), kitInput: $('kitInput'), drumFeel: $('drumFeel'), drumFeelOut: $('drumFeelOut'), drumGenre: $('drumGenre'), drumIntensity: $('drumIntensity'), drumIntensityOut: $('drumIntensityOut'), drumLoud: $('drumLoud'), drumSwell: $('drumSwell'), countIn: $('countIn'), clickBars: $('clickBars'), clickLevel: $('clickLevel'), clickLevelOut: $('clickLevelOut'), countInLevel: $('countInLevel'), countInLevelOut: $('countInLevelOut'), soundLogText: $('soundLogText'), soundLogCopy: $('soundLogCopy'), appVersion: $('appVersion'),
     barDlg: $('barDlg'), barDlgTitle: $('barDlgTitle'), barDlgText: $('barDlgText'),
     presetRow: $('presetRow'), barForm: $('barForm'), barName: $('barName'), barSubmit: $('barSubmit'), barRemove: $('barRemove'),
     barChords: $('barChords'), barChordsAll: $('barChordsAll'), barChordsAllLabel: $('barChordsAllLabel'),
@@ -2604,21 +2604,21 @@
   // The drum feel of this song: kept in its notes, so it goes to the band folder with the song.
   const drumFeelOf = () => {
     const f = (state.notes && state.notes.drumFeel) || {};
-    return { ms: Number(f.ms) || 0, loud: !!f.loud, swell: !!f.swell };
+    return { ms: Number(f.ms) || 0, loud: !!f.loud, swell: !!f.swell, genre: f.genre || '', intensity: Number.isFinite(f.intensity) ? f.intensity : 100 };
   };
   function applyDrumFeel() {
     if (!state.score) return;
-    const { ms, loud, swell } = drumFeelOf();
+    const { ms, loud, swell, genre, intensity } = drumFeelOf();
     const song = state.song && state.song.key;
-    const tag = `${song}|${ms}|${loud ? 1 : 0}|${swell ? 1 : 0}|${state.trackIndex}`;
+    const tag = `${song}|${ms}|${loud ? 1 : 0}|${swell ? 1 : 0}|${genre}|${intensity}|${state.trackIndex}`;
     if (feelApplied === tag) return;
     // nothing set: the straight drums are already what plays, so nothing needs rebuilding
-    if (!ms && !loud && !swell && feelApplied === null) { feelApplied = tag; return; }
+    if (!ms && !loud && !swell && !genre && feelApplied === null) { feelApplied = tag; return; }
     const drums = drumTrack();
     if (drums) {
       const ticksPerMs = (960 * (state.score.tempo || 120)) / 60000;
       const keyOf = (n) => { const a = drums.percussionArticulations[n.percussionArticulation]; return a ? a.outputMidiNumber : -1; };
-      SM.drums.applyFeel(drums.staves[0].bars, { ms, loud, swell, ticksPerMs, keyOf }, feelMemory);
+      SM.drums.applyFeel(drums.staves[0].bars, { ms, loud, swell, ticksPerMs, keyOf, genre, intensity: intensity / 100 }, feelMemory);
       api.loadMidiForScore();
     }
     feelApplied = tag;
@@ -2772,9 +2772,11 @@
     els.kitSel.appendChild(new Option('Add a drum kit…', ADD_KIT, false, false));
   }
   els.drumFeel.addEventListener('input', () => { els.drumFeelOut.textContent = `${els.drumFeel.value} ms`; });
+  els.drumIntensity.addEventListener('input', () => { els.drumIntensityOut.textContent = `${els.drumIntensity.value}%`; });
   const feelChanged = () => {
     if (!state.notes) return;
-    state.notes.drumFeel = { ms: Number(els.drumFeel.value) || 0, loud: els.drumLoud.checked, swell: els.drumSwell.checked };
+    state.notes.drumFeel = { ms: Number(els.drumFeel.value) || 0, loud: els.drumLoud.checked, swell: els.drumSwell.checked,
+      genre: els.drumGenre.value, intensity: Number(els.drumIntensity.value) };
     saveNotes();
     changeSound(() => applyDrumFeel());
   };
@@ -2793,6 +2795,8 @@
   els.drumLoud.addEventListener('change', feelChanged);
   els.drumSwell.addEventListener('change', feelChanged);
   els.drumFeel.addEventListener('change', feelChanged);
+  els.drumGenre.addEventListener('change', feelChanged);
+  els.drumIntensity.addEventListener('change', feelChanged);
   els.soundLogCopy.addEventListener('click', async () => {
     const text = els.soundLogText.textContent;
     try {
@@ -3506,6 +3510,9 @@
     els.drumFeel.value = String(feel.ms);
     els.drumLoud.checked = feel.loud;
     els.drumSwell.checked = feel.swell;
+    els.drumGenre.value = feel.genre;
+    els.drumIntensity.value = String(feel.intensity);
+    els.drumIntensityOut.textContent = `${feel.intensity}%`;
     const c = clickSetup();
     els.countIn.checked = c.countIn;
     els.clickBars.checked = c.click;

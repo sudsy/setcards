@@ -112,3 +112,30 @@ test('the kick and backbeat stay on the beat while the other hits are loosened',
   assert.notEqual(eighthKick, 1440);
 });
 
+test('a genre moves the snare and kick by its fixed shifts, scaled by intensity, and clears back to straight', () => {
+  const hit = (key) => ({ key });
+  const make = () => [{ index: 0, voices: [{ index: 0, beats: [beat(0, 4, [hit(38)], 960), beat(1, 4, [hit(36)], 1920)] }] }];
+  const keyOf = (n) => n.key;
+  const b = make();
+  const m = memory();
+  applyFeel(b, { ms: 0, loud: false, swell: false, ticksPerMs: TPM, keyOf, genre: 'rock', intensity: 1 }, m);
+  const [snare, kick] = b[0].voices[0].beats.map((x) => x.playbackStart - (x.index === 0 ? 960 : 1920));
+  assert.equal(snare, Math.round(-6 * TPM));
+  assert.equal(kick, Math.round(4 * TPM));
+  const half = make();
+  applyFeel(half, { ms: 0, loud: false, swell: false, ticksPerMs: TPM, keyOf, genre: 'rock', intensity: 0.5 }, memory());
+  assert.equal(half[0].voices[0].beats[0].playbackStart - 960, Math.round(-3 * TPM));
+  applyFeel(b, { ms: 0, loud: false, swell: false, ticksPerMs: TPM, keyOf, genre: '', intensity: 1 }, m);
+  assert.deepEqual(b[0].voices[0].beats.map((x) => x.playbackStart), [960, 1920]);
+});
+
+test('funk moves the hi-hats within its range and leaves the anchored kick on the beat', () => {
+  const hit = (key) => ({ key });
+  const b = [{ index: 0, voices: [{ index: 0, beats: [beat(0, 4, [hit(42)], 960), beat(1, 4, [hit(36)], 1920)] }] }];
+  applyFeel(b, { ms: 0, loud: false, swell: false, ticksPerMs: TPM, keyOf: (n) => n.key, genre: 'funk', intensity: 1 }, memory());
+  const [hat, kick] = b[0].voices[0].beats.map((x) => x.playbackStart);
+  assert.ok(Math.abs(hat - 960) <= 6 * TPM + 1, 'hi-hat moved too far');
+  assert.notEqual(hat, 960);
+  assert.equal(kick, 1920);
+});
+
