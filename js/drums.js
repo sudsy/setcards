@@ -60,9 +60,9 @@
   const DEFAULT_KIT_REMAP = {};
   const kitNote = (key) => (DEFAULT_KIT_REMAP[key] !== undefined ? DEFAULT_KIT_REMAP[key] : key);
 
-  // Level factors on each hit's velocity for the default kit. Empty for the FluidR3 Standard kit, which is not yet tuned:
-  // the factors that were set for the Sonic Implants kit no longer apply.
-  const DEFAULT_KIT_LEVEL = {};
+  // Level factors on each hit's velocity for the default kit (FluidR3 Standard), from a direct capture compared with Songsterr:
+  // the kick was a few dB quiet, the side stick and high bongo about 7 to 10 dB loud, the low bongo about 3 dB loud.
+  const DEFAULT_KIT_LEVEL = { 35: 1.3, 36: 1.3, 37: 0.5, 60: 0.4, 61: 0.7 };
   const kitVelocity = (key, velocity) => {
     const f = DEFAULT_KIT_LEVEL[key];
     return f === undefined ? velocity : Math.max(1, Math.min(127, Math.round(velocity * f)));

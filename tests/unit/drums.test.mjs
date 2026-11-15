@@ -85,9 +85,12 @@ test('the default kit has samples for the drum notes from 35 to 56 and for the b
   assert.equal(globalThis.SM.drums.kitNote(48), 48);
 });
 
-test('the default kit leaves each hit at its own velocity until its levels are tuned', () => {
-  assert.equal(globalThis.SM.drums.kitVelocity(36, 79), 79);
-  assert.equal(globalThis.SM.drums.kitVelocity(38, 80), 80);
+test('the default kit scales the kick, side stick and bongos, and leaves the hi-hats at their own velocity', () => {
+  assert.equal(globalThis.SM.drums.kitVelocity(36, 79), 103);
+  assert.equal(globalThis.SM.drums.kitVelocity(37, 80), 40);
+  assert.equal(globalThis.SM.drums.kitVelocity(60, 100), 40);
+  assert.equal(globalThis.SM.drums.kitVelocity(61, 100), 70);
   assert.equal(globalThis.SM.drums.kitVelocity(42, 100), 100);
-  assert.equal(globalThis.SM.drums.kitVelocity(38, 1), 1);
+  assert.equal(globalThis.SM.drums.kitVelocity(60, 1), 1);
+  assert.ok(globalThis.SM.drums.kitVelocity(36, 127) <= 127);
 });
