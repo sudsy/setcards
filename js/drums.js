@@ -6,18 +6,27 @@
   const SM = root.SM = root.SM || {};
   const DYN_MIN = 0, DYN_MAX = 7;       // ppp .. fff
 
-  // Applies the drum feel to the bars. feel: { ms, loud, swell, ticksPerMs }. memory: { straight, loudness } are
+  // The drum keys that stay exactly on the beat when they land on a quarter note: the kick and the snare backbeat (and
+  // the side stick). The other hits are loosened around the beat. Needs feel.keyOf(note) to give a note's drum key.
+  const ANCHOR_KEYS = [35, 36, 37, 38, 40];
+  const QUARTER = 960;
+  const isAnchored = (b, straight, feel) => !!feel.keyOf && straight % QUARTER === 0
+    && b.notes.some((n) => ANCHOR_KEYS.includes(feel.keyOf(n)));
+
+  // Applies the drum feel to the bars. feel: { ms, loud, swell, ticksPerMs, keyOf }. memory: { straight, loudness } are
   // WeakMaps that keep each beat's own timing and loudness, so the feel can be changed and set again later.
   // With no feel set, every beat goes back to its own timing and loudness.
   function applyFeel(bars, feel, memory) {
     const { ms, loud, swell, ticksPerMs } = feel;
     const { hashOf, hitOffset } = SM.songLogic;
     bars.forEach((bar) => bar.voices.forEach((v) => {
-      // timing: every beat, straight or moved by a fixed amount
+      // timing: the loosened hits move by a fixed amount; the anchored hits (kick and backbeat on the beat) stay put
       v.beats.forEach((b) => {
         if (!memory.straight.has(b)) memory.straight.set(b, b.playbackStart);
+        const straight = memory.straight.get(b);
         const key = `${bar.index}.${v.index}.${b.index}`;
-        b.playbackStart = memory.straight.get(b) + (ms ? hitOffset(key, ms * ticksPerMs) : 0);
+        const move = ms && !isAnchored(b, straight, feel) ? hitOffset(key, ms * ticksPerMs) : 0;
+        b.playbackStart = straight + move;
       });
       // loudness: the hits (beats with notes), each at its own level; a roll (a run of repeated hits) can swell
       const hits = v.beats.filter((b) => b.notes.length);

@@ -94,3 +94,21 @@ test('the default kit scales the kick, side stick and bongos, and leaves the hi-
   assert.equal(globalThis.SM.drums.kitVelocity(60, 1), 1);
   assert.ok(globalThis.SM.drums.kitVelocity(36, 127) <= 127);
 });
+
+test('the kick and backbeat stay on the beat while the other hits are loosened', () => {
+  const hit = (key) => ({ key });
+  const b = [{ index: 0, voices: [{ index: 0, beats: [
+    beat(0, 4, [hit(36)], 0),         // kick on the beat: stays
+    beat(1, 4, [hit(42)], 960),       // hi-hat on the beat: moves
+    beat(2, 8, [hit(36)], 1440),      // kick on an eighth: moves
+    beat(3, 4, [hit(38)], 1920),      // snare on the beat: stays
+  ] }] }];
+  const keyOf = (n) => n.key;
+  applyFeel(b, { ms: 20, loud: false, swell: false, ticksPerMs: TPM, keyOf }, memory());
+  const [kick, hat, eighthKick, snare] = b[0].voices[0].beats.map((x) => x.playbackStart);
+  assert.equal(kick, 0);
+  assert.equal(snare, 1920);
+  assert.notEqual(hat, 960);
+  assert.notEqual(eighthKick, 1440);
+});
+

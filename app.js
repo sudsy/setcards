@@ -2617,7 +2617,8 @@
     const drums = drumTrack();
     if (drums) {
       const ticksPerMs = (960 * (state.score.tempo || 120)) / 60000;
-      SM.drums.applyFeel(drums.staves[0].bars, { ms, loud, swell, ticksPerMs }, feelMemory);
+      const keyOf = (n) => { const a = drums.percussionArticulations[n.percussionArticulation]; return a ? a.outputMidiNumber : -1; };
+      SM.drums.applyFeel(drums.staves[0].bars, { ms, loud, swell, ticksPerMs, keyOf }, feelMemory);
       api.loadMidiForScore();
     }
     feelApplied = tag;
