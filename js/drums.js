@@ -60,9 +60,9 @@
   const DEFAULT_KIT_REMAP = {};
   const kitNote = (key) => (DEFAULT_KIT_REMAP[key] !== undefined ? DEFAULT_KIT_REMAP[key] : key);
 
-  // The studio kit's levels against the kick, from recordings of the same bars: the snare and hi-hats sat too high.
-  // A factor on each hit's velocity, for the default kit only. The kick is unchanged.
-  const DEFAULT_KIT_LEVEL = { 36: 0.85, 38: 0.3, 42: 0.35, 44: 0.3, 46: 0.35 };
+  // Level factors on each hit's velocity for the default kit. Empty for the FluidR3 Standard kit, which is not yet tuned:
+  // the factors that were set for the Sonic Implants kit no longer apply.
+  const DEFAULT_KIT_LEVEL = {};
   const kitVelocity = (key, velocity) => {
     const f = DEFAULT_KIT_LEVEL[key];
     return f === undefined ? velocity : Math.max(1, Math.min(127, Math.round(velocity * f)));

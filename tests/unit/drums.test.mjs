@@ -71,7 +71,7 @@ test('a bar is drum-free when none of its notes are drum notes', () => {
 });
 
 // The default kit: it has a sample for every drum note the standard kit uses, so no note needs a substitute.
-test('the default kit has a sample for each drum note from 35 to 56, and no note is remapped', async () => {
+test('the default kit has samples for the drum notes from 35 to 56 and for the bongo, triangle, wood block and shaker notes', async () => {
   const fs = await import('node:fs');
   const path = await import('node:path');
   const { fileURLToPath } = await import('node:url');
@@ -80,14 +80,14 @@ test('the default kit has a sample for each drum note from 35 to 56, and no note
   const kit = new Uint8Array(fs.readFileSync(path.join(root, 'kits/drums-default.sf2')));
   const mask = globalThis.SM.soundfont.keysCovered(kit);
   for (let key = 35; key <= 56; key++) assert.equal(mask[key], 1, `kit has no sample for ${key}`);
+  for (const key of [60, 61, 76, 80, 82]) assert.equal(mask[key], 1, `kit has no sample for ${key}`);
   assert.deepEqual(globalThis.SM.drums.DEFAULT_KIT_REMAP, {});
   assert.equal(globalThis.SM.drums.kitNote(48), 48);
 });
 
-test('the default kit plays the snare and hi-hats softer, and the kick as it is, within the MIDI velocity range', () => {
-  assert.equal(globalThis.SM.drums.kitVelocity(36, 79), 67);
-  assert.equal(globalThis.SM.drums.kitVelocity(38, 80), 24);
-  assert.equal(globalThis.SM.drums.kitVelocity(42, 100), 35);
+test('the default kit leaves each hit at its own velocity until its levels are tuned', () => {
+  assert.equal(globalThis.SM.drums.kitVelocity(36, 79), 79);
+  assert.equal(globalThis.SM.drums.kitVelocity(38, 80), 80);
+  assert.equal(globalThis.SM.drums.kitVelocity(42, 100), 100);
   assert.equal(globalThis.SM.drums.kitVelocity(38, 1), 1);
-  assert.ok(globalThis.SM.drums.kitVelocity(42, 127) <= 127);
 });
